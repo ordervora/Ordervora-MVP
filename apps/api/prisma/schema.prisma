@@ -28,6 +28,7 @@ model User {
   ownedRestaurant Restaurant? @relation("RestaurantOwner")
 
   refreshTokens RefreshToken[]
+  importJobs    ImportJob[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -60,6 +61,7 @@ model Restaurant {
   members    User[]         @relation("RestaurantMembers")
   categories MenuCategory[]
   items      MenuItem[]
+  importJobs ImportJob[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -97,4 +99,43 @@ model MenuItem {
 
   @@index([restaurantId])
   @@index([categoryId])
+}
+
+enum ImportSourceType {
+  PDF
+  IMAGE
+  WEBSITE
+  GOOGLE_MAPS
+  DOORDASH
+  UBER_EATS
+  GRUBHUB
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  AWAITING_REVIEW
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+model ImportJob {
+  id             String           @id @default(uuid())
+  restaurantId   String
+  restaurant     Restaurant       @relation(fields: [restaurantId], references: [id])
+  createdById    String
+  createdBy      User             @relation(fields: [createdById], references: [id])
+  sourceType     ImportSourceType
+  status         ImportStatus     @default(PENDING)
+  sourceFilePath String?
+  sourceUrl      String?
+  extractedData  Json?
+  errorMessage   String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  reviewedAt DateTime?
+
+  @@index([restaurantId])
 }

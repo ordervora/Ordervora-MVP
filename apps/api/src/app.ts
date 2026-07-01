@@ -1,7 +1,9 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import multer from "multer";
 import { authRouter } from "./modules/auth/auth.routes";
+import { importRouter } from "./modules/imports/import.routes";
 import { menuRouter } from "./modules/menu/menu.routes";
 import { adminRestaurantRouter, restaurantRouter } from "./modules/restaurants/restaurant.routes";
 
@@ -29,8 +31,13 @@ export function createApp() {
   app.use("/api/restaurants", restaurantRouter);
   app.use("/api/admin/restaurants", adminRestaurantRouter);
   app.use("/api/menu", menuRouter);
+  app.use("/api/imports", importRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof multer.MulterError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
   });

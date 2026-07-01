@@ -49,6 +49,33 @@ export interface MenuItemInput {
   sortOrder?: number;
 }
 
+export type ImportSourceType =
+  | "PDF"
+  | "IMAGE"
+  | "WEBSITE"
+  | "GOOGLE_MAPS"
+  | "DOORDASH"
+  | "UBER_EATS"
+  | "GRUBHUB";
+
+export type ImportStatus = "PENDING" | "PROCESSING" | "AWAITING_REVIEW" | "APPROVED" | "REJECTED" | "FAILED";
+
+export interface ExtractedMenuData {
+  categories: {
+    name: string;
+    items: { name: string; description?: string; priceCents: number }[];
+  }[];
+}
+
+export interface ImportJob {
+  id: string;
+  sourceType: ImportSourceType;
+  status: ImportStatus;
+  extractedData: ExtractedMenuData | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
@@ -124,4 +151,32 @@ export function updateItem(id: string, input: Partial<MenuItemInput>) {
 
 export function deleteItem(id: string) {
   return apiFetch<void>(`/api/menu/items/${id}`, { method: "DELETE" });
+}
+
+export async function createImportJob(sourceType: ImportSourceType, file: File): Promise<{ job: ImportJob }> {
+  const formData = new FormData();
+  formData.append("sourceType", sourceType);
+  formData.append("file", file);
+
+  const res = await fetch("/api/imports", {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.error ?? "Import failed");
+  }
+
+  return data as { job: ImportJob };
+}
+
+export function approveImportJob(id: string) {
+  return apiFetch<{ job: ImportJob }>(`/api/imports/${id}/approve`, { method: "POST" });
+}
+
+export function rejectImportJob(id: string) {
+  return apiFetch<{ job: ImportJob }>(`/api/imports/${id}/reject`, { method: "POST" });
 }
