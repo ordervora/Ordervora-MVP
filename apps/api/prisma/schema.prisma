@@ -29,6 +29,7 @@ model User {
 
   refreshTokens RefreshToken[]
   importJobs    ImportJob[]
+  siteVersionsCreated SiteVersion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,6 +63,7 @@ model Restaurant {
   categories MenuCategory[]
   items      MenuItem[]
   importJobs ImportJob[]
+  site       Site?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -138,4 +140,230 @@ model ImportJob {
   reviewedAt DateTime?
 
   @@index([restaurantId])
+}
+
+// ---------------------------------------------------------------------------
+// AI Website Builder (Sprint 06) — all tenant-scoped through Site.restaurantId,
+// consistent with the existing multi-tenant model. See RELEASE_NOTES.md for
+// the full Sprint 06 write-up.
+// ---------------------------------------------------------------------------
+
+enum SiteStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum SiteVersionStatus {
+  VARIATION
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum StyleFamily {
+  LUXURY
+  MODERN
+  MINIMAL
+}
+
+enum ScoreSource {
+  AUTO
+  MANUAL
+  PUBLISH
+}
+
+enum DomainType {
+  PLATFORM
+  CUSTOM
+}
+
+enum DomainVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum DomainTlsStatus {
+  PENDING
+  ISSUED
+  FAILED
+}
+
+enum AssetKind {
+  HERO
+  GALLERY
+  LOGO
+  OG
+}
+
+enum GenerationStage {
+  INGEST
+  BRAND_ANALYSIS
+  THEME_SELECTION
+  CONTENT_GENERATION
+  ASSEMBLY
+  ASSETS
+  SCORING
+  FINALIZE
+}
+
+enum GenerationStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model Site {
+  id                 String     @id @default(uuid())
+  restaurantId       String     @unique
+  restaurant         Restaurant @relation(fields: [restaurantId], references: [id])
+  slug               String     @unique
+  status             SiteStatus @default(DRAFT)
+  themeId            String?
+  themeVersion       Int?
+  // Plain pointer (not a relation) to the currently-live SiteVersion.id —
+  // avoids a circular Site<->SiteVersion relation; resolved in application code.
+  publishedVersionId String?
+  // Brand Profile persisted here (not just per-version) so it survives
+  // variation selection/regeneration and is reused by section regeneration.
+  brandProfile       Json?
+  settings           Json?
+
+  versions         SiteVersion[]
+  domains          Domain[]
+  assets           SiteAsset[]
+  generationJobs   GenerationJob[]
+  contactMessages  ContactMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SiteVersion {
+  id                  String            @id @default(uuid())
+  siteId              String
+  site                Site              @relation(fields: [siteId], references: [id])
+  versionNo           Int
+  definition          Json
+  status              SiteVersionStatus @default(VARIATION)
+  // Which style family this version originated from; retained (not cleared)
+  // after selection into DRAFT so the editor can still show its origin.
+  styleFamily         StyleFamily?
+  generationBatchId   String?
+  createdById         String
+  createdBy           User              @relation(fields: [createdById], references: [id])
+  publishedAt         DateTime?
+
+  scores SiteScore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId, versionNo])
+  @@index([generationBatchId])
+}
+
+model Theme {
+  id                String      @id @default(uuid())
+  key               String
+  version           Int
+  styleFamily       StyleFamily
+  // { traditionalContemporary, casualFormal, playfulSerious, understatedBold, rusticPolished } each 0-1
+  personalityVector Json
+  // { [cuisine]: affinityScore } used as a scoring bonus
+  cuisineAffinities Json
+  // e.g. { minPhotos: 3 } — hard constraints checked before scoring
+  constraints       Json
+  tokens            Json
+  variants          Json
+  layouts           Json
+  isActive          Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([key, version])
+}
+
+model SiteScore {
+  id                String      @id @default(uuid())
+  siteVersionId     String
+  siteVersion       SiteVersion @relation(fields: [siteVersionId], references: [id])
+  overall           Int
+  seo               Int
+  performance       Int
+  accessibility     Int
+  brandConsistency  Int
+  conversion        Int
+  suggestions       Json
+  measuredAt        DateTime    @default(now())
+  source            ScoreSource @default(AUTO)
+
+  @@index([siteVersionId])
+}
+
+model Domain {
+  id                 String                    @id @default(uuid())
+  siteId             String
+  site               Site                      @relation(fields: [siteId], references: [id])
+  hostname           String                    @unique
+  type               DomainType
+  verificationStatus DomainVerificationStatus  @default(PENDING)
+  tlsStatus          DomainTlsStatus           @default(PENDING)
+  isPrimary          Boolean                   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+}
+
+model SiteAsset {
+  id          String    @id @default(uuid())
+  siteId      String
+  site        Site      @relation(fields: [siteId], references: [id])
+  kind        AssetKind
+  storageKey  String
+  renditions  Json?
+  altText     String?
+  sortOrder   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+}
+
+model GenerationJob {
+  id         String            @id @default(uuid())
+  siteId     String
+  site       Site              @relation(fields: [siteId], references: [id])
+  batchId    String
+  stage      GenerationStage   @default(INGEST)
+  status     GenerationStatus  @default(PENDING)
+  error      String?
+  tokensUsed Int?
+  costCents  Int?
+  timings    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+  @@index([batchId])
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id])
+  name      String
+  email     String
+  message   String
+  ipHash    String
+  createdAt DateTime @default(now())
+
+  @@index([siteId])
 }

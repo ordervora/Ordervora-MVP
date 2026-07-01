@@ -1,7 +1,12 @@
 import "dotenv/config";
-import { Role } from "@prisma/client";
+import { Role, type Prisma } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { hashPassword } from "../src/lib/password";
+import { THEME_CATALOG } from "../src/modules/sites/theme-catalog";
+
+function toJson<T>(value: T): Prisma.InputJsonValue {
+  return value as unknown as Prisma.InputJsonValue;
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -9,6 +14,36 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
+}
+
+async function seedThemeCatalog() {
+  for (const theme of THEME_CATALOG) {
+    await prisma.theme.upsert({
+      where: { key_version: { key: theme.key, version: theme.version } },
+      update: {
+        styleFamily: theme.styleFamily,
+        personalityVector: toJson(theme.personalityVector),
+        cuisineAffinities: toJson(theme.cuisineAffinities),
+        constraints: toJson(theme.constraints),
+        tokens: toJson(theme.tokens),
+        variants: toJson(theme.variants),
+        layouts: toJson(theme.layouts),
+        isActive: true,
+      },
+      create: {
+        key: theme.key,
+        version: theme.version,
+        styleFamily: theme.styleFamily,
+        personalityVector: toJson(theme.personalityVector),
+        cuisineAffinities: toJson(theme.cuisineAffinities),
+        constraints: toJson(theme.constraints),
+        tokens: toJson(theme.tokens),
+        variants: toJson(theme.variants),
+        layouts: toJson(theme.layouts),
+      },
+    });
+  }
+  console.log(`Seeded ${THEME_CATALOG.length} themes`);
 }
 
 async function main() {
@@ -25,6 +60,8 @@ async function main() {
   });
 
   console.log(`Seeded ADMIN user: ${admin.email}`);
+
+  await seedThemeCatalog();
 }
 
 main()

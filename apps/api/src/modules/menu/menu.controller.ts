@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { NoRestaurantError } from "../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../restaurants/restaurant.service";
+import { revalidatePublishedSite } from "../sites/site.service";
 import { CategoryNotFoundError, ItemNotFoundError } from "./menu.errors";
 import {
   createCategory,
@@ -26,6 +27,17 @@ async function requireOwnRestaurantId(req: Request, res: Response): Promise<stri
   return restaurantId;
 }
 
+/**
+ * §19.4 Menu revalidation — fire-and-forget so editing the menu never
+ * waits on re-rendering a published site; a no-op if the restaurant has
+ * no published site. Errors are swallowed rather than surfaced to the
+ * menu-edit response, since revalidation failing shouldn't fail the edit
+ * itself (acceptance criterion #8: price change live within 60s).
+ */
+function revalidateInBackground(restaurantId: string): void {
+  void revalidatePublishedSite(restaurantId).catch(() => undefined);
+}
+
 export async function listCategoriesHandler(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
   if (!restaurantId) return;
@@ -45,6 +57,7 @@ export async function createCategoryHandler(req: Request, res: Response): Promis
   }
 
   const category = await createCategory(restaurantId, parsed.data);
+  revalidateInBackground(restaurantId);
   res.status(201).json({ category });
 }
 
@@ -60,6 +73,7 @@ export async function updateCategoryHandler(req: Request, res: Response): Promis
 
   try {
     const category = await updateCategory(restaurantId, paramId(req), parsed.data);
+    revalidateInBackground(restaurantId);
     res.status(200).json({ category });
   } catch (err) {
     if (err instanceof CategoryNotFoundError) {
@@ -76,6 +90,7 @@ export async function deleteCategoryHandler(req: Request, res: Response): Promis
 
   try {
     await deleteCategory(restaurantId, paramId(req));
+    revalidateInBackground(restaurantId);
     res.status(204).send();
   } catch (err) {
     if (err instanceof CategoryNotFoundError) {
@@ -98,6 +113,7 @@ export async function createItemHandler(req: Request, res: Response): Promise<vo
 
   try {
     const item = await createItem(restaurantId, parsed.data);
+    revalidateInBackground(restaurantId);
     res.status(201).json({ item });
   } catch (err) {
     if (err instanceof CategoryNotFoundError) {
@@ -120,6 +136,7 @@ export async function updateItemHandler(req: Request, res: Response): Promise<vo
 
   try {
     const item = await updateItem(restaurantId, paramId(req), parsed.data);
+    revalidateInBackground(restaurantId);
     res.status(200).json({ item });
   } catch (err) {
     if (err instanceof ItemNotFoundError) {
@@ -140,6 +157,7 @@ export async function deleteItemHandler(req: Request, res: Response): Promise<vo
 
   try {
     await deleteItem(restaurantId, paramId(req));
+    revalidateInBackground(restaurantId);
     res.status(204).send();
   } catch (err) {
     if (err instanceof ItemNotFoundError) {
