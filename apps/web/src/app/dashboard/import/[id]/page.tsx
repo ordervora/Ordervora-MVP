@@ -37,6 +37,19 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
             </p>
           )}
 
+          {job.extractedData?.businessProfile && (
+            <div className="flex flex-col gap-1 rounded border border-black/[.08] p-3 text-sm dark:border-white/[.145]">
+              <h2 className="font-medium text-black dark:text-zinc-50">
+                Restaurant profile update (applied on approve)
+              </h2>
+              {job.extractedData.businessProfile.name && <p>Name: {job.extractedData.businessProfile.name}</p>}
+              {job.extractedData.businessProfile.address && (
+                <p>Address: {job.extractedData.businessProfile.address}</p>
+              )}
+              {job.extractedData.businessProfile.phone && <p>Phone: {job.extractedData.businessProfile.phone}</p>}
+            </div>
+          )}
+
           {job.extractedData?.categories.map((category) => (
             <div key={category.name} className="flex flex-col gap-1">
               <h2 className="font-medium text-black dark:text-zinc-50">{category.name}</h2>

@@ -20,9 +20,14 @@ vi.mock("../menu/menu.service", () => ({
   createItem: vi.fn(),
 }));
 
+vi.mock("../restaurants/restaurant.service", () => ({
+  updateRestaurantById: vi.fn(),
+}));
+
 import { fileStorage } from "../../lib/file-storage";
 import { prisma } from "../../lib/prisma";
 import { createCategory, createItem } from "../menu/menu.service";
+import { updateRestaurantById } from "../restaurants/restaurant.service";
 import { ImportJobNotFoundError, ImportJobNotReadyError } from "./import.errors";
 import { approveJob, createImportJob, rejectJob } from "./import.service";
 import { importJobRunner } from "./job-runner";
@@ -32,6 +37,7 @@ const mockFileStorage = vi.mocked(fileStorage, { deep: true });
 const mockJobRunner = vi.mocked(importJobRunner, { deep: true });
 const mockCreateCategory = vi.mocked(createCategory);
 const mockCreateItem = vi.mocked(createItem);
+const mockUpdateRestaurantById = vi.mocked(updateRestaurantById);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -117,5 +123,39 @@ describe("approveJob", () => {
       priceCents: 599,
     });
     expect(result).toEqual({ id: "job-1", status: ImportStatus.APPROVED });
+  });
+
+  it("applies businessProfile to the restaurant when present, in addition to creating menu items", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      status: ImportStatus.AWAITING_REVIEW,
+      extractedData: {
+        categories: [],
+        businessProfile: { name: "Joe's Diner", address: "123 Main St" },
+      },
+    } as never);
+    mockPrisma.importJob.update.mockResolvedValue({ id: "job-1", status: ImportStatus.APPROVED } as never);
+
+    await approveJob("my-restaurant", "job-1");
+
+    expect(mockUpdateRestaurantById).toHaveBeenCalledWith("my-restaurant", {
+      name: "Joe's Diner",
+      address: "123 Main St",
+    });
+  });
+
+  it("does not touch the restaurant profile when businessProfile is absent", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      status: ImportStatus.AWAITING_REVIEW,
+      extractedData: { categories: [] },
+    } as never);
+    mockPrisma.importJob.update.mockResolvedValue({ id: "job-1", status: ImportStatus.APPROVED } as never);
+
+    await approveJob("my-restaurant", "job-1");
+
+    expect(mockUpdateRestaurantById).not.toHaveBeenCalled();
   });
 });

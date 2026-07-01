@@ -40,9 +40,13 @@ export async function getOwnRestaurant(userId: string): Promise<Restaurant> {
   return restaurant;
 }
 
+export async function updateRestaurantById(restaurantId: string, input: UpdateRestaurantInput): Promise<Restaurant> {
+  return prisma.restaurant.update({ where: { id: restaurantId }, data: input });
+}
+
 export async function updateOwnRestaurant(userId: string, input: UpdateRestaurantInput): Promise<Restaurant> {
   const restaurant = await getOwnRestaurant(userId);
-  return prisma.restaurant.update({ where: { id: restaurant.id }, data: input });
+  return updateRestaurantById(restaurant.id, input);
 }
 
 export async function listAllRestaurants(): Promise<Restaurant[]> {

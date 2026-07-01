@@ -60,11 +60,18 @@ export type ImportSourceType =
 
 export type ImportStatus = "PENDING" | "PROCESSING" | "AWAITING_REVIEW" | "APPROVED" | "REJECTED" | "FAILED";
 
+export interface BusinessProfile {
+  name?: string;
+  address?: string;
+  phone?: string;
+}
+
 export interface ExtractedMenuData {
   categories: {
     name: string;
     items: { name: string; description?: string; priceCents: number }[];
   }[];
+  businessProfile?: BusinessProfile;
 }
 
 export interface ImportJob {
@@ -153,10 +160,17 @@ export function deleteItem(id: string) {
   return apiFetch<void>(`/api/menu/items/${id}`, { method: "DELETE" });
 }
 
-export async function createImportJob(sourceType: ImportSourceType, file: File): Promise<{ job: ImportJob }> {
+export async function createImportJob(
+  sourceType: ImportSourceType,
+  source: { file: File } | { url: string },
+): Promise<{ job: ImportJob }> {
   const formData = new FormData();
   formData.append("sourceType", sourceType);
-  formData.append("file", file);
+  if ("file" in source) {
+    formData.append("file", source.file);
+  } else {
+    formData.append("sourceUrl", source.url);
+  }
 
   const res = await fetch("/api/imports", {
     method: "POST",

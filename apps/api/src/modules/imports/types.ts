@@ -32,6 +32,17 @@ export const extractedMenuDataSchema = z.object({
       ),
     }),
   ),
+  // Optional business-profile fields a source may surface alongside (or
+  // instead of) menu items — e.g. Website/Google Maps. Named generically
+  // rather than "restaurant profile" so the import engine's data shape
+  // isn't tied to one business type.
+  businessProfile: z
+    .object({
+      name: z.string().optional(),
+      address: z.string().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type ExtractedMenuData = z.infer<typeof extractedMenuDataSchema>;
@@ -44,9 +55,14 @@ export type ExtractedMenuData = z.infer<typeof extractedMenuDataSchema>;
  * `implemented` lets the controller return a synchronous 501 for
  * not-yet-built sources without ever hardcoding a list of which ones —
  * it just checks the flag the registered adapter reports.
+ *
+ * `inputKind` lets the controller decide whether to require a file
+ * upload or a `sourceUrl` field, again without hardcoding a per-source
+ * list — it just reads what the registered adapter declares it needs.
  */
 export interface ImportAdapter {
   readonly sourceType: ImportSourceType;
   readonly implemented: boolean;
+  readonly inputKind: "file" | "url";
   extract(input: ImportSourceInput): Promise<ExtractedMenuData>;
 }

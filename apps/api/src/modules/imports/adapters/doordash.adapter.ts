@@ -12,6 +12,7 @@ import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../typ
 export class DoorDashImportAdapter implements ImportAdapter {
   readonly sourceType = ImportSourceType.DOORDASH;
   readonly implemented = false;
+  readonly inputKind = "url" as const;
 
   async extract(_input: ImportSourceInput): Promise<ExtractedMenuData> {
     throw new NotImplementedError(this.sourceType);

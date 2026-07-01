@@ -13,6 +13,7 @@ const SUPPORTED_MIME_TYPES: Base64ImageSource["media_type"][] = [
 export class ImageImportAdapter implements ImportAdapter {
   readonly sourceType = ImportSourceType.IMAGE;
   readonly implemented = true;
+  readonly inputKind = "file" as const;
 
   async extract(input: ImportSourceInput): Promise<ExtractedMenuData> {
     if (input.kind !== "file") {

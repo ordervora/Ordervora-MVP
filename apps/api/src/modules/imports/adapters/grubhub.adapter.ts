@@ -9,6 +9,7 @@ import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../typ
 export class GrubhubImportAdapter implements ImportAdapter {
   readonly sourceType = ImportSourceType.GRUBHUB;
   readonly implemented = false;
+  readonly inputKind = "url" as const;
 
   async extract(_input: ImportSourceInput): Promise<ExtractedMenuData> {
     throw new NotImplementedError(this.sourceType);
