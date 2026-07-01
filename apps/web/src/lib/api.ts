@@ -5,6 +5,50 @@ export interface PublicUser {
   role: "ADMIN" | "RESTAURANT_OWNER" | "RESTAURANT_STAFF";
 }
 
+export interface Restaurant {
+  id: string;
+  ownerId: string;
+  name: string;
+  description: string | null;
+  address: string | null;
+  phone: string | null;
+  isPublished: boolean;
+}
+
+export interface RestaurantInput {
+  name: string;
+  description?: string;
+  address?: string;
+  phone?: string;
+  isPublished?: boolean;
+}
+
+export interface MenuItem {
+  id: string;
+  categoryId: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  isAvailable: boolean;
+  sortOrder: number;
+}
+
+export interface MenuCategory {
+  id: string;
+  name: string;
+  sortOrder: number;
+  items: MenuItem[];
+}
+
+export interface MenuItemInput {
+  categoryId: string;
+  name: string;
+  description?: string;
+  priceCents: number;
+  isAvailable?: boolean;
+  sortOrder?: number;
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
@@ -37,4 +81,47 @@ export function register(email: string, password: string, name: string) {
 
 export function logout() {
   return apiFetch<{ ok: true }>("/api/auth/logout", { method: "POST" });
+}
+
+export function createRestaurant(input: RestaurantInput) {
+  return apiFetch<{ restaurant: Restaurant }>("/api/restaurants", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateRestaurant(input: RestaurantInput) {
+  return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function createCategory(name: string) {
+  return apiFetch<{ category: MenuCategory }>("/api/menu/categories", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteCategory(id: string) {
+  return apiFetch<void>(`/api/menu/categories/${id}`, { method: "DELETE" });
+}
+
+export function createItem(input: MenuItemInput) {
+  return apiFetch<{ item: MenuItem }>("/api/menu/items", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateItem(id: string, input: Partial<MenuItemInput>) {
+  return apiFetch<{ item: MenuItem }>(`/api/menu/items/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteItem(id: string) {
+  return apiFetch<void>(`/api/menu/items/${id}`, { method: "DELETE" });
 }
