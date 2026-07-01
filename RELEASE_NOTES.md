@@ -289,3 +289,170 @@ plan.
   `prisma migrate dev`, the seed script's actual database write, and a
   full register→login→refresh→logout round trip returning real session
   cookies.
+
+---
+
+# Release Notes — v0.3.0-restaurant-menu
+
+## Sprint 03 Summary
+
+Sprint 03 introduced the platform's first business-domain, multi-tenant
+data model on top of Sprint 02's authentication: restaurants and their
+menus. Restaurant Owners can now set up a restaurant profile, and Owners
+and Staff can manage its menu catalog (categories and items) — all
+strictly scoped to their own restaurant. This also resolved the Sprint 02
+`invitedById` stand-in flagged as a known limitation: staff invited by an
+owner now inherit a real `restaurantId`, the platform's actual tenant
+boundary.
+
+## Restaurant Module
+
+- `apps/api/src/modules/restaurants/` (routes → controller → service →
+  validation, matching the `modules/auth` pattern).
+- A `RESTAURANT_OWNER` creates exactly one restaurant (`name`,
+  `description`, `address`, `phone`, `isPublished`); a second creation
+  attempt is rejected.
+- `getOwnRestaurantId(userId)` in `restaurant.service.ts` is the single
+  function that maps an authenticated user to "their" restaurant — every
+  other restaurant/menu controller resolves tenant scope through it
+  rather than deriving it independently.
+- `RESTAURANT_STAFF` can read the restaurant profile; only the
+  `RESTAURANT_OWNER` can update it.
+- `ADMIN` gets a separate, read-only `/api/admin/restaurants` listing
+  across all restaurants.
+
+## Menu Module
+
+- `apps/api/src/modules/menu/`: `MenuCategory` (name, `sortOrder`) and
+  `MenuItem` (name, description, `priceCents`, `isAvailable`,
+  `sortOrder`), each scoped to a restaurant, items additionally scoped to
+  a category.
+- Full CRUD for both categories and items, usable by both
+  `RESTAURANT_OWNER` and `RESTAURANT_STAFF` of that restaurant.
+- Prices are stored as integer cents (`priceCents`), never floats, to
+  avoid rounding bugs; the frontend converts to/from dollars only at the
+  display/input layer.
+- Deleting a category deletes its items in the same transaction, avoiding
+  a foreign-key violation from orphaned items.
+
+## Tenant Isolation
+
+- **Restaurant is the single tenant boundary.** No owner/staff-facing
+  endpoint ever accepts a client-supplied `restaurantId` — it is always
+  resolved server-side from the authenticated user via
+  `getOwnRestaurantId`.
+- Every category/item mutation re-verifies `resource.restaurantId ===
+  callerRestaurantId` before writing (`findOwnCategory`/`findOwnItem` in
+  `menu.service.ts`).
+- **IDOR-hardened**: a category or item belonging to a different
+  restaurant returns `404` (not `403`) on update/delete — the caller
+  can't distinguish "doesn't exist" from "isn't yours."
+- Only `ADMIN`, via the clearly separate `/api/admin/*` namespace,
+  crosses tenant boundaries, and only read-only.
+
+## API Endpoints
+
+| Method | Path | Roles | Purpose |
+|---|---|---|---|
+| POST | `/api/restaurants` | `RESTAURANT_OWNER` | Create the caller's restaurant (409 if one already exists) |
+| GET | `/api/restaurants/me` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Read caller's own restaurant |
+| PATCH | `/api/restaurants/me` | `RESTAURANT_OWNER` | Update restaurant profile |
+| GET | `/api/admin/restaurants` | `ADMIN` | List all restaurants (read-only) |
+| GET | `/api/menu/categories` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | List caller's restaurant's categories + items |
+| POST | `/api/menu/categories` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Create a category |
+| PATCH | `/api/menu/categories/:id` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Update a category (404 if not caller's tenant) |
+| DELETE | `/api/menu/categories/:id` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Delete a category and its items |
+| POST | `/api/menu/items` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Create a menu item |
+| PATCH | `/api/menu/items/:id` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Update a menu item (404 if not caller's tenant) |
+| DELETE | `/api/menu/items/:id` | `RESTAURANT_OWNER`, `RESTAURANT_STAFF` | Delete a menu item |
+
+## Frontend Pages
+
+- `apps/web/src/app/dashboard/restaurant/page.tsx` — restaurant profile:
+  shows a creation form if none exists yet, else an edit form.
+- `apps/web/src/app/dashboard/menu/page.tsx` — menu management: add/
+  delete categories, add items, toggle item availability, delete items.
+- `apps/web/src/components/dashboard-nav.tsx` — shared nav (Home /
+  Restaurant / Menu) reused across all three dashboard pages.
+- `apps/web/src/lib/server-api.ts` — a `serverFetch` helper (forwards
+  cookies, typed result) reused by all three dashboard server components,
+  replacing the one-off fetch that used to live inline in the dashboard
+  home page.
+
+## Tests Added
+
+- Introduced `vitest` in `apps/api` (no test runner existed before this
+  sprint).
+- `restaurant.service.test.ts`: `getOwnRestaurantId` resolution;
+  `createRestaurant` rejects a second restaurant for the same owner and
+  correctly links the new restaurant to the owner's `User` row in the
+  same transaction.
+- `menu.service.test.ts`: the core tenant-isolation guarantee —
+  updating/deleting a category or item that belongs to a different
+  restaurant is rejected (`CategoryNotFoundError`/`ItemNotFoundError`)
+  without ever calling the underlying `update`/`delete` — plus a
+  same-tenant update succeeding as the positive case.
+- All tests run against a mocked Prisma client, so they execute without a
+  live database (9/9 passing in this environment).
+
+## Security Improvements
+
+- Tenant scoping resolved exclusively server-side, never trusting
+  request bodies/params for `restaurantId`.
+- IDOR prevention via uniform `404` responses for cross-tenant resource
+  access (see Tenant Isolation).
+- Restaurant profile edits restricted to `RESTAURANT_OWNER`; menu content
+  management open to both `RESTAURANT_OWNER` and `RESTAURANT_STAFF` of
+  that restaurant, matching real-world staff duties.
+- All new endpoints validate input via `zod` (name length, non-negative
+  integer `priceCents`, etc.), consistent with the Sprint 02 pattern.
+- No new public/unauthenticated endpoints — every route added this
+  sprint requires `requireAuth`.
+
+## Known Limitations
+
+- **No live database in this sandbox** (recurring from Sprints 01–02):
+  `prisma migrate dev` and a real end-to-end CRUD round trip (create
+  restaurant → add menu → verify persisted data) have not been exercised
+  against a live Postgres instance here. The new unit tests cover the
+  tenant-isolation logic itself without needing one.
+- **One restaurant per owner** — enforced via a unique constraint on
+  `Restaurant.ownerId`; multiple restaurants per owner is explicitly
+  deferred.
+- **No customer-facing browsing/ordering, payments, or order state
+  machine** — explicitly out of scope, to be built in a later sprint now
+  that restaurants and menus exist as data.
+- **No menu item modifiers/variants, image uploads, or drag-and-drop
+  reordering** — flat items with a plain numeric `sortOrder`, by design.
+- **Pre-existing Sprint 02 staff accounts** (if any existed in a real
+  deployment) would need a data backfill of `restaurantId` — not a
+  concern in this sandbox since no rows exist without a live database.
+- **The `v0.3.0-restaurant-menu` tag could not be pushed** to the remote
+  in this session — the git proxy returns `HTTP 403` for any push to
+  `refs/tags/*` (confirmed reproducible again this sprint, and distinct
+  from ordinary branch pushes, which succeed). This is a session/
+  environment policy restriction, not a project defect. The tag exists in
+  the local repository at the `main` merge commit.
+
+## Verification Results
+
+- `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, and
+  `pnpm run build` all pass cleanly at the repo root after the merge to
+  `main`.
+- `prisma validate` and `prisma generate` succeed against the updated
+  schema (using the `prisma-client-js` generator, per the Sprint 02 fix).
+- `vitest run` in `apps/api`: 2 test files, 9 tests, all passing.
+- The compiled Express server (`node dist/src/index.js`) was confirmed
+  as the genuine running binary (not a leftover dev process) and stayed
+  stable while being exercised.
+- Manually verified: every new restaurant/menu endpoint returns `401`
+  when called without authentication (`POST /api/restaurants`,
+  `GET /api/admin/restaurants`, `GET /api/menu/categories`,
+  `POST /api/menu/categories`), confirming `requireAuth` is applied
+  uniformly.
+- `pnpm run build` for `apps/web` registers all new routes
+  (`/dashboard/restaurant`, `/dashboard/menu`) as expected.
+- Not verified in this environment (requires a live Postgres instance):
+  an authenticated end-to-end walkthrough (register → create restaurant
+  → add category/items → confirm cross-tenant `404` against a second
+  seeded owner) and `prisma migrate dev`.
