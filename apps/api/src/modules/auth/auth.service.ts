@@ -40,6 +40,7 @@ export async function registerOwner(input: RegisterInput): Promise<User> {
 export async function createStaff(ownerId: string, input: CreateStaffInput): Promise<User> {
   await assertEmailAvailable(input.email);
   const passwordHash = await hashPassword(input.password);
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { restaurantId: true } });
   return prisma.user.create({
     data: {
       email: input.email,
@@ -47,6 +48,7 @@ export async function createStaff(ownerId: string, input: CreateStaffInput): Pro
       passwordHash,
       role: Role.RESTAURANT_STAFF,
       invitedById: ownerId,
+      restaurantId: owner?.restaurantId ?? null,
     },
   });
 }

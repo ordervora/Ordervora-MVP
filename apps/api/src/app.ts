@@ -2,6 +2,8 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { authRouter } from "./modules/auth/auth.routes";
+import { menuRouter } from "./modules/menu/menu.routes";
+import { adminRestaurantRouter, restaurantRouter } from "./modules/restaurants/restaurant.routes";
 
 export function createApp() {
   const app = express();
@@ -24,6 +26,9 @@ export function createApp() {
   });
 
   app.use("/api/auth", authRouter);
+  app.use("/api/restaurants", restaurantRouter);
+  app.use("/api/admin/restaurants", adminRestaurantRouter);
+  app.use("/api/menu", menuRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err);

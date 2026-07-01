@@ -23,10 +23,16 @@ model User {
   invitedBy   User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])
   invitedUsers User[] @relation("StaffInvitedBy")
 
+  restaurantId String?
+  restaurant   Restaurant? @relation("RestaurantMembers", fields: [restaurantId], references: [id])
+  ownedRestaurant Restaurant? @relation("RestaurantOwner")
+
   refreshTokens RefreshToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
 }
 
 model RefreshToken {
@@ -39,4 +45,56 @@ model RefreshToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+model Restaurant {
+  id          String   @id @default(uuid())
+  ownerId     String   @unique
+  owner       User     @relation("RestaurantOwner", fields: [ownerId], references: [id])
+  name        String
+  description String?
+  address     String?
+  phone       String?
+  isPublished Boolean  @default(false)
+
+  members    User[]         @relation("RestaurantMembers")
+  categories MenuCategory[]
+  items      MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MenuCategory {
+  id           String   @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  name         String
+  sortOrder    Int      @default(0)
+
+  items MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id           String   @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id])
+  categoryId   String
+  category     MenuCategory @relation(fields: [categoryId], references: [id])
+  name         String
+  description  String?
+  priceCents   Int
+  isAvailable  Boolean  @default(true)
+  sortOrder    Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+  @@index([categoryId])
 }
