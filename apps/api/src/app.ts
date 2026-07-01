@@ -6,6 +6,7 @@ import { authRouter } from "./modules/auth/auth.routes";
 import { importRouter } from "./modules/imports/import.routes";
 import { menuRouter } from "./modules/menu/menu.routes";
 import { adminRestaurantRouter, restaurantRouter } from "./modules/restaurants/restaurant.routes";
+import { publicSiteRouter, siteRouter } from "./modules/sites/site.routes";
 
 export function createApp() {
   const app = express();
@@ -32,6 +33,8 @@ export function createApp() {
   app.use("/api/admin/restaurants", adminRestaurantRouter);
   app.use("/api/menu", menuRouter);
   app.use("/api/imports", importRouter);
+  app.use("/api/sites", siteRouter);
+  app.use("/public/sites", publicSiteRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof multer.MulterError) {

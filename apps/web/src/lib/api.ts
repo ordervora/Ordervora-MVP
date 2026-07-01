@@ -194,3 +194,251 @@ export function approveImportJob(id: string) {
 export function rejectImportJob(id: string) {
   return apiFetch<{ job: ImportJob }>(`/api/imports/${id}/reject`, { method: "POST" });
 }
+
+// ---------------------------------------------------------------------------
+// AI Website Builder (Sprint 06)
+// ---------------------------------------------------------------------------
+
+export type StyleFamily = "LUXURY" | "MODERN" | "MINIMAL";
+export type SiteStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+export type SiteVersionStatus = "VARIATION" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type GenerationStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+export type GenerationStage =
+  | "INGEST"
+  | "BRAND_ANALYSIS"
+  | "THEME_SELECTION"
+  | "CONTENT_GENERATION"
+  | "ASSEMBLY"
+  | "ASSETS"
+  | "SCORING"
+  | "FINALIZE";
+
+export interface BrandPersonality {
+  traditionalContemporary: number;
+  casualFormal: number;
+  playfulSerious: number;
+  understatedBold: number;
+  rusticPolished: number;
+}
+
+export interface SiteBrandProfile {
+  cuisine: string;
+  businessType: string;
+  priceTier: number;
+  personality: BrandPersonality;
+  signalsUsed: string[];
+  confidence: { cuisine: number; businessType: number; priceTier: number; personality: number };
+}
+
+export interface SiteSectionBlock {
+  type: string;
+  variant?: string;
+  props: Record<string, unknown>;
+}
+
+export interface SitePage {
+  slug: string;
+  title: string;
+  metaDescription: string;
+  sections: SiteSectionBlock[];
+}
+
+export interface WebsiteSiteDefinition {
+  schemaVersion: number;
+  restaurantName: string;
+  tagline: string;
+  cuisine: string;
+  businessType: string;
+  styleFamily: StyleFamily;
+  themeKey: string;
+  themeVersion: number;
+  colorSeed: string;
+  typography: { display: string; body: string };
+  designRationale?: string[];
+  facts: {
+    restaurantName: string;
+    address?: string;
+    phone?: string;
+    hours?: string;
+    hasOnlineOrdering: boolean;
+    hasReservations: boolean;
+  };
+  pages: SitePage[];
+}
+
+export interface Suggestion {
+  id: string;
+  dimension: "seo" | "performance" | "accessibility" | "brandConsistency" | "conversion";
+  issue: string;
+  impact: "high" | "medium" | "low";
+  suggestion: string;
+  autoFixKind?: "missingAltText" | "heroContrast" | "missingMetaDescription";
+}
+
+export interface WebsiteScore {
+  id: string;
+  siteVersionId: string;
+  overall: number;
+  seo: number;
+  performance: number;
+  accessibility: number;
+  brandConsistency: number;
+  conversion: number;
+  suggestions: Suggestion[];
+  measuredAt: string;
+  source: "AUTO" | "MANUAL" | "PUBLISH";
+}
+
+export interface SiteVersion {
+  id: string;
+  siteId: string;
+  versionNo: number;
+  definition: WebsiteSiteDefinition;
+  status: SiteVersionStatus;
+  styleFamily: StyleFamily | null;
+  generationBatchId: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  scores?: WebsiteScore[];
+}
+
+export interface WebsiteSite {
+  id: string;
+  restaurantId: string;
+  slug: string;
+  status: SiteStatus;
+  themeId: string | null;
+  themeVersion: number | null;
+  publishedVersionId: string | null;
+  brandProfile: SiteBrandProfile | null;
+  settings: Record<string, unknown> | null;
+}
+
+export interface GenerationJob {
+  id: string;
+  siteId: string;
+  batchId: string;
+  stage: GenerationStage;
+  status: GenerationStatus;
+  error: string | null;
+}
+
+export interface SiteDomain {
+  id: string;
+  hostname: string;
+  type: "PLATFORM" | "CUSTOM";
+  verificationStatus: "PENDING" | "VERIFIED" | "FAILED";
+  tlsStatus: "PENDING" | "ISSUED" | "FAILED";
+  isPrimary: boolean;
+}
+
+export interface ContactMessageRecord {
+  id: string;
+  name: string;
+  email: string;
+  message: string;
+  createdAt: string;
+}
+
+export function getMySite() {
+  return apiFetch<{ site: WebsiteSite }>("/api/sites/me");
+}
+
+export function createSite() {
+  return apiFetch<{ site: WebsiteSite }>("/api/sites", { method: "POST" });
+}
+
+export function startGeneration(siteId: string) {
+  return apiFetch<{ job: GenerationJob }>(`/api/sites/${siteId}/generate`, { method: "POST" });
+}
+
+export function getGenerationStatus(siteId: string) {
+  return apiFetch<{ job: GenerationJob | null }>(`/api/sites/${siteId}/generation`);
+}
+
+export function listVariations(siteId: string) {
+  return apiFetch<{ variations: SiteVersion[] }>(`/api/sites/${siteId}/variations`);
+}
+
+export function selectVariation(siteId: string, versionId: string) {
+  return apiFetch<{ version: SiteVersion }>(`/api/sites/${siteId}/variations/${versionId}/select`, { method: "POST" });
+}
+
+export function regenerateVariations(siteId: string) {
+  return apiFetch<{ job: GenerationJob }>(`/api/sites/${siteId}/variations/regenerate`, { method: "POST" });
+}
+
+export function listSiteVersions(siteId: string) {
+  return apiFetch<{ versions: SiteVersion[] }>(`/api/sites/${siteId}/versions`);
+}
+
+export function getSiteVersion(siteId: string, versionId: string) {
+  return apiFetch<{ version: SiteVersion }>(`/api/sites/${siteId}/versions/${versionId}`);
+}
+
+export function patchDraft(siteId: string, patch: Partial<WebsiteSiteDefinition>) {
+  return apiFetch<{ version: SiteVersion }>(`/api/sites/${siteId}/draft`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function getLatestScore(siteId: string, versionId: string) {
+  return apiFetch<{ score: WebsiteScore | null }>(`/api/sites/${siteId}/versions/${versionId}/score`);
+}
+
+export function runScore(siteId: string, versionId: string) {
+  return apiFetch<{ score: WebsiteScore }>(`/api/sites/${siteId}/versions/${versionId}/score`, { method: "POST" });
+}
+
+export function applySuggestion(siteId: string, versionId: string, suggestion: Suggestion) {
+  return apiFetch<{ score: WebsiteScore }>(`/api/sites/${siteId}/versions/${versionId}/suggestions/apply`, {
+    method: "POST",
+    body: JSON.stringify(suggestion),
+  });
+}
+
+export function publishSite(siteId: string) {
+  return apiFetch<{ version: SiteVersion; scoreDelta?: number; warning?: string }>(`/api/sites/${siteId}/publish`, {
+    method: "POST",
+  });
+}
+
+export function listReleases(siteId: string) {
+  return apiFetch<{ releases: SiteVersion[] }>(`/api/sites/${siteId}/releases`);
+}
+
+export function rollbackSite(siteId: string, versionId: string) {
+  return apiFetch<{ site: WebsiteSite }>(`/api/sites/${siteId}/rollback/${versionId}`, { method: "POST" });
+}
+
+export function unpublishSite(siteId: string) {
+  return apiFetch<{ site: WebsiteSite }>(`/api/sites/${siteId}/unpublish`, { method: "POST" });
+}
+
+export function listDomains(siteId: string) {
+  return apiFetch<{ domains: SiteDomain[] }>(`/api/sites/${siteId}/domains`);
+}
+
+export function addDomain(siteId: string, hostname: string) {
+  return apiFetch<{ domain: SiteDomain }>(`/api/sites/${siteId}/domains`, {
+    method: "POST",
+    body: JSON.stringify({ hostname }),
+  });
+}
+
+export function verifyDomain(siteId: string, domainId: string) {
+  return apiFetch<{ domain: SiteDomain }>(`/api/sites/${siteId}/domains/${domainId}/verify`, { method: "POST" });
+}
+
+export function setPrimaryDomain(siteId: string, domainId: string) {
+  return apiFetch<{ domain: SiteDomain }>(`/api/sites/${siteId}/domains/${domainId}/primary`, { method: "POST" });
+}
+
+export function removeDomain(siteId: string, domainId: string) {
+  return apiFetch<void>(`/api/sites/${siteId}/domains/${domainId}`, { method: "DELETE" });
+}
+
+export function listMessages(siteId: string) {
+  return apiFetch<{ messages: ContactMessageRecord[] }>(`/api/sites/${siteId}/messages`);
+}

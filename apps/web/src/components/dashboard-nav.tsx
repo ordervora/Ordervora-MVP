@@ -15,6 +15,9 @@ export function DashboardNav() {
       <Link href="/dashboard/import" className="hover:text-black dark:hover:text-zinc-50">
         Import
       </Link>
+      <Link href="/dashboard/website" className="hover:text-black dark:hover:text-zinc-50">
+        Website
+      </Link>
     </nav>
   );
 }
