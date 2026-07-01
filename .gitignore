@@ -27,6 +27,3 @@ pnpm-debug.log*
 
 # misc
 .DS_Store
-
-# prisma
-apps/api/generated/
