@@ -631,3 +631,219 @@ RESTAURANT_STAFF)`, tenant-scoped via the existing `getOwnRestaurantId`.
   and a real `ANTHROPIC_API_KEY`): an actual PDF/image upload completing
   extraction, the `501` response for a deferred source end-to-end, and a
   real approve-into-menu round trip.
+
+---
+
+# Release Notes — Sprint 05: Website Import + Google Maps Import
+
+## Sprint 05 Summary
+
+Sprint 05 turned two of Sprint 04's five stub import sources into real,
+working adapters — **Website** and **Google Maps** — proving out the
+"adding a source is one adapter file" extensibility claim the Import
+Engine was designed around. DoorDash, Uber Eats, and Grubhub remain
+untouched stubs. No `ImportJob` schema migration was needed for either
+new source, confirming the Sprint 04 design: `sourceUrl` already existed
+unused, and `extractedData` is already a JSON column.
+
+## Website Import
+
+`WebsiteImportAdapter` fetches a restaurant's menu page once and extracts
+from **both** its text content and any candidate menu images embedded in
+it — not one or the other:
+
+- `cheerio` parses the fetched HTML to produce readable text (stripping
+  `<script>`/`<style>`/nav/footer noise) and to collect every on-page
+  `<img>` as a candidate (`apps/api/src/modules/imports/adapters/website/parse-page.ts`).
+  Heading association is computed by walking the document in order, so
+  an image several containers deep under a "Menu" heading is still
+  correctly associated with it.
+- Page text goes through a new `extractMenuFromText`; the top-ranked
+  candidate images (see Image Ranking Heuristic below) go through
+  Sprint 04's existing `extractMenuFromImages` unchanged — the concrete
+  reuse point between the two extraction paths.
+- Both results are combined into one `ExtractedMenuData` via a new
+  `mergeExtractedMenuData` helper.
+- A single bad image (fetch failure, disallowed host, unsupported
+  content) or a failed text extraction doesn't fail the whole import —
+  each extraction attempt is caught independently, and whatever
+  succeeds is still merged and sent to review.
+- Number of images processed per page is capped by
+  `IMPORT_WEBSITE_MAX_IMAGES` (default 5).
+
+## Google Maps Import
+
+`GoogleMapsImportAdapter` accepts either a raw Google Place ID or a Maps
+URL (including `maps.app.goo.gl` short links, resolved via redirect):
+
+- `resolve-place-id.ts` handles the common URL shapes (direct Place ID,
+  `place_id`/`query_place_id` query params, a `ChIJ`-style ID embedded
+  anywhere in the URL, short-link redirect resolution) but is explicitly
+  isolated in one function since Google's URL formats aren't a stable
+  public contract — see Known Limitations.
+- `places-client.ts` calls the Google Places API (New) directly via
+  plain `fetch` — Place Details for profile fields (name/address/phone)
+  and photo references, and Photo Media to fetch actual photo bytes. No
+  Google SDK dependency was added for two endpoints.
+- Google's Places API has **no itemized-menu endpoint** — any menu
+  content comes from running up to 3 listing photos through the
+  existing `extractMenuFromImages`, exactly like the Website adapter's
+  image path. Results across profile + all photos are combined via the
+  same `mergeExtractedMenuData` helper used by the Website adapter.
+- A single unavailable/failed photo doesn't fail the whole import.
+
+## businessProfile Changes
+
+`ExtractedMenuData` gained an optional `businessProfile`
+(`name?`/`address?`/`phone?`) — named generically rather than
+"restaurant profile" per explicit direction, so the import engine's data
+shape isn't tied to one business type as more sources are added later.
+Approving a job whose `extractedData.businessProfile` is present now
+also updates the restaurant's profile fields (via a new
+`updateRestaurantById` in `restaurant.service.ts`), in addition to
+creating any extracted menu categories/items — reusing Sprint 03's
+existing validation (`updateRestaurantSchema`) rather than duplicating
+it. The review page previews these fields before approval so the
+reviewer knows what will change.
+
+## SSRF Protection
+
+Both new sources fetch a server-side URL the caller influences (directly
+for Website, indirectly via short-link resolution for Google Maps), so a
+shared guard, `safeFetch` (`apps/api/src/lib/safe-fetch.ts`), was added
+and is mandatory for every such outbound call — including the Website
+adapter's embedded-image fetches, which go through it exactly like the
+page fetch itself rather than being treated as "already trusted" just
+because the URL came from a page already fetched. `safeFetch`:
+
+- Rejects non-http(s) URL schemes.
+- Resolves DNS and rejects private/loopback/link-local/CGNAT/reserved
+  ranges, including the `169.254.169.254` cloud metadata endpoint.
+- Re-validates the target of every redirect hop (not just the original
+  URL), capped at 3 redirects.
+- Enforces a request timeout and a maximum response size, both via a
+  streamed read with a byte-count cap (not relying solely on
+  `Content-Length`, which a server could omit or misreport).
+- **Known residual risk**: this checks the resolved address at lookup
+  time but doesn't pin the connection to that exact address, so a
+  DNS-rebinding attack (the hostname resolving differently between the
+  check and the actual request) isn't defended against — noted directly
+  in the code and called out here rather than overclaiming full
+  protection.
+- The Google Places API calls themselves use plain `fetch` (not
+  `safeFetch`), since their host (`places.googleapis.com`) is fixed and
+  trusted, not derived from caller input — `safeFetch` is reserved for
+  genuinely attacker-influenced URLs.
+
+## Image Ranking Heuristic
+
+`rank-menu-images.ts` scores candidate on-page images using alt text,
+the nearest preceding heading's text, the filename, and declared
+width/height for menu-related signals (`menu`, `food`, `dish`, category
+names, etc.) versus non-menu signals (`logo`, `icon`, `favicon`,
+`banner`, etc.), plus a size heuristic favoring larger images over
+icon-sized ones. Per explicit direction, this **ranks rather than
+filters**: even when nothing scores well, the top-ranked candidates up
+to the configured cap are still processed, so a page with no
+obviously-labeled menu image doesn't silently yield zero image
+candidates — the heuristic influences priority, not inclusion.
+
+## API/Frontend Changes
+
+- No new routes. `POST /api/imports` now also accepts
+  `sourceType: WEBSITE | GOOGLE_MAPS` with a `sourceUrl` form field
+  instead of a file — the same multipart body, since `multer` parses
+  text fields whether or not a file is attached.
+- `ImportAdapter` gained `readonly inputKind: "file" | "url"` so
+  `import.controller.ts` decides whether to require a file upload or a
+  `sourceUrl` by reading the registered adapter's declared input kind —
+  never a hardcoded per-source-type list, the same extensibility pattern
+  Sprint 04 used for the `implemented` flag.
+- `apps/web`'s upload form: Website and Google Maps moved from disabled
+  to enabled, with a URL text input replacing the file input for these
+  two sources; DoorDash/Uber Eats/Grubhub remain visibly present but
+  disabled.
+- The import review page shows a restaurant-profile preview section
+  whenever `extractedData.businessProfile` is present.
+
+## Tests Added
+
+All new tests run against mocked Prisma/Anthropic/Places-API/`safeFetch`
+— no live network, database, or API keys required, consistent with
+every prior sprint:
+
+- `safe-fetch.test.ts` — rejects non-http(s) schemes, private/loopback/
+  link-local IPs, and the cloud metadata endpoint; rejects a redirect
+  chain that points at a disallowed address partway through; enforces
+  both the `Content-Length`-declared and the streamed byte caps.
+- `rank-menu-images.test.ts` — proves ranking rather than filtering,
+  including the case where no candidate has any positive signal.
+- `merge-extracted-data.test.ts` — concatenates categories across
+  results in order; fills `businessProfile` fields from the first
+  result that has each one; handles empty-categories results.
+- `vision-extractor.test.ts` — extended with `extractMenuFromText`
+  coverage (valid response including `businessProfile`, malformed
+  response rejected).
+- `website.adapter.test.ts` — text-only pages, text+image merging, the
+  `IMPORT_WEBSITE_MAX_IMAGES` cap, and a failed image not sinking the
+  whole import.
+- `resolve-place-id.test.ts`, `places-client.test.ts`,
+  `google-maps.adapter.test.ts` — Place ID resolution (direct ID, query
+  param, embedded `ChIJ` pattern, short-link redirect), Places API
+  response mapping, and the photo-count cap / partial-failure handling.
+- `registry.test.ts` and `import.service.test.ts` updated: Website and
+  Google Maps now assert `implemented: true`/`inputKind`; a new
+  `approveJob` case confirms `businessProfile` is applied via
+  `updateRestaurantById` when present, and left untouched when absent.
+- Total: 64 tests across 12 files in `apps/api` (up from 21 across 5 in
+  Sprint 04).
+
+## Known Limitations
+
+- **No live database, network egress, Anthropic key, or Google Maps API
+  key in this sandbox** (recurring constraint): the actual fetch →
+  extract → review → approve round trip for either source, and the
+  live SSRF-rejection/`501` behaviors, can't be exercised end-to-end
+  here — covered by unit tests with mocks instead.
+- **Google Maps URL parsing is inherently fragile** — Google doesn't
+  publish a stable contract for share-link formats; `resolvePlaceId`
+  will need maintenance as those formats drift, and a URL that doesn't
+  match one of the handled shapes requires passing the Place ID
+  directly instead.
+- **DNS-rebinding is not defended against** by `safeFetch` (see SSRF
+  Protection above) — a known, documented residual risk, not silently
+  assumed away.
+- **Website import is static-HTML-only** — no headless browser
+  rendering, so JS-rendered single-page-app menus yield a thin or empty
+  extraction (not a crash; the human review step catches it).
+- **Google Maps menu-photo extraction is best-effort by design** — most
+  listings don't have an actual menu photo, so many Google Maps imports
+  will yield a `businessProfile` with zero categories/items. Expected
+  behavior, not a bug.
+- **Review remains approve/reject only**, not inline-editable — carried
+  over from Sprint 04, unchanged this sprint.
+- **DoorDash, Uber Eats, and Grubhub are unaffected** — still stubs,
+  still `501`, untouched this sprint.
+
+## Verification Results
+
+- `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, and
+  `pnpm run build` all pass cleanly at the repo root after the merge to
+  `main`.
+- `prisma validate` passes — schema is unchanged this sprint, confirming
+  no migration was needed.
+- `vitest run` in `apps/api`: 12 test files, 64 tests, all passing.
+- The compiled Express server (`node dist/src/index.js`) was confirmed
+  as the genuine running binary and stayed stable while being
+  exercised.
+- Manually verified: `POST /api/imports` (Website and DoorDash source
+  types) returns `401` when called without authentication, confirming
+  `requireAuth` is applied uniformly ahead of the source-type/`501`
+  check.
+- `pnpm run build` for `apps/web` continues to register the import
+  routes with the updated upload form.
+- Not verified in this environment (requires a live Postgres instance,
+  network egress, an `ANTHROPIC_API_KEY`, and a `GOOGLE_MAPS_API_KEY`):
+  a real website fetch and extraction, a real Google Places API call, a
+  live SSRF rejection against an actual private address, and a real
+  approve-into-menu round trip for either source.
