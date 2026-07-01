@@ -32,19 +32,27 @@ export async function create(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  if (!req.file) {
+  if (adapter.inputKind === "file" && !req.file) {
     res.status(400).json({ error: "A file upload is required for this import source" });
+    return;
+  }
+
+  if (adapter.inputKind === "url" && !parsed.data.sourceUrl) {
+    res.status(400).json({ error: "A sourceUrl is required for this import source" });
     return;
   }
 
   const restaurantId = await requireOwnRestaurantId(req, res);
   if (!restaurantId) return;
 
-  const job = await createImportJob(restaurantId, req.user!.id, parsed.data, {
-    buffer: req.file.buffer,
-    mimeType: req.file.mimetype,
-    originalName: req.file.originalname,
-  });
+  const job = await createImportJob(
+    restaurantId,
+    req.user!.id,
+    parsed.data,
+    req.file
+      ? { buffer: req.file.buffer, mimeType: req.file.mimetype, originalName: req.file.originalname }
+      : undefined,
+  );
 
   res.status(202).json({ job });
 }

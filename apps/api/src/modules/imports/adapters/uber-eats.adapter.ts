@@ -9,6 +9,7 @@ import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../typ
 export class UberEatsImportAdapter implements ImportAdapter {
   readonly sourceType = ImportSourceType.UBER_EATS;
   readonly implemented = false;
+  readonly inputKind = "url" as const;
 
   async extract(_input: ImportSourceInput): Promise<ExtractedMenuData> {
     throw new NotImplementedError(this.sourceType);

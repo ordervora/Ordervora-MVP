@@ -4,36 +4,44 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createImportJob, type ImportSourceType } from "@/lib/api";
 
-const SOURCES: { value: ImportSourceType; label: string; enabled: boolean }[] = [
-  { value: "PDF", label: "PDF", enabled: true },
-  { value: "IMAGE", label: "Image", enabled: true },
-  { value: "WEBSITE", label: "Website URL", enabled: false },
-  { value: "GOOGLE_MAPS", label: "Google Maps", enabled: false },
-  { value: "DOORDASH", label: "DoorDash", enabled: false },
-  { value: "UBER_EATS", label: "Uber Eats", enabled: false },
-  { value: "GRUBHUB", label: "Grubhub", enabled: false },
+const SOURCES: { value: ImportSourceType; label: string; enabled: boolean; inputKind: "file" | "url" }[] = [
+  { value: "PDF", label: "PDF", enabled: true, inputKind: "file" },
+  { value: "IMAGE", label: "Image", enabled: true, inputKind: "file" },
+  { value: "WEBSITE", label: "Website URL", enabled: true, inputKind: "url" },
+  { value: "GOOGLE_MAPS", label: "Google Maps", enabled: true, inputKind: "url" },
+  { value: "DOORDASH", label: "DoorDash", enabled: false, inputKind: "url" },
+  { value: "UBER_EATS", label: "Uber Eats", enabled: false, inputKind: "url" },
+  { value: "GRUBHUB", label: "Grubhub", enabled: false, inputKind: "url" },
 ];
 
 export function UploadForm() {
   const router = useRouter();
   const [sourceType, setSourceType] = useState<ImportSourceType>("PDF");
   const [file, setFile] = useState<File | null>(null);
+  const [sourceUrl, setSourceUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const selected = SOURCES.find((source) => source.value === sourceType) ?? SOURCES[0];
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
 
-    if (!file) {
+    if (selected.inputKind === "file" && !file) {
       setError("Choose a file to upload");
+      return;
+    }
+    if (selected.inputKind === "url" && !sourceUrl.trim()) {
+      setError("Enter a URL to import from");
       return;
     }
 
     setSubmitting(true);
     try {
-      await createImportJob(sourceType, file);
+      await createImportJob(sourceType, selected.inputKind === "file" ? { file: file! } : { url: sourceUrl.trim() });
       setFile(null);
+      setSourceUrl("");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
@@ -73,22 +81,35 @@ export function UploadForm() {
         ))}
       </fieldset>
 
-      <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-        File
-        <input
-          type="file"
-          accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
-        />
-      </label>
+      {selected.inputKind === "file" ? (
+        <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+          File
+          <input
+            type="file"
+            accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
+          />
+        </label>
+      ) : (
+        <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+          {sourceType === "GOOGLE_MAPS" ? "Google Maps URL or Place ID" : "Website URL"}
+          <input
+            type="text"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder={sourceType === "GOOGLE_MAPS" ? "https://maps.app.goo.gl/..." : "https://example.com/menu"}
+            className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
+          />
+        </label>
+      )}
 
       <button
         type="submit"
         disabled={submitting}
         className="mt-2 self-start rounded-full bg-foreground px-5 py-2 text-background disabled:opacity-50"
       >
-        {submitting ? "Uploading..." : "Upload & import"}
+        {submitting ? "Importing..." : "Import"}
       </button>
     </form>
   );

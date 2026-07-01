@@ -10,19 +10,15 @@ describe("importAdapterRegistry", () => {
     }
   });
 
-  it("marks PDF and IMAGE as implemented", () => {
+  it("marks PDF, IMAGE, WEBSITE, and GOOGLE_MAPS as implemented", () => {
     expect(importAdapterRegistry.get(ImportSourceType.PDF)?.implemented).toBe(true);
     expect(importAdapterRegistry.get(ImportSourceType.IMAGE)?.implemented).toBe(true);
+    expect(importAdapterRegistry.get(ImportSourceType.WEBSITE)?.implemented).toBe(true);
+    expect(importAdapterRegistry.get(ImportSourceType.GOOGLE_MAPS)?.implemented).toBe(true);
   });
 
-  it("marks Website, Google Maps, DoorDash, Uber Eats, and Grubhub as not implemented", () => {
-    const deferred = [
-      ImportSourceType.WEBSITE,
-      ImportSourceType.GOOGLE_MAPS,
-      ImportSourceType.DOORDASH,
-      ImportSourceType.UBER_EATS,
-      ImportSourceType.GRUBHUB,
-    ];
+  it("marks DoorDash, Uber Eats, and Grubhub as not implemented (Sprint 05 leaves these untouched)", () => {
+    const deferred = [ImportSourceType.DOORDASH, ImportSourceType.UBER_EATS, ImportSourceType.GRUBHUB];
 
     for (const sourceType of deferred) {
       expect(importAdapterRegistry.get(sourceType)?.implemented).toBe(false);
@@ -30,9 +26,17 @@ describe("importAdapterRegistry", () => {
   });
 
   it("rejects with NotImplementedError when a stub adapter's extract() is called", async () => {
-    const adapter = importAdapterRegistry.get(ImportSourceType.WEBSITE);
+    const adapter = importAdapterRegistry.get(ImportSourceType.DOORDASH);
     await expect(adapter?.extract({ kind: "url", url: "https://example.com" })).rejects.toBeInstanceOf(
       NotImplementedError,
     );
+  });
+
+  it("reports the correct inputKind per source", () => {
+    expect(importAdapterRegistry.get(ImportSourceType.PDF)?.inputKind).toBe("file");
+    expect(importAdapterRegistry.get(ImportSourceType.IMAGE)?.inputKind).toBe("file");
+    expect(importAdapterRegistry.get(ImportSourceType.WEBSITE)?.inputKind).toBe("url");
+    expect(importAdapterRegistry.get(ImportSourceType.GOOGLE_MAPS)?.inputKind).toBe("url");
+    expect(importAdapterRegistry.get(ImportSourceType.DOORDASH)?.inputKind).toBe("url");
   });
 });

@@ -3,6 +3,7 @@ import { ImportStatus } from "@prisma/client";
 import { fileStorage } from "../../lib/file-storage";
 import { prisma } from "../../lib/prisma";
 import { createCategory, createItem } from "../menu/menu.service";
+import { updateRestaurantById } from "../restaurants/restaurant.service";
 import { ImportJobNotFoundError, ImportJobNotReadyError } from "./import.errors";
 import type { CreateImportInput } from "./import.validation";
 import { importJobRunner } from "./job-runner";
@@ -18,20 +19,32 @@ export async function createImportJob(
   restaurantId: string,
   createdById: string,
   input: CreateImportInput,
-  file: UploadedFile,
+  file?: UploadedFile,
 ): Promise<ImportJob> {
-  const saved = await fileStorage.save(file.buffer, file.originalName);
+  let sourceFilePath: string | undefined;
+  let sourceInput: ImportSourceInput;
+
+  if (file) {
+    const saved = await fileStorage.save(file.buffer, file.originalName);
+    sourceFilePath = saved.path;
+    sourceInput = { kind: "file", buffer: file.buffer, mimeType: file.mimeType };
+  } else {
+    if (!input.sourceUrl) {
+      throw new Error("createImportJob requires either a file or a sourceUrl");
+    }
+    sourceInput = { kind: "url", url: input.sourceUrl };
+  }
 
   const job = await prisma.importJob.create({
     data: {
       restaurantId,
       createdById,
       sourceType: input.sourceType,
-      sourceFilePath: saved.path,
+      sourceFilePath,
+      sourceUrl: input.sourceUrl,
     },
   });
 
-  const sourceInput: ImportSourceInput = { kind: "file", buffer: file.buffer, mimeType: file.mimeType };
   importJobRunner.enqueue(job.id, sourceInput);
 
   return job;
@@ -71,6 +84,10 @@ export async function approveJob(restaurantId: string, jobId: string): Promise<I
         priceCents: item.priceCents,
       });
     }
+  }
+
+  if (extracted.businessProfile) {
+    await updateRestaurantById(restaurantId, extracted.businessProfile);
   }
 
   return prisma.importJob.update({

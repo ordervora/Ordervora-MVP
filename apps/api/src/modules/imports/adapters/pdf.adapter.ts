@@ -5,6 +5,7 @@ import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../typ
 export class PdfImportAdapter implements ImportAdapter {
   readonly sourceType = ImportSourceType.PDF;
   readonly implemented = true;
+  readonly inputKind = "file" as const;
 
   async extract(input: ImportSourceInput): Promise<ExtractedMenuData> {
     if (input.kind !== "file") {
