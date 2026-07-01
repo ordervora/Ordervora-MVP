@@ -1,7 +1,13 @@
 import type { Request, Response } from "express";
+import { revalidatePublishedSite } from "../sites/site.service";
 import { NoRestaurantError, RestaurantAlreadyExistsError } from "./restaurant.errors";
 import { createRestaurant, getOwnRestaurant, listAllRestaurants, updateOwnRestaurant } from "./restaurant.service";
 import { createRestaurantSchema, updateRestaurantSchema } from "./restaurant.validation";
+
+/** §19.4 profile-change revalidation — see menu.controller.ts's revalidateInBackground for the same rationale. */
+function revalidateInBackground(restaurantId: string): void {
+  void revalidatePublishedSite(restaurantId).catch(() => undefined);
+}
 
 export async function create(req: Request, res: Response): Promise<void> {
   const parsed = createRestaurantSchema.safeParse(req.body);
@@ -44,6 +50,7 @@ export async function updateMine(req: Request, res: Response): Promise<void> {
 
   try {
     const restaurant = await updateOwnRestaurant(req.user!.id, parsed.data);
+    revalidateInBackground(restaurant.id);
     res.status(200).json({ restaurant });
   } catch (err) {
     if (err instanceof NoRestaurantError) {

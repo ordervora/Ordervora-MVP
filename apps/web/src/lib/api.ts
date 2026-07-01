@@ -442,3 +442,8 @@ export function removeDomain(siteId: string, domainId: string) {
 export function listMessages(siteId: string) {
   return apiFetch<{ messages: ContactMessageRecord[] }>(`/api/sites/${siteId}/messages`);
 }
+
+/** §18 Preview System — a short-lived, site-scoped token for building a /preview/:token URL (proxied by next.config.ts). */
+export function getPreviewToken(siteId: string) {
+  return apiFetch<{ token: string }>(`/api/sites/${siteId}/preview-token`);
+}

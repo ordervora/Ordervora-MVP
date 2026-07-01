@@ -1,6 +1,10 @@
 import type { Prisma, Site, SiteVersion } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
+import { releaseStorage } from "../../lib/release-storage";
 import { getAssetSummary } from "./asset-summary";
+import { renderOgImageSvg } from "./renderer/og-image";
+import { renderAllPages } from "./renderer/render-site";
+import { renderRobotsTxt, renderSitemapXml } from "./renderer/sitemap";
 import { NEUTRAL_BRAND_PROFILE_FOR_SCORING } from "./scoring/neutral-brand-profile";
 import { scoreSiteDefinition } from "./scoring/score-aggregator";
 import {
@@ -12,6 +16,17 @@ import {
 } from "./site.errors";
 import { THEME_CATALOG } from "./theme-catalog";
 import { brandProfileSchema, siteDefinitionSchema, type AssetSummary, type SiteDefinition } from "./types";
+
+const PLATFORM_DOMAIN = process.env.SITE_PLATFORM_DOMAIN ?? "sites.ordervora.example";
+
+/** §20 — a verified, primary custom domain wins; otherwise the platform subdomain. */
+export async function resolveSiteUrl(site: Site): Promise<string> {
+  const primaryDomain = await prisma.domain.findFirst({
+    where: { siteId: site.id, isPrimary: true, verificationStatus: "VERIFIED" },
+  });
+  const host = primaryDomain ? primaryDomain.hostname : `${site.slug}.${PLATFORM_DOMAIN}`;
+  return `https://${host}`;
+}
 
 const RELEASE_RETENTION_COUNT = 10;
 
@@ -219,9 +234,55 @@ export async function publishSite(restaurantId: string, siteId: string): Promise
     return updated;
   });
 
+  await materializeStaticRelease(site, published.id, definition);
   await pruneOldReleases(site.id);
 
   return { version: published, scoreDelta, warning };
+}
+
+/**
+ * §19.3 Static generation: renders every page once via the shared
+ * renderer and writes it to release storage (this environment's stand-in
+ * for "uploaded to object storage; CDN cache invalidated" — see Known
+ * Limitations for what a real CDN swap would replace). Also emits
+ * sitemap.xml, robots.txt, and the OG share image once per release (§9-10).
+ */
+async function materializeStaticRelease(site: Site, versionId: string, definition: SiteDefinition): Promise<void> {
+  const siteUrl = await resolveSiteUrl(site);
+  const pages = await renderAllPages({ siteId: site.id, restaurantId: site.restaurantId, definition, siteUrl });
+
+  await Promise.all([
+    ...Array.from(pages.entries()).map(([slug, html]) => releaseStorage.savePage(site.id, versionId, slug, html)),
+    releaseStorage.saveAsset(site.id, versionId, "sitemap.xml", renderSitemapXml(siteUrl, definition.pages)),
+    releaseStorage.saveAsset(site.id, versionId, "robots.txt", renderRobotsTxt(siteUrl)),
+    releaseStorage.saveAsset(
+      site.id,
+      versionId,
+      "og-image.svg",
+      renderOgImageSvg({ restaurantName: definition.restaurantName, cuisine: definition.cuisine, colorSeed: definition.colorSeed }),
+    ),
+  ]);
+}
+
+/**
+ * §19.4 Menu revalidation: re-renders and overwrites the currently
+ * published release's pages using live menu/profile data — called after
+ * any menu or restaurant-profile mutation (see menu.service.ts /
+ * restaurant.service.ts) so a price change appears on the live site
+ * without a full republish (acceptance criterion #8). A no-op if the
+ * restaurant has no published site.
+ */
+export async function revalidatePublishedSite(restaurantId: string): Promise<void> {
+  const site = await prisma.site.findUnique({ where: { restaurantId } });
+  if (!site || site.status !== "PUBLISHED" || !site.publishedVersionId) {
+    return;
+  }
+
+  const version = await prisma.siteVersion.findUnique({ where: { id: site.publishedVersionId } });
+  if (!version) return;
+
+  const definition = siteDefinitionSchema.parse(version.definition);
+  await materializeStaticRelease(site, version.id, definition);
 }
 
 /** GET releases list — every PUBLISHED (non-archived) version, newest first. */
@@ -237,7 +298,14 @@ export async function rollbackSite(restaurantId: string, siteId: string, version
   if (!version || version.siteId !== site.id || version.status !== "PUBLISHED") {
     throw new SiteVersionNotFoundError();
   }
-  return prisma.site.update({ where: { id: site.id }, data: { status: "PUBLISHED", publishedVersionId: version.id } });
+  const updated = await prisma.site.update({ where: { id: site.id }, data: { status: "PUBLISHED", publishedVersionId: version.id } });
+
+  // Re-materialize with current live menu/profile data so a rollback never
+  // resurrects stale prices from whenever this release was first published.
+  const definition = siteDefinitionSchema.parse(version.definition);
+  await materializeStaticRelease(updated, version.id, definition);
+
+  return updated;
 }
 
 /** POST /api/sites/:id/unpublish — holding-page state (§19.6); publishedVersionId is retained for republish/rollback. */

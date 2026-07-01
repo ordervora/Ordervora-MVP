@@ -2,17 +2,19 @@ import { notFound } from "next/navigation";
 import { DashboardNav } from "@/components/dashboard-nav";
 import type { SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
+import { DevicePreview } from "./device-preview";
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
 /**
- * A structured, data-driven preview — not a rendered public site. Sprint 06
- * built the AI Generator + SiteDefinition data pipeline; the themed public
- * component library / Layout Engine that would actually render this JSON
- * as styled HTML (§15, §25) is out of scope this sprint (see Known
- * Limitations). This view lets an owner review exactly what was generated.
+ * §18 Preview System: the device-toggle iframe below renders this
+ * variation through the actual shared renderer (renderer/render-page.ts),
+ * the same one static generation uses at publish time — not a mock. The
+ * structured breakdown underneath is supplementary: it lets an owner
+ * inspect exactly what data drove the render without digging through
+ * devtools.
  */
 export default async function VariationPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,6 +39,8 @@ export default async function VariationPreviewPage({ params }: { params: Promise
             </p>
             <p className="mt-2 text-sm italic text-zinc-600 dark:text-zinc-400">&ldquo;{definition.tagline}&rdquo;</p>
           </div>
+
+          <DevicePreview siteId={site.id} variationId={version.id} />
 
           <div className="flex gap-2 text-xs text-zinc-500 dark:text-zinc-500">
             <span

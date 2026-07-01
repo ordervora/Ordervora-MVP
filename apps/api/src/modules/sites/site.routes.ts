@@ -28,6 +28,7 @@ import {
   listReleasesHandler,
   listVersionsHandler,
   patchDraftHandler,
+  previewToken,
   publish,
   rollback,
   unpublish,
@@ -78,6 +79,8 @@ siteRouter.post("/:id/assets", requireAuth, staffOrOwner, assetUpload.single("fi
 siteRouter.get("/:id/assets", requireAuth, staffOrOwner, listAssetsHandler);
 siteRouter.patch("/:id/assets/:assetId", requireAuth, staffOrOwner, updateAssetHandler);
 siteRouter.delete("/:id/assets/:assetId", requireAuth, staffOrOwner, removeAssetHandler);
+
+siteRouter.get("/:id/preview-token", requireAuth, staffOrOwner, previewToken);
 
 // Publish & domains
 siteRouter.post("/:id/publish", requireAuth, staffOrOwner, publish);

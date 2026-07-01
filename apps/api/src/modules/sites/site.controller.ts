@@ -1,9 +1,11 @@
 import type { Request, Response } from "express";
 import { getOwnRestaurant } from "../restaurants/restaurant.service";
 import { mapSiteError, paramId, requireOwnRestaurantId } from "./controller-helpers";
+import { signPreviewToken } from "./preview-token";
 import {
   createSite,
   getOwnSite,
+  getOwnSiteById,
   getVersion,
   listReleases,
   listVersions,
@@ -131,6 +133,19 @@ export async function rollback(req: Request, res: Response): Promise<void> {
   try {
     const site = await rollbackSite(restaurantId, paramId(req), paramId(req, "vid"));
     res.status(200).json({ site });
+  } catch (err) {
+    if (!mapSiteError(err, res)) throw err;
+  }
+}
+
+/** GET /api/sites/:id/preview-token — a short-lived, site-scoped token the dashboard embeds into a /preview/:token?path=...&variation=... URL. */
+export async function previewToken(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  try {
+    const site = await getOwnSiteById(restaurantId, paramId(req));
+    res.status(200).json({ token: signPreviewToken(site.id) });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
