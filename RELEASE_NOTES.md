@@ -456,3 +456,178 @@ boundary.
   an authenticated end-to-end walkthrough (register → create restaurant
   → add category/items → confirm cross-tenant `404` against a second
   seeded owner) and `prisma migrate dev`.
+
+---
+
+# Release Notes — v0.4.0-import-engine
+
+## Sprint 04 Summary
+
+Sprint 04 built the **OrderVora Import Engine**: a way to populate a
+restaurant's menu from an uploaded file instead of typing every category
+and item by hand. Seven import sources are named as the long-term target
+(PDF, Images, Website URL, Google Maps, DoorDash, Uber Eats, Grubhub);
+per the approved plan, only **PDF and Image import are implemented**
+this sprint. The other five ship as real, registered adapters that
+report themselves as not-yet-implemented, so turning one on later means
+writing one adapter class and registering it — no route, schema, or
+job-lifecycle changes.
+
+## Architecture: One Interface, One Registry, One Table
+
+- **`ImportAdapter` interface** (`apps/api/src/modules/imports/types.ts`):
+  `{ sourceType, implemented, extract(input) }`. Every source, present or
+  future, implements this same contract — the request path never
+  branches on which source is being used.
+- **`ImportAdapterRegistry`** (`adapters/registry.ts`): a `Map` keyed by
+  source type, populated once at startup with all seven adapters. The
+  controller resolves the adapter generically and checks its
+  `implemented` flag to decide whether to proceed or return `501` —
+  there is no hardcoded list of "which sources currently work" anywhere
+  in the request path.
+- **One `ImportJob` table** for all seven sources (see Database Changes)
+  — every source produces the same `ExtractedMenuData` shape once
+  extracted, so no new table is needed as sources are added.
+
+## PDF and Image Import (Implemented)
+
+- Both funnel through a shared extraction core,
+  `extractMenuFromImages()` (`vision-extractor.ts`), which sends one or
+  more page images to Claude's vision API (`@anthropic-ai/sdk`) with a
+  structured-output prompt and validates the response with `zod` before
+  trusting any of it.
+- `PdfImportAdapter` renders each PDF page to a PNG via `pdf-to-img`,
+  then treats the result identically to a plain image upload —
+  `ImageImportAdapter` passes the uploaded image straight through. This
+  is the concrete code-reuse the "extensible" requirement asked for.
+- Uploads are handled by `multer` (in-memory, MIME-type allowlist, size
+  cap) and never write straight into the live menu: every job lands in
+  `AWAITING_REVIEW` with its extracted data, and only an explicit
+  `POST /api/imports/:id/approve` commits it — reusing Sprint 03's
+  `createCategory`/`createItem` (`modules/menu/menu.service.ts`) so the
+  import engine doesn't duplicate the existing tenant-scoping
+  guarantees.
+
+## Deferred Sources: Website, Google Maps, DoorDash, Uber Eats, Grubhub
+
+- Each has a real class in `apps/api/src/modules/imports/adapters/`,
+  registered in the same registry, correctly typed against the same
+  `ImportAdapter` interface, with `implemented: false`.
+- Calling `.extract()` on any of them rejects with `NotImplementedError`;
+  `POST /api/imports` for any of these five source types returns a
+  synchronous `501 Not Implemented` — no job row is even created.
+- DoorDash, Uber Eats, and Grubhub adapters carry an explicit code
+  comment flagging that a real implementation would likely require
+  scraping (no public partner API for this use case exists), which
+  risks violating those platforms' Terms of Service — a legal/product
+  decision for whoever builds those adapters later, not resolved by this
+  sprint's interface design.
+
+## Database Changes
+
+- New enum `ImportSourceType { PDF, IMAGE, WEBSITE, GOOGLE_MAPS,
+  DOORDASH, UBER_EATS, GRUBHUB }` — all seven listed now so the column
+  never needs a migration when a new source is turned on.
+- New enum `ImportStatus { PENDING, PROCESSING, AWAITING_REVIEW,
+  APPROVED, REJECTED, FAILED }`.
+- New model `ImportJob`: `restaurantId` (FK), `createdById` (FK →
+  `User`), `sourceType`, `status` (default `PENDING`), `sourceFilePath`
+  (file-based sources), `sourceUrl` (reserved for URL-based sources),
+  `extractedData` (`Json?`), `errorMessage`, `reviewedAt`.
+
+## API Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/imports` | Create a job (`multipart/form-data`: `sourceType` + `file`). `202` for PDF/Image; `501` for the five deferred sources |
+| GET | `/api/imports` | List the caller's restaurant's import jobs |
+| GET | `/api/imports/:id` | Get one job, including `extractedData` once ready (`404` if not caller's tenant) |
+| POST | `/api/imports/:id/approve` | Commit `extractedData` into real `MenuCategory`/`MenuItem` rows; sets `APPROVED` |
+| POST | `/api/imports/:id/reject` | Discard the extraction; sets `REJECTED` |
+
+All require `requireAuth` + `requireRole(RESTAURANT_OWNER,
+RESTAURANT_STAFF)`, tenant-scoped via the existing `getOwnRestaurantId`.
+
+## Frontend Pages
+
+- `apps/web/src/app/dashboard/import/page.tsx` — upload form (PDF/Image
+  enabled; the other five shown disabled with a "coming soon" label,
+  reflecting the real backend state) plus a list of past import jobs.
+- `apps/web/src/app/dashboard/import/[id]/page.tsx` — review screen:
+  extracted categories/items read-only, with Approve/Reject actions.
+
+## Tests Added
+
+- `adapters/registry.test.ts` — all seven sources resolve from the
+  registry; PDF/Image report `implemented: true`, the other five report
+  `false`; a stub adapter's `.extract()` rejects with
+  `NotImplementedError`. (This test caught a real bug: the stub
+  adapters' `extract()` methods were missing `async`, so they threw
+  synchronously instead of returning a rejected promise — fixed during
+  this sprint.)
+- `import.service.test.ts` — tenant isolation (approving/rejecting a job
+  from a different restaurant returns `404`), rejecting a job that isn't
+  `AWAITING_REVIEW`, and the approve flow committing categories/items
+  with the correct `restaurantId`.
+- `vision-extractor.test.ts` — a malformed AI response is rejected by
+  the `zod` schema rather than silently accepted; the happy path parses
+  correctly. The Anthropic client is fully mocked — no real API call.
+- All 21 tests (5 files) run against mocked Prisma/Anthropic clients, no
+  live database or API key required.
+
+## Security Improvements
+
+- Upload validation: MIME-type allowlist and a size cap enforced by
+  `multer` before any adapter sees the buffer; oversized/wrong-type
+  uploads are rejected before processing.
+- Tenant scoping resolved exclusively server-side, exactly like the
+  restaurant/menu modules — never accepted from the client; cross-tenant
+  job access returns `404`, not `403`.
+- AI-extracted content is never trusted implicitly: approval still goes
+  through `menu.service.ts`'s existing validation (name length,
+  non-negative integer `priceCents`).
+- Uploaded files are stored outside any web-servable path and are never
+  executed.
+- `ANTHROPIC_API_KEY` stays server-side only.
+- `POST /api/imports` is rate-limited to bound AI API cost exposure per
+  account.
+
+## Known Limitations
+
+- **No live database or Anthropic API key in this sandbox** (recurring
+  constraint from every prior sprint): the actual extract → review →
+  approve round trip against a real PDF/image has not been exercised
+  here. Unit tests cover the tenant-scoping, approval-gating, and
+  response-validation logic with mocks in its place.
+- **Review is approve/reject only, not inline-editable** — a v1
+  limitation; correcting an AI extraction error currently means
+  rejecting and re-uploading, not editing in place.
+- **No real background job queue** — the MVP `ImportJobRunner` runs
+  in-process; the interface is the seam for swapping in a real queue
+  (BullMQ/SQS) later without touching the controller.
+- **No import job retention/cleanup policy** — uploaded files and job
+  rows accumulate with no expiry, by design deferred.
+- **Website/Google Maps/DoorDash/Uber Eats/Grubhub have no real
+  extraction logic** — interfaces and stubs only, as scoped.
+
+## Verification Results
+
+- `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, and
+  `pnpm run build` all pass cleanly at the repo root after the merge to
+  `main`.
+- `prisma validate` and `prisma generate` succeed against the updated
+  schema.
+- `vitest run` in `apps/api`: 5 test files, 21 tests, all passing.
+- The compiled Express server (`node dist/src/index.js`) was confirmed
+  as the genuine running binary and stayed stable while being
+  exercised.
+- Manually verified: every new import endpoint (`POST /api/imports`,
+  `GET /api/imports`, `GET /api/imports/:id`,
+  `POST /api/imports/:id/approve`) returns `401` when called without
+  authentication.
+- `pnpm run build` for `apps/web` registers the new routes
+  (`/dashboard/import`, `/dashboard/import/[id]`) as expected.
+- Not verified in this environment (requires a live Postgres instance
+  and a real `ANTHROPIC_API_KEY`): an actual PDF/image upload completing
+  extraction, the `501` response for a deferred source end-to-end, and a
+  real approve-into-menu round trip.
