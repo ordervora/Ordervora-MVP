@@ -1,6 +1,8 @@
 # Sprint 07 Master Specification — Commerce & Fulfillment Engine
 
-**Status: PLANNING ONLY.** No branch created, no code written, no repository changes made as part of producing this document. This spec builds directly on the Sprint 06.5 audit findings (unindexed status columns, no pagination, no cascade deletes, no caching layer, single-instance-only storage/rate-limiting) and on the existing codebase conventions confirmed by inspection: the `routes → controller → service` layering with per-module `validation.ts`/`errors.ts`, the `getOwnRestaurantId` / 404-not-403 tenant-isolation pattern, the `ImportAdapter`-style registry-with-`implemented`-flag pattern proven twice already (Sprint 04 import sources), and the fire-and-forget controller-level event hook pattern proven in Sprint 06's `revalidatePublishedSite`.
+**Status: PLANNING ONLY — Revision 2.** No branch created, no code written, no repository changes made beyond this document. This revision extends the original spec per a follow-up architecture review, adding: full multi-provider BYOP, delivery radius/min-order/max-distance/fee rules, kitchen capacity management, service fees, an expanded driver-tracking schema, order source tracking, a POS Adapter architecture, a QR Ordering architecture, a future-ready Loyalty schema, and a new Future Reserved Architecture section. Everything from Revision 1 not called out below as changed remains intact.
+
+This spec builds directly on the Sprint 06.5 audit findings (unindexed status columns, no pagination, no cascade deletes, no caching layer, single-instance-only storage/rate-limiting) and on the existing codebase conventions confirmed by inspection: the `routes → controller → service` layering with per-module `validation.ts`/`errors.ts`, the `getOwnRestaurantId` / 404-not-403 tenant-isolation pattern, the `ImportAdapter`-style registry-with-`implemented`-flag pattern proven twice already (Sprint 04 import sources), and the fire-and-forget controller-level event hook pattern proven in Sprint 06's `revalidatePublishedSite`.
 
 One grounding fact worth stating up front: `SiteFacts.hasOnlineOrdering` already exists in the schema/types and every CTA in the public renderer already ranks "Order Now" as the top-priority action — but it is currently hardcoded `false` in `assemble.ts`, and every rendered CTA link points at `#primary-action`, a same-page anchor with nothing behind it. Sprint 07 is what makes that flag true and that link real.
 
@@ -15,311 +17,392 @@ New domain: `apps/api/src/modules/commerce/`, following the existing per-module 
 - `commerce/orders/` — order lifecycle, status transitions, staff-facing management
 - `commerce/payments/` — `PaymentProviderAdapter` interface + `providers/` (stripe, clover, square, authorize-net, adyen, fiserv) + registry
 - `commerce/fulfillment/` — `FulfillmentProviderAdapter` interface + `providers/` (pickup, restaurant-driver, uber-direct, doordash-drive, local-courier) + registry
-- `commerce/delivery-rules/` — zone/rule storage + the Smart Routing Engine
+- `commerce/delivery-rules/` — zone/rule/fee storage + the Smart Routing Engine
 - `commerce/menu-commerce/` — variants, modifiers, inventory (extends, does not fork, the existing `menu` module's data)
 - `commerce/coupons/`
 - `commerce/customers/` — the new end-diner identity (Customer/GuestCustomer), separate from staff `User`
+- `commerce/kitchen/` — **(new)** kitchen capacity/pause state, staff-facing order queue
+- `commerce/pos/` — **(new)** `POSProviderAdapter` interface + `providers/` + registry
+- `commerce/qr-ordering/` — **(new)** table/QR-token management, dine-in checkout entry point
+- `commerce/loyalty/` — **(new)** schema-only future-ready module, no active endpoints in Sprint 07
 - `commerce/events/` — the in-process event emitter and event catalog
 - `commerce/notifications/` — channel-abstracted dispatch
 
-**Dependency direction is strictly one-way and acyclic by design**, learning directly from the one architectural crack the 06.5 audit found in Sprint 06 (the menu→sites circular-import workaround): `checkout` depends on `cart`, `menu-commerce`, `delivery-rules`, and `payments`; `orders` depends on `checkout`'s output only; `fulfillment` depends on `orders` and `delivery-rules`; `events`, `notifications`, and the future `analytics` consumer are pure subscribers that nothing in the core flow imports back. No module in this domain will ever need to reach back into a module that depends on it — if that need arises, it's a signal the boundary is wrong, not a case for another controller-layer workaround.
+**Dependency direction is strictly one-way and acyclic by design**, learning directly from the one architectural crack the 06.5 audit found in Sprint 06 (the menu→sites circular-import workaround): `checkout` depends on `cart`, `menu-commerce`, `delivery-rules`, `kitchen`, and `payments`; `orders` depends on `checkout`'s output only; `fulfillment` depends on `orders` and `delivery-rules`; `pos` and `qr-ordering` are alternate **order-source entry points** that funnel into the same `checkout`/`orders` core rather than duplicating it (see §17–18); `events`, `notifications`, `loyalty`, and the future `analytics` consumer are pure subscribers that nothing in the core flow imports back. No module in this domain will ever need to reach back into a module that depends on it — if that need arises, it's a signal the boundary is wrong, not a case for another controller-layer workaround.
 
 **Core principles enforced structurally, not just by convention:**
-- **BYOP / bring-your-own-delivery** is enforced by construction: `PaymentProvider` and `FulfillmentProvider` are always rows scoped to a `restaurantId` holding *that restaurant's* credentials — there is no platform-wide payment account a restaurant is funneled into.
-- **Adapter-behind-interface** is enforced by construction: nothing outside `payments/providers/*.ts` or `fulfillment/providers/*.ts` may reference a specific provider's SDK or API shape. Orchestration code only ever calls the interface.
+- **Full BYOP** is enforced by construction and is now explicitly a *multi-provider* model, not a one-provider-per-restaurant model: a restaurant may hold several simultaneously `CONNECTED` `PaymentProvider` rows (e.g. Stripe **and** Square **and** Clover at once), each independently BYO — never a platform-wide payment account a restaurant is funneled into. See §4 for the full multi-provider orchestration design.
+- **BYO-delivery** is enforced identically for `FulfillmentProvider`.
+- **BYO-POS** is enforced identically for the new `POSProvider` — a restaurant's existing point-of-sale system is connected to, never replaced (§17).
+- **Adapter-behind-interface** is enforced by construction for all four provider families now: nothing outside `payments/providers/*.ts`, `fulfillment/providers/*.ts`, or `pos/providers/*.ts` may reference a specific provider's SDK or API shape. Orchestration code only ever calls the interface.
 - **Idempotency is a platform-wide requirement, not a per-endpoint choice**: every mutating commerce endpoint that can plausibly be double-submitted (place-order, refund, coupon-redeem) requires an `Idempotency-Key` header, checked against a dedicated dedupe table before the handler runs.
 - **State machines, not booleans**: `Order.status`, `Order.paymentStatus`, `Order.fulfillmentStatus` are each enums with an explicit, centrally-enforced valid-transition table — no code outside one `order-state-machine.ts`-equivalent service function is permitted to write these columns directly, mirroring how error-mapping is already centralized per module today.
+- **One order pipeline, many entry points**: website checkout, QR dine-in checkout, and POS-originated orders all converge on the same `orders` module and the same `OrderEvent`/state-machine core — only the *entry point* (§17, §18) and `Order.source` differ. This is the structural guarantee that adding new order sources later (marketplace, phone/voice — §20) never requires forking the commerce engine.
 
 ---
 
 ## 2. Database Design
 
-Every model below follows the existing schema's conventions (UUID `id`, `createdAt`/`updatedAt` unless the model is genuinely immutable, explicit `@@index` on every FK/status/date column — directly addressing the indexing gap the 06.5 audit found in the current schema). Presented as field specifications, not literal Prisma syntax.
+Every model below follows the existing schema's conventions (UUID `id`, `createdAt`/`updatedAt` unless the model is genuinely immutable, explicit `@@index` on every FK/status/date column — directly addressing the indexing gap the 06.5 audit found in the current schema). Presented as field specifications, not literal Prisma syntax. **New or materially revised models in this revision are marked `[NEW]` / `[REVISED]`.**
 
 ### Identity & Addresses
-- **Customer** — `id`, `email` (unique), `passwordHash?` (nullable — guest-created customers may never set one), `name`, `phone?`. Deliberately a *separate* identity from the existing staff `User`/`Role` model, not an extension of it — diners and restaurant staff are different trust domains and must never share an auth table or a JWT audience.
-- **GuestCustomer** — `id`, `email`, `phone?`, `name`. No password, ever. One-to-one with an `Order` for guest checkouts.
-- **CustomerAddress** — `id`, `customerId`(FK), `label?`, `line1`, `line2?`, `city`, `state`, `postalCode`, `country`, `lat?`, `lng?` (geocoded once at save time, cached — never re-geocoded per checkout), `isDefault`. Index: `[customerId]`.
-- **CustomerFavorite** — `id`, `customerId`(FK), `restaurantId`(FK), `menuItemId`(FK). Unique on `[customerId, menuItemId]`.
-- **CustomerPaymentMethod** — `id`, `customerId`(FK), `providerId`(FK → PaymentProvider), `providerToken`, `brand?`, `last4?`, `expMonth?`, `expYear?`, `isDefault`. Index: `[customerId]`. **Design callout requiring explicit acknowledgment:** because BYOP means every restaurant has its own merchant account, a saved card is only valid against the specific `PaymentProvider` it was tokenized under — it is *not* a platform-wide wallet. The customer UX (§11) must present this as "save this card for [Restaurant]," never implying cross-restaurant reuse.
+- **Customer** — `id`, `email` (unique), `passwordHash?`, `name`, `phone?`. Separate identity from the existing staff `User`/`Role` model.
+- **GuestCustomer** — `id`, `email`, `phone?`, `name`. No password, ever.
+- **CustomerAddress** — `id`, `customerId`(FK), `label?`, `line1`, `line2?`, `city`, `state`, `postalCode`, `country`, `lat?`, `lng?` (geocoded once at save time, cached), `isDefault`. Index: `[customerId]`.
+- **CustomerFavorite** — `id`, `customerId`(FK), `restaurantId`(FK), `menuItemId`(FK). Unique `[customerId, menuItemId]`.
+- **CustomerPaymentMethod** — `id`, `customerId`(FK), `providerId`(FK → PaymentProvider), `providerToken`, `brand?`, `last4?`, `expMonth?`, `expYear?`, `isDefault`. Index: `[customerId]`. A saved card is scoped to the specific `PaymentProvider` it was tokenized under — not a platform-wide wallet.
 
 ### Cart & Checkout
-- **Cart** — `id`, `restaurantId`(FK — a cart never spans restaurants, consistent with tenant isolation), `customerId?`(FK), `guestSessionId?` (anonymous cookie token), `fulfillmentType` (PICKUP|DELIVERY), `status` (ACTIVE|CONVERTED|ABANDONED|EXPIRED), `scheduledFor?`, `deliveryAddressId?`(FK), `notes?`, `expiresAt`. Indexes: `[restaurantId, status]`, `[customerId]`, `[guestSessionId]`.
-- **CartItem** — `id`, `cartId`(FK), `menuItemId`(FK), `variantId?`(FK), `quantity`, `unitPriceCents` (computed and **frozen** at add-time — see §9 pricing rule), `modifiersSnapshot` (JSON), `notes?`. Index: `[cartId]`.
-
-Checkout itself is deliberately **not** a persisted entity — it's a stateless orchestration pipeline over an `ACTIVE` `Cart` (detailed in §3), avoiding schema bloat for what is fundamentally a computed, ephemeral quote.
+- **Cart** — `id`, `restaurantId`(FK), `customerId?`(FK), `guestSessionId?`, `fulfillmentType` `[REVISED: now PICKUP|DELIVERY|DINE_IN]`, `status` (ACTIVE|CONVERTED|ABANDONED|EXPIRED), `scheduledFor?`, `deliveryAddressId?`(FK), `tableId?`(FK Table) `[NEW — only set for DINE_IN]`, `notes?`, `expiresAt`. Indexes: `[restaurantId, status]`, `[customerId]`, `[guestSessionId]`.
+- **CartItem** — `id`, `cartId`(FK), `menuItemId`(FK), `variantId?`(FK), `quantity`, `unitPriceCents` (frozen at add-time), `modifiersSnapshot`(JSON), `notes?`. Index: `[cartId]`.
 
 ### Orders (the durable financial record)
-- **Order** — `id`, `orderNumber` (sequential per restaurant, human-readable), `restaurantId`(FK), `customerId?`(FK), `guestCustomerId?`(FK), `cartId?`(FK), `fulfillmentType`, `status`, `paymentStatus`, `fulfillmentStatus`, `subtotalCents`, `taxCents`, `tipCents`, `deliveryFeeCents`, `discountCents`, `totalCents`, `currency`, `scheduledFor?`, `deliveryAddressId?`(FK), `deliveryInstructions?`, `notes?`, `placedAt`, `confirmedAt?`, `readyAt?`, `completedAt?`, `cancelledAt?`, `cancellationReason?`. Indexes: `[restaurantId, status]`, `[restaurantId, createdAt]`, `[customerId]`; unique `[restaurantId, orderNumber]`.
-- **OrderItem** — `id`, `orderId`(FK), `menuItemId`(FK — reference only), `nameSnapshot`, `variantNameSnapshot?`, `unitPriceCents`, `quantity`, `modifiersSnapshot`(JSON), `lineTotalCents`. Index: `[orderId]`. **Explicit, deliberate divergence from Sprint 06's "menu always renders live" principle**: that principle governs *display*; a financial record must be the opposite — frozen at the instant of purchase and never recomputed even if the menu changes later.
-- **OrderEvent** — append-only, no `updatedAt`. `id`, `orderId`(FK), `type` (full catalog in §12), `payload`(JSON), `actorType` (SYSTEM|STAFF|CUSTOMER|PROVIDER_WEBHOOK), `actorId?`, `createdAt`. Index: `[orderId, createdAt]`. This is the single source of truth for everything that happened to an order — the backbone of §12's event architecture and §14's audit trail.
-- **OrderTimeline** — `id`, `orderId`(FK), `milestone` (a curated customer-facing subset: PLACED, CONFIRMED, PREPARING, READY, OUT_FOR_DELIVERY, DELIVERED/PICKED_UP, COMPLETED, CANCELLED), `occurredAt`. Index: `[orderId]`. **Why both OrderEvent and OrderTimeline exist as separate models**, since the brief lists both: `OrderEvent` is the complete internal log, including noisy/internal events (`PAYMENT_RETRY_ATTEMPTED`, `FRAUD_SIGNAL_RAISED`) that must never reach a customer-facing tracking page. `OrderTimeline` is a small, curated projection written alongside select events specifically for that tracking UI, so the customer-facing query never has to filter or interpret a large heterogeneous log.
+- **Order** `[REVISED]` — `id`, `orderNumber`, `restaurantId`(FK), `customerId?`(FK), `guestCustomerId?`(FK), `cartId?`(FK), `fulfillmentType` (PICKUP|DELIVERY|DINE_IN), `source` (OrderSource enum — **`[NEW]`**, see §16), `tableId?`(FK Table — **`[NEW]`**, dine-in only), `status`, `paymentStatus`, `fulfillmentStatus`, `subtotalCents`, `taxCents`, `tipCents`, `deliveryFeeCents`, `serviceFeeCents` (**`[NEW]`**, see §7), `discountCents`, `totalCents`, `currency`, `scheduledFor?`, `deliveryAddressId?`(FK), `deliveryInstructions?`, `notes?`, `placedAt`, `confirmedAt?`, `readyAt?`, `completedAt?`, `cancelledAt?`, `cancellationReason?`. Indexes: `[restaurantId, status]`, `[restaurantId, createdAt]`, `[restaurantId, source]` (**`[NEW]`** — owner reporting by channel), `[customerId]`; unique `[restaurantId, orderNumber]`.
+- **OrderItem** — unchanged from Revision 1: `id`, `orderId`(FK), `menuItemId`(FK), `nameSnapshot`, `variantNameSnapshot?`, `unitPriceCents`, `quantity`, `modifiersSnapshot`(JSON), `lineTotalCents`. Index: `[orderId]`. Frozen financial snapshot, deliberately divergent from the live-menu-render principle.
+- **OrderEvent** — append-only. `id`, `orderId`(FK), `type`, `payload`(JSON), `actorType` (SYSTEM|STAFF|CUSTOMER|PROVIDER_WEBHOOK), `actorId?`, `createdAt`. Index: `[orderId, createdAt]`.
+- **OrderTimeline** — `id`, `orderId`(FK), `milestone`, `occurredAt`. Index: `[orderId]`.
 
-### Payments (BYOP)
-- **PaymentProvider** — a restaurant's connected merchant account. `id`, `restaurantId`(FK), `providerType` (STRIPE|CLOVER|SQUARE|AUTHORIZE_NET|ADYEN|FISERV), `status` (PENDING_CONNECTION|CONNECTED|DISCONNECTED|ERROR), `credentialsEncrypted`, `externalAccountId`, `webhookSecretEncrypted`, `implemented` (mirrors `ImportAdapter.implemented` exactly), `connectedAt?`. Unique `[restaurantId, providerType]`; index `[restaurantId]`.
-- **PaymentMethod** — the per-restaurant enable/disable toggle. `id`, `restaurantId`(FK), `providerId`(FK), `methodType` (APPLE_PAY|GOOGLE_PAY|VISA|MASTERCARD|AMEX|DISCOVER|CASH_ON_DELIVERY|CASH_AT_PICKUP), `isEnabled`. Unique `[restaurantId, methodType]`.
-- **PaymentAttempt** — one row per authorization try (supports retry). `id`, `orderId`(FK), `providerId`(FK), `methodType`, `attemptNumber`, `status` (PENDING|AUTHORIZED|FAILED|CAPTURED|VOIDED), `providerPaymentIntentId`, `failureCode?`, `failureMessage?`, `amountCents`. Index: `[orderId]`.
-- **Payment** — the settled record for an order, aggregating across attempts. `id`, `orderId`(FK, unique), `providerId`(FK), `successfulAttemptId?`(FK), `status` (PENDING|AUTHORIZED|CAPTURED|PARTIALLY_REFUNDED|REFUNDED|FAILED|VOIDED), `authorizedAmountCents`, `capturedAmountCents`, `refundedAmountCents` (default 0), `capturedAt?`.
-- **Refund** — `id`, `paymentId`(FK), `orderId`(FK, denormalized), `amountCents`, `reason` (CUSTOMER_REQUEST|ORDER_CANCELLED|ITEM_UNAVAILABLE|QUALITY_ISSUE|OTHER), `status` (PENDING|PROCESSING|COMPLETED|FAILED), `providerRefundId`, `initiatedById?` (staff `User`, nullable for system-initiated).
-- **Transaction** — append-only ledger, the reconciliation backbone. `id`, `orderId`(FK), `restaurantId`(FK, denormalized), `type` (CHARGE|REFUND|TIP|PLATFORM_FEE|ADJUSTMENT), `amountCents` (signed), `providerTransactionId?`. Index: `[restaurantId, createdAt]`. **The `restaurantId`/`orderId` denormalization here is a deliberate, explicit divergence from the transitive-FK pattern the 06.5 audit flagged as a risk in Sprint 06** — financial audit records must remain directly queryable regardless of how intermediate join paths evolve.
-- **Tip** — `id`, `orderId`(FK, unique), `amountCents`, `percentage?`, `recipientType` (RESTAURANT_POOL|DRIVER). `Order.tipCents` remains the fast-read denormalized total; `Tip` is the attribution detail, which matters once driver tips need separate reporting from restaurant tips.
-- **Tax** — `id`, `restaurantId`(FK), `jurisdiction`, `rateBasisPoints`, `appliesTo` (FOOD|DELIVERY_FEE|ALL), `isActive`. `Order.taxCents` is a frozen snapshot computed at order time, never retroactively recalculated if a `Tax` row changes later — same freeze-the-money-math principle as `OrderItem`.
+### Payments (Full Multi-Provider BYOP) `[REVISED]`
+- **PaymentProvider** `[REVISED]` — a restaurant's connected merchant account. `id`, `restaurantId`(FK), `providerType` (STRIPE|CLOVER|SQUARE|AUTHORIZE_NET|ADYEN|FISERV), `displayName?` (**`[NEW]`** — owner-facing label, e.g. "Stripe — Cards", "Square — Backup", meaningful once multiple providers coexist), `status` (PENDING_CONNECTION|CONNECTED|DISCONNECTED|ERROR), `priority` (**`[NEW]`** — Int, used for provider-level failover ordering, see §4), `isDefault` (**`[NEW]`** — exactly one `CONNECTED` provider per restaurant may be default), `credentialsEncrypted`, `externalAccountId`, `webhookSecretEncrypted`, `implemented`, `connectedAt?`. Unique `[restaurantId, providerType]` (still prevents two simultaneous connections of the *same* provider type — a restaurant cannot connect two different Stripe accounts — but nothing prevents holding rows across multiple *different* types at once; a restaurant with Stripe + Square + Clover all `CONNECTED` simultaneously is the expected, supported shape, not an edge case). Index `[restaurantId, status]`.
+- **PaymentMethod** — `id`, `restaurantId`(FK), `providerId`(FK — the *primary* provider routed for this method type), `methodType` (APPLE_PAY|GOOGLE_PAY|VISA|MASTERCARD|AMEX|DISCOVER|CASH_ON_DELIVERY|CASH_AT_PICKUP), `isEnabled`. Unique `[restaurantId, methodType]` — one active primary routing per method type; provider-level fallback (if the primary provider is unavailable) is resolved dynamically at authorization time by orchestration logic (§4), not by a second schema row, keeping the method-to-provider mapping simple to reason about while still supporting resilience.
+- **PaymentAttempt** — `id`, `orderId`(FK), `providerId`(FK), `methodType`, `attemptNumber`, `status`, `providerPaymentIntentId`, `failureCode?`, `failureMessage?`, `amountCents`. Index: `[orderId]`. Because attempts can now legitimately span *different* `PaymentProvider`s for the same order (provider-level failover, §4), `attemptNumber` counts across all providers tried, not just retries within one.
+- **Payment** — `id`, `orderId`(FK, unique), `providerId`(FK — the provider that ultimately succeeded), `successfulAttemptId?`(FK), `status`, `authorizedAmountCents`, `capturedAmountCents`, `refundedAmountCents`, `capturedAt?`.
+- **Refund** — `id`, `paymentId`(FK), `orderId`(FK, denormalized), `amountCents`, `reason`, `status`, `providerRefundId`, `initiatedById?`.
+- **Transaction** — append-only ledger. `id`, `orderId`(FK), `restaurantId`(FK, denormalized), `type` (CHARGE|REFUND|TIP|PLATFORM_FEE|SERVICE_FEE|ADJUSTMENT — `SERVICE_FEE` **`[NEW]`**), `amountCents` (signed), `providerTransactionId?`. Index: `[restaurantId, createdAt]`.
+- **Tip** — `id`, `orderId`(FK, unique), `amountCents`, `percentage?`, `recipientType` (RESTAURANT_POOL|DRIVER).
+- **Tax** — `id`, `restaurantId`(FK), `jurisdiction`, `rateBasisPoints`, `appliesTo` (FOOD|DELIVERY_FEE|ALL), `isActive`.
 - **Coupon** — `id`, `restaurantId`(FK), `code`, `type` (PERCENTAGE|FIXED_AMOUNT|FREE_DELIVERY), `value`, `minOrderCents?`, `maxDiscountCents?`, `startsAt?`, `expiresAt?`, `maxRedemptions?`, `maxRedemptionsPerCustomer?`, `isActive`. Unique `[restaurantId, code]`.
-- **CouponRedemption** — a necessary supporting model not in the brief's example list but required to correctly enforce `maxRedemptionsPerCustomer`. `id`, `couponId`(FK), `orderId`(FK, unique — one coupon per order in v1), `customerId?`(FK), `guestCustomerId?`(FK), `discountAppliedCents`.
-- **GiftCard** / **GiftCardTransaction** — modeled now per the "future-ready" instruction, but **schema-only in Sprint 07**: no checkout UI wiring. `GiftCard`: `id`, `restaurantId`(FK), `code` (unique), `initialBalanceCents`, `currentBalanceCents`, `status` (ACTIVE|REDEEMED|EXPIRED|CANCELLED), `issuedToEmail?`, `expiresAt?`. `GiftCardTransaction` mirrors `Transaction`'s ledger pattern. Explicitly deferred activation avoids shipping a half-built payment-adjacent feature.
+- **CouponRedemption** — `id`, `couponId`(FK), `orderId`(FK, unique), `customerId?`(FK), `guestCustomerId?`(FK), `discountAppliedCents`.
+- **GiftCard** / **GiftCardTransaction** — **explicitly reaffirmed schema-only in Sprint 07**, no checkout UI wiring, per the original decision and this revision's brief. `GiftCard`: `id`, `restaurantId`(FK), `code`(unique), `initialBalanceCents`, `currentBalanceCents`, `status` (ACTIVE|REDEEMED|EXPIRED|CANCELLED), `issuedToEmail?`, `expiresAt?`. `GiftCardTransaction` mirrors `Transaction`'s ledger pattern.
 
-### Fulfillment
-- **Fulfillment** — one per order, tracks *execution* (distinct from `Order.fulfillmentType`, the customer's *choice*). `id`, `orderId`(FK, unique), `restaurantId`(FK), `method` (PICKUP|RESTAURANT_DRIVER|UBER_DIRECT|DOORDASH_DRIVE|LOCAL_COURIER), `status` (UNASSIGNED|ASSIGNED|EN_ROUTE_TO_RESTAURANT|PICKED_UP|EN_ROUTE_TO_CUSTOMER|DELIVERED|PICKUP_READY|PICKED_UP_BY_CUSTOMER|FAILED|CANCELLED), `estimatedReadyAt?`, `estimatedDeliveryAt?`, `actualPickedUpAt?`, `actualDeliveredAt?`, `providerId?`(FK), `externalDeliveryId?`.
-- **FulfillmentProvider** — mirrors `PaymentProvider` exactly (BYO-delivery-provider). `id`, `restaurantId`(FK), `providerType` (UBER_DIRECT|DOORDASH_DRIVE|LOCAL_COURIER), `status`, `credentialsEncrypted`, `implemented`. Unique `[restaurantId, providerType]`.
-- **DriverAssignment** — for `RESTAURANT_DRIVER` only. `id`, `fulfillmentId`(FK, unique), `driverId`(FK → existing `User`, role `RESTAURANT_STAFF` — deliberately reuses the existing staff identity rather than inventing a parallel Driver model), `assignedAt`, `acceptedAt?`, `status` (OFFERED|ACCEPTED|DECLINED|EN_ROUTE|DELIVERED), `currentLat?`, `currentLng?`, `lastLocationAt?`.
-- **DeliveryZone** — `id`, `restaurantId`(FK), `name`, `geometry` (JSON — polygon or radius-based, discriminated by a `shapeType` field), `isActive`.
-- **DeliveryRule** — `id`, `restaurantId`(FK), `zoneId?`(FK), `minDistanceMiles?`, `maxDistanceMiles?`, `fulfillmentMethod`, `priority`, `fallbackToRuleId?` (self-relation), `isActive`. Index: `[restaurantId, priority]`. Directly implements the mile-tiered example from the brief as **data**, evaluated by the Smart Routing Engine — never hardcoded logic.
+### Delivery Configuration & Fees `[NEW]`
+- **DeliveryConfig** `[NEW]` — one row per restaurant. `id`, `restaurantId`(FK, unique), `isDeliveryEnabled`, `isPickupEnabled`, `isDineInEnabled`, `deliveryRadiusMiles?` (a simple single-radius fast path — a plain circle around the restaurant's geocoded location, used when a restaurant hasn't configured granular `DeliveryZone`/`DeliveryRule` rows; purely a display/eligibility convenience once zones exist, superseded by them), `maxDeliveryDistanceMiles` (**hard ceiling** — checked first by the Smart Routing Engine as a cheap early-exit, applies regardless of radius/zone mode), `minOrderCentsForDelivery` (default 0), `minOrderCentsForPickup?` (default 0, rarely used but supported for parity). Explains the relationship precisely: `deliveryRadiusMiles` is the *simple* mode; `DeliveryZone`/`DeliveryRule` are the *advanced* mode; `maxDeliveryDistanceMiles` is an absolute cap that applies under either mode.
+- **DeliveryFeeRule** `[NEW]` — `id`, `restaurantId`(FK), `name?`, `minDistanceMiles?`, `maxDistanceMiles?`, `feeType` (FLAT|PER_MILE|PERCENTAGE_OF_SUBTOTAL), `feeValue` (Int — **dual-unit convention, called out explicitly to avoid ambiguity**: cents for `FLAT`/`PER_MILE`, basis points for `PERCENTAGE_OF_SUBTOTAL`), `priority`, `isActive`. Index `[restaurantId, priority]`. Evaluated in priority order by the Smart Routing Engine at quote time; `Order.deliveryFeeCents` is the frozen computed result.
+- **ServiceFeeRule** `[NEW]` — `id`, `restaurantId`(FK), `name` (owner-facing, e.g. "Service Fee", shown as a labeled line item so it's never mistaken for a hidden markup), `feeType` (FLAT|PERCENTAGE_OF_SUBTOTAL), `feeValue` (same dual-unit convention as `DeliveryFeeRule`), `appliesTo` (ALL_ORDERS|DELIVERY_ONLY|PICKUP_ONLY|DINE_IN_ONLY), `isActive`. Index `[restaurantId]`. `Order.serviceFeeCents` is the frozen computed result, always itemized separately from tip and delivery fee — a service fee funds the restaurant's operations (e.g. processing-fee passthrough), never confused with a driver tip.
 
-### Menu Commerce (extends, does not fork, `MenuItem`)
+### Kitchen Capacity `[NEW]`
+- **KitchenCapacity** `[NEW]` — one row per restaurant. `id`, `restaurantId`(FK, unique), `isAcceptingOrders` (manual staff/owner pause toggle — the "pause the kitchen" emergency control), `maxConcurrentOrders?` (nullable; if set, new orders auto-pause once the count of `CONFIRMED`/`PREPARING` orders reaches this), `avgPrepTimeMinutes?` (feeds estimated-ready/estimated-delivery calculations shown to customers), `updatedAt`. Read by the Smart Routing Engine's "kitchen busy?" check (§8), replacing the placeholder flag described in Revision 1 with a real, owner-configurable model.
+
+### Fulfillment & Driver Tracking `[REVISED]`
+- **Fulfillment** — `id`, `orderId`(FK, unique), `restaurantId`(FK), `method` (PICKUP|RESTAURANT_DRIVER|UBER_DIRECT|DOORDASH_DRIVE|LOCAL_COURIER), `status`, `estimatedReadyAt?`, `estimatedDeliveryAt?`, `actualPickedUpAt?`, `actualDeliveredAt?`, `providerId?`(FK), `externalDeliveryId?`.
+- **FulfillmentProvider** — `id`, `restaurantId`(FK), `providerType` (UBER_DIRECT|DOORDASH_DRIVE|LOCAL_COURIER), `status`, `credentialsEncrypted`, `implemented`. Unique `[restaurantId, providerType]`. Same multi-provider-capable shape as `PaymentProvider`, though Sprint 07's stub providers make this less immediately relevant than payments.
+- **DriverAssignment** — `id`, `fulfillmentId`(FK, unique), `driverId`(FK → `User`, role `RESTAURANT_STAFF`), `assignedAt`, `acceptedAt?`, `status` (OFFERED|ACCEPTED|DECLINED|EN_ROUTE|DELIVERED), `currentLat?`, `currentLng?` (denormalized **latest known position**, for fast reads without scanning history), `lastLocationAt?`.
+- **DriverLocationPing** `[NEW]` — append-only tracking history, distinct from `DriverAssignment`'s denormalized "current position" fields (same current-state-vs-append-log split already proven by `OrderEvent`/`OrderTimeline`). `id`, `driverAssignmentId`(FK), `lat`, `lng`, `recordedAt`. Index `[driverAssignmentId, recordedAt]`. Populated by polling in Sprint 07 (consistent with §6's "polling only, no websockets" scope decision); the schema is push-ready for real-time updates later without a migration.
+- **DeliveryZone** — `id`, `restaurantId`(FK), `name`, `geometry`(JSON), `isActive`.
+- **DeliveryRule** — `id`, `restaurantId`(FK), `zoneId?`(FK), `minDistanceMiles?`, `maxDistanceMiles?`, `fulfillmentMethod`, `priority`, `fallbackToRuleId?`(self-relation), `isActive`. Index `[restaurantId, priority]`.
+
+### Menu Commerce
 - **MenuItemVariant** — `id`, `menuItemId`(FK), `name`, `priceDeltaCents`, `sortOrder`, `isDefault`.
-- **ModifierGroup** — `id`, `restaurantId`(FK — reusable across items, e.g. "Choose your sauce"), `name`, `selectionType` (SINGLE|MULTIPLE), `isRequired`, `minSelections`, `maxSelections?`.
+- **ModifierGroup** — `id`, `restaurantId`(FK), `name`, `selectionType` (SINGLE|MULTIPLE), `isRequired`, `minSelections`, `maxSelections?`.
 - **ModifierOption** — `id`, `modifierGroupId`(FK), `name`, `priceDeltaCents`, `isAvailable`, `sortOrder`.
-- **MenuItemModifierGroup** — explicit join table (unique `[menuItemId, modifierGroupId]`), following the schema's existing avoidance of implicit many-to-many.
-- **MenuItemInventory** — `id`, `menuItemId`(FK, unique), `trackInventory` (default false — opt-in, most small restaurants won't want formal stock counts), `quantityAvailable?`, `lowStockThreshold?`, `isTemporarilyOutOfStock` (default false — independent of `trackInventory`, the everyday "86 the salmon" action), `outOfStockUntil?`.
+- **MenuItemModifierGroup** — join table, unique `[menuItemId, modifierGroupId]`.
+- **MenuItemInventory** — `id`, `menuItemId`(FK, unique), `trackInventory`, `quantityAvailable?`, `lowStockThreshold?`, `isTemporarilyOutOfStock`, `outOfStockUntil?`.
 
-### Supporting (not in the brief's example list, but necessary for correctness)
-- **NotificationLog** — `id`, `orderId?`(FK), `restaurantId?`(FK), `customerId?`(FK), `channel`, `type`, `status` (QUEUED|SENT|FAILED|SKIPPED_CHANNEL_DISABLED), `providerMessageId?`, `error?`.
-- **WebhookEvent** — `id`, `source` (e.g. "stripe", "uber_direct"), `externalEventId`, `payload`(JSON), `signatureVerified`, `status` (RECEIVED|PROCESSED|FAILED|IGNORED_DUPLICATE). Unique `[source, externalEventId]` — this *is* the webhook idempotency mechanism.
-- **IdempotencyKey** — `id`, `key` (unique), `restaurantId?`, `endpoint`, `responseSnapshot?`(JSON), `status` (IN_PROGRESS|COMPLETED|FAILED), `expiresAt`. Index: `[expiresAt]` for a cleanup job. **This table must be backed by Postgres, never an in-memory structure** — see §16, this is a correctness requirement, not a performance nicety.
-- **FraudSignal** — `id`, `orderId`(FK), `signalType` (DUPLICATE_ORDER_SUSPECTED|VELOCITY_LIMIT_EXCEEDED|CARD_MISMATCH|HIGH_RISK_LOCATION|MANUAL_REVIEW_REQUESTED), `severity`, `details`(JSON), `resolvedAt?`, `resolvedById?`.
+### QR Ordering `[NEW]`
+- **Table** `[NEW]` — `id`, `restaurantId`(FK), `label` (e.g. "Table 12", "Patio 3"), `qrToken` (unique, opaque random token embedded in the generated QR code's target URL), `isActive`. Index `[restaurantId]`. See §18.
 
-### Cascade behavior — an explicit fix for the audit's #1 schema finding
-Unlike the current schema (zero `onDelete` clauses anywhere), every relation above should be given a *deliberate* cascade decision at migration time: `Cart`/`CartItem` cascade-delete with their parent (ephemeral data, safe to lose); `Order`/`OrderItem`/`Payment`/`Transaction`/`OrderEvent` **must never cascade-delete** on `Restaurant` deletion — they are financial/legal records requiring `Restrict` plus an explicit archival/anonymization service for any future tenant-offboarding flow (tracked as part of the audit's already-recommended Sprint 09 hardening work, not blocking here, but the schema must not make silent cascade-deletion of financial history *possible* by omission the way it currently does).
+### POS Integration `[NEW]`
+- **POSProvider** `[NEW]` — `id`, `restaurantId`(FK), `providerType` (SQUARE_POS|CLOVER_POS|TOAST|LIGHTSPEED|GENERIC), `status` (PENDING_CONNECTION|CONNECTED|DISCONNECTED|ERROR), `credentialsEncrypted`, `syncDirection` (MENU_IMPORT|ORDER_EXPORT|BIDIRECTIONAL), `implemented`, `connectedAt?`. Unique `[restaurantId, providerType]`. See §17.
+- **POSSyncLog** `[NEW]` — `id`, `posProviderId`(FK), `direction` (MENU_IMPORT|ORDER_EXPORT), `status` (SUCCESS|PARTIAL|FAILED), `itemsSynced`, `errorMessage?`, `syncedAt`. Index `[posProviderId, syncedAt]`.
+
+### Loyalty (Future-Ready, Schema-Only) `[NEW]`
+- **LoyaltyProgram** `[NEW]` — `id`, `restaurantId`(FK, unique), `pointsPerDollarCents` (points earned per dollar spent), `redemptionRateCentsPerPoint` (value of one point when redeemed), `isActive`. See §19.
+- **LoyaltyAccount** `[NEW]` — `id`, `customerId`(FK), `restaurantId`(FK), `pointsBalance` (default 0). Unique `[customerId, restaurantId]` — points are per-restaurant, not a platform-wide currency, for the same reason saved cards are per-restaurant-provider (each restaurant's loyalty program is its own).
+- **LoyaltyTransaction** `[NEW]` — append-only. `id`, `loyaltyAccountId`(FK), `orderId?`(FK), `points` (signed), `type` (EARN|REDEEM|ADJUST|EXPIRE), `createdAt`. Index `[loyaltyAccountId, createdAt]`.
+- **Explicitly schema-only in Sprint 07**: no points are earned or redeemed anywhere in the checkout flow; no UI surfaces a balance. The model exists purely so points can start accruing in a later sprint without a migration — same treatment as `GiftCard`.
+
+### Supporting
+- **NotificationLog** — `id`, `orderId?`(FK), `restaurantId?`(FK), `customerId?`(FK), `channel`, `type`, `status`, `providerMessageId?`, `error?`.
+- **WebhookEvent** — `id`, `source`, `externalEventId`, `payload`(JSON), `signatureVerified`, `status`. Unique `[source, externalEventId]`.
+- **IdempotencyKey** — `id`, `key`(unique), `restaurantId?`, `endpoint`, `responseSnapshot?`(JSON), `status`, `expiresAt`. Index `[expiresAt]`.
+- **FraudSignal** — `id`, `orderId`(FK), `signalType`, `severity`, `details`(JSON), `resolvedAt?`, `resolvedById?`.
+
+### Cascade behavior
+Unchanged principle from Revision 1: `Cart`/`CartItem` cascade-delete with their parent (ephemeral, safe to lose); `Order`/`OrderItem`/`Payment`/`Transaction`/`OrderEvent` **must never cascade-delete** on `Restaurant` deletion — financial/legal records requiring `Restrict` plus an explicit archival/anonymization service (Sprint 09 hardening work, not blocking here). `DriverLocationPing`, `POSSyncLog`, and `LoyaltyTransaction` (all append-only logs) follow the same `Restrict`-not-`Cascade` treatment as `Transaction`/`OrderEvent`, for the same audit-trail-integrity reason.
 
 ---
 
 ## 3. Checkout Engine
 
-Checkout is a stateless pipeline over an `ACTIVE` `Cart`, not a persisted entity:
+Checkout is a stateless pipeline over an `ACTIVE` `Cart`:
 
-1. **Fulfillment selection** (pickup/delivery) — delivery requires a saved or entered address; triggers `DeliveryRule` evaluation for eligibility and fee.
-2. **Scheduling** (ASAP vs. a future time), validated against restaurant open hours. This forces a decision the 06.5 audit already flagged as missing: **Sprint 07 must introduce a structured hours model** (days/open-close times), since scheduled-order validation cannot work against the current free-text `hours` field. This is the first real consumer of structured hours, ahead of the JSON-LD use case noted in the audit.
+1. **Fulfillment selection** — pickup, delivery, or **dine-in** `[REVISED — dine-in added]`. Delivery requires an address and triggers `DeliveryConfig`/`DeliveryZone`/`DeliveryRule` evaluation. Dine-in is entered exclusively via a scanned `Table` QR code (§18) and skips address/scheduling entirely.
+2. **Scheduling** (ASAP vs. future time), validated against restaurant open hours (structured hours model, introduced in Sprint 07 as a checkout-scheduling prerequisite).
 3. **Item review** — quantities/modifiers editable in place.
-4. **Delivery instructions / order notes** — free text, length-capped, sanitized before storage and reused wherever it's later displayed (reusing the `escapeHtml` discipline already established in the renderer).
-5. **Coupon application** — validated against `Coupon` rules and `CouponRedemption` limits at *quote* time and re-validated at placement time (coupons can expire or hit their cap between the two).
-6. **Tip selection** — percentage presets + custom amount, computed off subtotal (configurable whether tax is included in the tip base).
-7. **Tax calculation** — via the `Tax` rules engine, jurisdiction resolved from restaurant location (pickup) or delivery address (delivery), per restaurant configuration.
-8. **Quote lock** — a `CheckoutQuote` is computed and returned to the client but **not persisted**; it carries a short expiry (e.g. 10 minutes) enforced at placement time, so a customer can't sit on a stale price and then pay a now-incorrect total.
-9. **Payment method selection** — filtered to the intersection of `PaymentMethod.isEnabled` and whatever the Smart Routing Engine (§8) allows for the chosen fulfillment method.
-10. **Order placement** — one atomic transaction: re-validate the quote hasn't expired or drifted (current menu prices, current coupon validity), authorize payment, create `Order` + `OrderItem`s + `Fulfillment` + the initial `OrderEvent` together; all downstream effects (notifications, timeline projection) fire asynchronously afterward via the event system (§12), never inside the transaction.
+4. **Delivery instructions / order notes** — sanitized before storage, reusing the renderer's `escapeHtml` discipline.
+5. **Coupon application** — validated against `Coupon` rules and `CouponRedemption` limits at quote time, re-validated at placement.
+6. **Minimum order amount check** `[NEW]` — the quote step validates `Cart` subtotal against `DeliveryConfig.minOrderCentsForDelivery`/`minOrderCentsForPickup` for the selected fulfillment type; failing this blocks proceeding to payment with a clear "add $X more to your order" message, not a checkout-time surprise.
+7. **Tip selection** — percentage presets + custom amount.
+8. **Delivery fee computation** `[NEW]` — resolved via `DeliveryFeeRule` (§7) once distance is known.
+9. **Service fee computation** `[NEW]` — resolved via `ServiceFeeRule` (§7) based on the order's fulfillment type.
+10. **Tax calculation** — via the `Tax` rules engine.
+11. **Quote lock** — a `CheckoutQuote` computed and returned but **not persisted**, short expiry enforced at placement.
+12. **Payment method selection** — filtered to the intersection of enabled `PaymentMethod`s and what the Smart Routing Engine allows, now also considering which of the restaurant's (potentially several) `PaymentProvider`s is actually reachable (§4).
+13. **Order placement** — one atomic transaction: re-validate the quote (price drift, coupon validity, minimum order amount, max distance), authorize payment (with provider-level failover if the primary is down), create `Order` (with `source` set — §16) + `OrderItem`s + `Fulfillment` + the initial `OrderEvent`; downstream effects fire asynchronously via the event system.
 
-Gift card redemption is schema-ready (§2) but explicitly **not** a Sprint 07 checkout step.
+Gift card redemption and loyalty-point earn/redeem remain schema-ready but **not** Sprint 07 checkout steps.
 
 ---
 
-## 4. Payment Orchestration Engine
+## 4. Payment Orchestration Engine — Full Multi-Provider BYOP `[REVISED]`
 
-**`PaymentProviderAdapter` interface** (implemented per provider, called only by orchestration code): `authorize(orderId, amountCents, methodToken)`, `capture(paymentAttemptId, amountCents?)`, `void(paymentAttemptId)`, `refund(paymentId, amountCents, reason)`, `getStatus(providerPaymentIntentId)`, `verifyWebhookSignature(rawBody, signatureHeader, secret)`, `parseWebhookEvent(payload)`.
+**`PaymentProviderAdapter` interface** (unchanged shape): `authorize(orderId, amountCents, methodToken)`, `capture(paymentAttemptId, amountCents?)`, `void(paymentAttemptId)`, `refund(paymentId, amountCents, reason)`, `getStatus(providerPaymentIntentId)`, `verifyWebhookSignature(rawBody, signatureHeader, secret)`, `parseWebhookEvent(payload)`.
 
-**Registry**, mirroring the `ImportAdapter` registry exactly: one map from `PaymentProviderType` to adapter, each declaring `implemented: boolean`. **Sprint 07 ships Stripe as `implemented: true`** (best-documented REST + webhook model, strong BYOP support since a restaurant connects their own Stripe account rather than being folded into a platform-owned one); **Clover, Square, Authorize.net, Adyen, and Fiserv are registered stub adapters** (`implemented: false`, return a clear "not yet available" error if a restaurant attempts to connect one) — the exact "ship one, prove the abstraction, stub the rest" pattern already validated twice (Sprint 04 PDF/Image vs. DoorDash/UberEats/Grubhub; Sprint 05 Website/Google Maps).
+**Registry**, mirroring the `ImportAdapter` registry exactly: one map from `PaymentProviderType` to adapter, each declaring `implemented: boolean`. **Stripe ships `implemented: true`**; Clover, Square, Authorize.net, Adyen, and Fiserv are registered stub adapters (`implemented: false`).
 
-- **Authorize vs. capture**: default is auth+capture together at placement for immediate orders; auth-only-then-capture-on-confirmation is an optional per-restaurant mode for scheduled orders, avoiding holding funds on an order the kitchen might reject.
-- **Retry logic**: `PaymentAttempt` supports multiple tries; a declined card lets the customer pick a different method without losing the cart. Distinguish *hard decline* (customer must choose another method) from *provider outage* (5xx/timeout — queued for background retry, never silently marked failed; if the outage persists, checkout surfaces "payment temporarily unavailable" up front rather than stacking failed attempts).
-- **Webhooks**: processed asynchronously via a background job, never inline in the HTTP handler (avoids holding the connection and allows retry). Every inbound webhook is written to `WebhookEvent` first; signature verification is mandatory before anything is trusted, reusing the "never trust unvalidated external input" discipline already established for `safeFetch` in Sprint 05; `[source, externalEventId]` uniqueness is the idempotent-replay guard.
+**Multiple providers per restaurant — the core of this revision's BYOP expansion**: a restaurant is not limited to one connected processor. A restaurant can, for example, connect Stripe as its primary card processor and Square as a backup, or connect two providers because different `PaymentMethod`s route to different providers by owner preference. Concretely:
+
+- Each `PaymentMethod` row names exactly one *primary* `PaymentProvider` via `providerId` — this keeps the common case (one provider handling everything) simple to configure and reason about.
+- Each `PaymentProvider` carries a `priority` and an `isDefault` flag. **Provider-level failover** is orchestration logic, not a schema relationship: if the primary provider for a chosen `PaymentMethod` is not `CONNECTED` (disconnected, in `ERROR` status, or reports a hard outage during authorization), the orchestrator looks for another `CONNECTED` provider — ordered by `priority` — that supports the same method type, and retries the authorization against it, recording a new `PaymentAttempt` row against the fallback provider. If no fallback exists, the customer sees a clear "payment temporarily unavailable" message rather than a silent failure.
+- This is deliberately **not** exposed as "restaurant picks a provider per order" — customers never choose a processor; they choose a payment method (card, Apple Pay, etc.), and provider routing/failover happens transparently underneath, exactly as it would with any real-world multi-acquirer setup.
+- `CustomerPaymentMethod` tokens remain scoped to the specific provider they were created under (§2) — a saved card tokenized against Stripe cannot be silently replayed against Square if failover occurs; a failed saved-card charge on a down provider prompts the customer to re-enter payment details rather than attempting a cross-provider token reuse that would not work in practice.
+
+**Authorize vs. capture, retry logic, webhook processing**: unchanged from Revision 1 — auth+capture together by default for immediate orders, auth-only-then-capture-on-confirmation as an optional scheduled-order mode; `PaymentAttempt` supports multiple tries (now potentially across providers, not just within one); every inbound webhook is written to `WebhookEvent` first, signature-verified before being trusted, deduplicated via `[source, externalEventId]` uniqueness, and processed asynchronously via a background job.
 
 ---
 
 ## 5. Payment Methods
 
-- Card networks (Visa/Mastercard/Amex/Discover) are exposed as individually toggleable `PaymentMethod` rows for restaurant-preference reasons (e.g. avoiding Amex's higher fees is a real, common ask) — honestly noting that most processors don't enforce network-level blocking natively, so the Stripe adapter must validate/reject a disabled network at authorization time rather than assume the toggle alone is enforced upstream.
-- Apple Pay / Google Pay are wallet layers, not separate processors — routed through the same `PaymentProvider` via the provider's native payment-request integration (e.g. Stripe Payment Element), just another `PaymentMethodType`.
-- Cash on Delivery / Cash at Pickup bypass `PaymentProviderAdapter` entirely: `Order.paymentStatus` starts `UNPAID`, staff mark it `PAID` on delivery/pickup (a dashboard action). No `PaymentAttempt`/`Payment` row is created, but a `Transaction` row still is, so the ledger stays complete regardless of payment method.
-- Method × fulfillment interaction (e.g. Cash on Delivery reasonably disabled for Uber Direct/DoorDash Drive, since third-party drivers typically can't reconcile cash) is expressed as configuration evaluated by the Smart Routing Engine, never hardcoded.
+Unchanged core design from Revision 1, now explicitly operating under multi-provider BYOP (§4):
+
+- **Apple Pay, Google Pay, Visa, Mastercard, Amex, Discover, Cash on Delivery, Cash at Pickup** — all present as `PaymentMethodType` values (§2). Card networks are individually toggleable per restaurant preference (e.g. avoiding Amex's fees), with the caveat that the connected provider's own network support must be validated at authorization time, since most processors don't enforce network-level blocking natively.
+- Apple Pay / Google Pay are wallet layers routed through whichever `PaymentProvider` is primary for that method type, via the provider's native payment-request integration.
+- **Cash on Delivery / Cash at Pickup** bypass `PaymentProviderAdapter` entirely — `Order.paymentStatus` starts `UNPAID`, staff mark it `PAID` on delivery/pickup, and a `Transaction` row is still created for reconciliation even though no provider was involved.
+- Restaurants enable/disable each method independently (`PaymentMethod.isEnabled`); method availability is further filtered by the Smart Routing Engine (§8) against fulfillment method (e.g. Cash on Delivery reasonably disabled for third-party driver fulfillment).
 
 ---
 
 ## 6. Fulfillment Engine
 
-**`FulfillmentProviderAdapter` interface**: `requestDelivery(fulfillmentId, pickupAddress, dropoffAddress, readyTime)`, `cancelDelivery(externalDeliveryId)`, `getDeliveryStatus(externalDeliveryId)`, `parseWebhookEvent(payload)`.
-
-Same registry/`implemented`-flag pattern as payments. **PICKUP and RESTAURANT_DRIVER are implemented in Sprint 07** (no external API required — pickup is a status flow, restaurant-driver is an internal `DriverAssignment` flow). **UBER_DIRECT, DOORDASH_DRIVE, and LOCAL_COURIER are registered stub adapters**, returning a clear "not yet available" error — directly mirroring the proven Import Engine precedent.
-
-Restaurant Drivers in Sprint 07: staff manually assign an order to a `RESTAURANT_STAFF` user flagged as a driver; a minimal mobile-responsive dashboard view shows assigned deliveries with "mark picked up / mark delivered" actions. `DriverAssignment.currentLat/Lng` is schema-ready, but live push-based GPS tracking (websockets) is explicitly out of scope for Sprint 07 — polling only.
+Unchanged from Revision 1: `FulfillmentProviderAdapter` interface, PICKUP and RESTAURANT_DRIVER implemented in Sprint 07, UBER_DIRECT/DOORDASH_DRIVE/LOCAL_COURIER registered stubs. Restaurant Drivers use a minimal mobile-responsive dashboard view for assigned deliveries; live position is now explicitly backed by `DriverLocationPing` history plus `DriverAssignment`'s denormalized current position (§2), populated via polling in Sprint 07 — websocket push remains out of scope here.
 
 ---
 
-## 7. Delivery Rules Engine
+## 7. Delivery Rules Engine — Radius, Minimum Order, Maximum Distance, Fee Rules `[REVISED]`
 
-`DeliveryRule` rows, evaluated by the Smart Routing Engine in `priority` order, directly implement the brief's mile-tiered example as data: distance bands, one `fulfillmentMethod` per band, `fallbackToRuleId` for explicit chains ("try Uber Direct; if unavailable, fall back to Local Courier"), `isActive` for temporarily disabling a tier (e.g. the one restaurant driver called in sick).
+`DeliveryRule` rows continue to implement mile-tiered routing as data (§ unchanged from Revision 1: priority order, `fallbackToRuleId` chains, busy-driver fallthrough). This revision adds the full set of restaurant-configurable delivery economics:
 
-**Busy-driver handling** is a routing-time check, not a schema field: the engine compares current in-flight `DriverAssignment` load against a per-restaurant configurable concurrency limit; over the limit, that tier is treated as unavailable and falls through — the same mechanism handles a provider reporting "no drivers available."
+- **Delivery radius in miles** — `DeliveryConfig.deliveryRadiusMiles` is the simple, no-zones-configured default: a plain circle around the restaurant's geocoded address. A restaurant with no `DeliveryZone`/`DeliveryRule` rows delivers anywhere inside this radius; a restaurant with zones configured uses those instead, and the radius becomes a display-only "our delivery area" convenience shown on the public site.
+- **Maximum delivery distance** — `DeliveryConfig.maxDeliveryDistanceMiles` is an **absolute ceiling**, independent of radius/zone mode. The Smart Routing Engine checks this first, before consulting zones or rules at all, as the cheapest possible early rejection for an address that's simply too far.
+- **Minimum order amount** — `DeliveryConfig.minOrderCentsForDelivery` (and, for parity, an optional `minOrderCentsForPickup`) is enforced at the checkout quote step (§3), not silently at payment time — a customer under the minimum sees exactly how much more to add.
+- **Delivery fee rules** — `DeliveryFeeRule` rows (§2), evaluated in priority order, support flat fees, per-mile fees, and percentage-of-subtotal fees, optionally banded by distance (e.g. $2.99 under 3 miles, $4.99 3–8 miles). The resolved fee becomes `Order.deliveryFeeCents`, frozen at quote/placement time like every other money field.
 
-Because rules are data, a restaurant (via the owner dashboard, §18) can express custom bands and priorities without any code change — this is the concrete fulfillment of "architecture designed for future expansion without breaking existing code."
+Because all of this is data (`DeliveryConfig` + `DeliveryFeeRule` + `DeliveryZone` + `DeliveryRule`), a restaurant can fully reconfigure its delivery economics from the owner dashboard without any code change — the same "architecture designed for future expansion without breaking existing code" principle already established for routing.
 
 ---
 
-## 8. Smart Routing Engine
+## 8. Smart Routing Engine `[REVISED]`
 
-One decision function, evaluated at two points: (a) at checkout, to determine which options to even show; (b) at order-confirmation, to make the real assignment, since availability can change between browsing and placing.
+One decision function, evaluated at checkout-quote time and again at order-confirmation time. **Inputs, expanded this revision:**
 
-**Inputs**: restaurant open/closed (from the new structured hours model), kitchen-busy signal (a restaurant-togglable "pause new orders" flag plus an optional queue-depth heuristic against `PREPARING`-status order count), driver availability (§7's busy-driver check + external provider queries once real adapters exist), delivery distance (geocoded once at address-save time, never per-checkout), payment-method eligibility (`PaymentMethod.isEnabled` AND `PaymentProvider.status === CONNECTED`), fulfillment-method eligibility (`DeliveryRule` resolution).
+1. **Maximum delivery distance** `[NEW — first check, cheapest early-exit]` — reject immediately if the geocoded delivery address exceeds `DeliveryConfig.maxDeliveryDistanceMiles`.
+2. **Restaurant open/closed** — from the structured hours model.
+3. **Kitchen capacity** `[REVISED — now a real model, not a placeholder flag]` — `KitchenCapacity.isAcceptingOrders` (manual pause) and, if `maxConcurrentOrders` is set, whether current `CONFIRMED`/`PREPARING` order count has reached it; either condition blocks new orders with a clear "kitchen is temporarily paused" message, never a silent failure.
+4. **Driver availability** — busy-driver concurrency check (§7) plus external provider availability once real adapters exist.
+5. **Delivery distance vs. radius/zones** — resolved against `DeliveryConfig.deliveryRadiusMiles` (simple mode) or `DeliveryZone`/`DeliveryRule` (advanced mode).
+6. **Minimum order amount** — checked against `DeliveryConfig`, per fulfillment type.
+7. **Delivery fee / service fee resolution** `[NEW]` — once a fulfillment method is selected, `DeliveryFeeRule` and `ServiceFeeRule` are evaluated to produce the fee figures shown in the quote.
+8. **Payment method eligibility** — `PaymentMethod.isEnabled` AND at least one `CONNECTED` `PaymentProvider` reachable for it (now accounting for multi-provider failover, §4).
+9. **Fulfillment method eligibility** — `DeliveryRule` resolution, or table validity for dine-in.
 
-**Output**: an ordered, filtered set of valid `(fulfillmentMethod, availablePaymentMethods)` combinations — never a silent degrade. If truly nothing is available (restaurant closed), checkout is blocked with a clear "closed, reopens at X" message. This engine is **deliberately deterministic and rule-based, not AI-driven** — correctly scoped, since the AI pipeline's safe-default-fallback philosophy is right for content generation but wrong for money/logistics decisions, which must be exact and auditable, not probabilistic.
+**Output**: an ordered, filtered set of valid `(fulfillmentMethod, availablePaymentMethods, feesApplied)` combinations — never a silent degrade; a hard block (closed, kitchen paused, too far) surfaces a specific, human-readable reason. This engine remains **deterministic and rule-based, not AI-driven** — correctly scoped, since money/logistics decisions must be exact and auditable, not probabilistic, unlike the content-generation pipeline's safe-default philosophy.
 
 ---
 
 ## 9. Menu Commerce
 
-Variants, modifiers (required vs. optional via `ModifierGroup.isRequired`/`minSelections`/`maxSelections`), extra pricing, inventory, and temporary-out-of-stock are all specified in §2. The one rule that must be stated precisely because it's easy to get wrong:
-
-> `CartItem.unitPriceCents = MenuItem.priceCents + variant.priceDeltaCents + Σ(selectedModifierOptions.priceDeltaCents)`, computed and **frozen** at add-to-cart time, then **re-validated (never silently recalculated)** at checkout confirmation against current menu data. If a price changed mid-checkout, the customer sees an explicit "price changed, please confirm" prompt rather than a silent charge discrepancy.
-
-This is a deliberate divergence from Sprint 06's "menu always renders live" principle: *display* must always be live; a customer's *cart total*, once they've started checking out, must never silently drift.
+Unchanged from Revision 1. Variants, modifiers (required/optional via `ModifierGroup.isRequired`/min/maxSelections), extra pricing, inventory, and temporary-out-of-stock as specified in §2. Pricing freeze/re-validation rule unchanged: computed and frozen at add-to-cart time, re-validated (never silently recalculated) at checkout confirmation.
 
 ---
 
 ## 10. Order Lifecycle
 
-Two-tier status modeling, to avoid stuffing every fulfillment sub-state into one primary enum:
-
-- **`Order.status`** (coarse, primary): `PENDING_PAYMENT → CONFIRMED → PREPARING → READY` (pickup) `/ OUT_FOR_DELIVERY` (delivery) `→ COMPLETED`, with `CANCELLED` and `REFUNDED` reachable as terminal off-ramps from any pre-`COMPLETED` state, and `FAILED` for orders whose payment never succeeded (cart preserved for retry, never surfaces to the kitchen).
-- **`Order.paymentStatus`** (rollup): `UNPAID → AUTHORIZED → PAID → PARTIALLY_REFUNDED → REFUNDED / FAILED`.
-- **`Order.fulfillmentStatus`** (rollup): `UNASSIGNED → ASSIGNED → IN_PROGRESS → COMPLETED / FAILED`, collapsed from `Fulfillment.status`'s finer detail.
-
-Every transition is enforced by a single centralized valid-transition table (no direct writes to these columns anywhere else, mirroring the codebase's existing centralized-error-mapping convention) and always writes one `OrderEvent`, plus an `OrderTimeline` row where customer-visible.
+Unchanged two-tier status modeling from Revision 1 (`Order.status`, `Order.paymentStatus`, `Order.fulfillmentStatus`, each with a centrally-enforced valid-transition table). **One addition**: `Order.source` (§16) and `Order.tableId` (dine-in only) are set once at creation and never change — they describe *how* the order entered the system, orthogonal to its lifecycle state.
 
 ---
 
 ## 11. Customer Experience
 
-- **Guest checkout** (default, no account): `GuestCustomer` created at placement; order lookup via order number + email/phone verification, no password.
-- **Customer accounts** (optional): the new `Customer` identity, deliberately not sharing the staff `User`/`Role` table; reuses the proven argon2id + rotating-opaque-refresh-token pattern from Sprint 02 rather than reinventing auth.
-- **Saved addresses / saved cards** (per-restaurant-provider scoped, per §2's BYOP callout) / **favorites** / **order history** (paginated from day one — directly correcting the audit's "no pagination anywhere" finding) / **reorder** (clones past `OrderItem`s into a new `Cart`, re-validated against current availability/pricing, never blindly trusted — consistent with §9).
+Unchanged from Revision 1: guest checkout by default, optional `Customer` accounts (separate identity from staff `User`), saved addresses/cards (per-restaurant-provider scoped), favorites, paginated order history, reorder (re-validated against current availability/pricing). Dine-in via QR (§18) supports both guest and logged-in customers identically to website checkout — no separate identity model for dine-in diners.
 
 ---
 
 ## 12. Event-Driven Architecture
 
-`OrderEvent` (§2) is the backbone. Sprint 07 uses a **lightweight in-process event emitter**, not a new message-broker dependency — services emit typed events only *after* the originating DB transaction commits (never before, to avoid emitting for writes that get rolled back); subscribers (notification dispatch, timeline projection, fraud-signal evaluation) run as fire-and-forget async handlers, directly reusing the exact pattern already proven by `revalidatePublishedSite` in Sprint 06, rather than inventing a new convention.
+Backbone unchanged (in-process emitter, post-commit emission, fire-and-forget subscribers, mirroring `revalidatePublishedSite`). **Event catalog additions this revision**: `KITCHEN_PAUSED`, `KITCHEN_RESUMED`, `KITCHEN_CAPACITY_REACHED`, `DRIVER_LOCATION_UPDATED`, `POS_SYNC_COMPLETED`, `POS_SYNC_FAILED`, `TABLE_ORDER_PLACED`. Full catalog (superset, including Revision 1's original list): `ORDER_CREATED`, `PAYMENT_AUTHORIZED`, `PAYMENT_CAPTURED`, `PAYMENT_FAILED`, `ORDER_CONFIRMED`, `KITCHEN_STARTED`, `ORDER_READY`, `DRIVER_ASSIGNED`, `DRIVER_EN_ROUTE`, `ORDER_PICKED_UP`, `ORDER_OUT_FOR_DELIVERY`, `ORDER_DELIVERED`, `ORDER_PICKED_UP_BY_CUSTOMER`, `ORDER_COMPLETED`, `ORDER_CANCELLED`, `REFUND_INITIATED`, `REFUND_ISSUED`, `COUPON_REDEEMED`, `FRAUD_SIGNAL_RAISED`, plus the additions above.
 
-**Full event catalog** (superset of the brief's examples): `ORDER_CREATED`, `PAYMENT_AUTHORIZED`, `PAYMENT_CAPTURED`, `PAYMENT_FAILED`, `ORDER_CONFIRMED`, `KITCHEN_STARTED`, `ORDER_READY`, `DRIVER_ASSIGNED`, `DRIVER_EN_ROUTE`, `ORDER_PICKED_UP`, `ORDER_OUT_FOR_DELIVERY`, `ORDER_DELIVERED`, `ORDER_PICKED_UP_BY_CUSTOMER`, `ORDER_COMPLETED`, `ORDER_CANCELLED`, `REFUND_INITIATED`, `REFUND_ISSUED`, `COUPON_REDEEMED`, `FRAUD_SIGNAL_RAISED`.
-
-**Explicit non-goal for Sprint 07**: no external queue/broker (Redis/SQS). That's correctly a Sprint 09 scaling concern (already recommended in the 06.5 audit's roadmap), and the emit/subscribe interface is designed so a real broker can be swapped in later without touching call sites — the same "swap the seam later" pattern already used for `release-storage`/`file-storage`.
+Still no external message broker in Sprint 07 (Redis/SQS remains a Sprint 09 scaling item), with the same swap-the-seam-later interface design.
 
 ---
 
 ## 13. Notification Architecture
 
-One `NotificationProviderAdapter` interface per channel, same adapter pattern as payments/fulfillment. **Sprint 07 implements EMAIL only** (`implemented: true`); SMS and Push are registered stub channels (`implemented: false`) so the interface and `NotificationLog` schema are proven now without a future migration.
-
-**Triggers**: order confirmation, ready/out-for-delivery/delivered (customer), payment failed (customer, prompts retry), refund issued (customer), and — closing the exact gap the 06.5 audit flagged for the contact-message inbox, now far more urgent since a missed order is lost revenue — a **new-order staff alert**. Every notification attempt writes a `NotificationLog` row, even when skipped for a disabled channel, so gaps are auditable rather than silently absent.
+Unchanged from Revision 1: `NotificationProviderAdapter` per channel, EMAIL implemented, SMS/Push registered stubs. Trigger list unchanged, still including the new-order staff alert. No new channels introduced by this revision's requirements.
 
 ---
 
 ## 14. Security
 
-- **Fraud detection**: rule-based (correctly scoped for Sprint 07, not ML) evaluation via `FraudSignal` — hard blocks at placement time for clear abuse (e.g. velocity limits), soft signals for staff review otherwise, since legitimate duplicate orders do happen.
-- **Duplicate orders**: the `Idempotency-Key` requirement (§1) is the primary defense against double-submit; a secondary heuristic (same cart/customer/restaurant within a short window) raises a review-flag rather than silently blocking.
-- **Webhook verification**: mandatory signature check before any `WebhookEvent` is trusted to mutate state — reusing the "never trust unvalidated external input" discipline already established for `safeFetch`.
-- **Audit trail**: `OrderEvent` + `Transaction` together are the complete, append-only, attributable record of every status change and every money movement.
-- **Permissions**: extends the existing `Role` enforcement rather than inventing a new system — owners/staff manage orders for their own restaurant only, under the same 404-not-403 tenant-isolation convention already proven across every other module. A more granular capability system (e.g. "can issue refunds") is recommended for Sprint 08, once real usage patterns exist, rather than over-engineered here.
-- **PCI scope**: raw card data must **never** touch OrderVora's servers. All card entry happens via the payment provider's client-side tokenization (Stripe Elements or equivalent); OrderVora only ever stores/handles provider tokens. This keeps PCI scope at SAQ-A and must shape every payment UI decision from the start, not be retrofitted.
-- **Secrets**: `PaymentProvider.credentialsEncrypted`/`webhookSecretEncrypted` require application-level envelope encryption with a dedicated key, separate from `JWT_ACCESS_SECRET` — these secrets, if leaked, could authorize real charges against a restaurant's live merchant account.
+Unchanged core content from Revision 1 (fraud detection via `FraudSignal`, idempotency-key duplicate-order defense, mandatory webhook signature verification, `OrderEvent`+`Transaction` audit trail, role-based tenant-isolated permissions, PCI scope kept at SAQ-A via provider-side tokenization, envelope-encrypted provider credentials), plus:
+
+- **POS credentials** (`POSProvider.credentialsEncrypted`) require the same envelope-encryption treatment as payment/fulfillment provider credentials — a leaked POS credential could expose a restaurant's full historical order/menu data in their POS system, not just future orders.
+- **QR token security** — `Table.qrToken` must be a high-entropy random value (not a sequential or guessable table number), since it is the sole authorization for "which restaurant and table this order is attributed to." A guessed or enumerated token could let someone place an order attributed to the wrong table; tokens should be regenerable per-table by the owner if a QR code is lost, stolen, or printed incorrectly.
+- **Order source is informational, not a trust boundary** — `Order.source` (POS, QR, website, etc.) records provenance for reporting purposes; it must never be used as an implicit authorization check in place of real tenant-scoping, to avoid a class of bug where a POS-sourced order accidentally skips normal validation.
 
 ---
 
 ## 15. Performance
 
-- **Caching**: menu-commerce reads (variants/modifiers/inventory) are the first genuine use case for the caching layer the 06.5 audit flagged as globally absent — recommend a simple in-process TTL cache keyed by `restaurantId`, deferring Redis to the already-planned Sprint 09 hardening work rather than introducing new infrastructure prematurely.
-- **Indexes**: every model in §2 ships with `@@index` on its `restaurantId`/status/date/FK columns from the start — this is a hard review gate for the Sprint 07 migration, directly correcting the exact gap the audit criticized in the existing schema.
-- **Background jobs**: webhook processing, notification dispatch, async fraud evaluation, and `IdempotencyKey`/`WebhookEvent` cleanup reuse the polled-job-row-in-Postgres pattern already proven by `GenerationJob` in Sprint 06, rather than introducing new queue infrastructure before it's needed.
-- **Optimized queries**: order list/history endpoints ship with pagination and scoped `select`s from day one — both explicitly missing today per the audit, and non-negotiable here given `Order`/`OrderEvent`/`Transaction` are, by design, the fastest-growing tables in the schema.
+Unchanged from Revision 1 (in-process TTL cache candidate for menu-commerce reads, `@@index` on every new model's hot columns, `GenerationJob`-style polled background jobs, pagination on all list endpoints). **One addition**: `DriverLocationPing` is a high-write-volume table by nature (frequent polling updates); it should be included explicitly in the Sprint 09 partitioning/retention conversation (old pings for completed deliveries have no long-term reporting value and are a strong candidate for a time-based cleanup job, unlike `OrderEvent`/`Transaction` which are permanent records).
 
 ---
 
-## 16. Scalability
+## 16. Scalability & Order Source Tracking `[NEW]`
 
-Every hot commerce table carries `restaurantId` **directly**, not just transitively — a deliberate improvement over the Sprint 06 pattern the audit flagged, and the natural partitioning key if Postgres partitioning or a multi-database split is ever needed. `OrderEvent` and `Transaction` are the fastest-growing tables and are natural candidates for time-based partitioning once volume warrants it (a Sprint 09+ operational concern, not a build item here — but the UUID-PK + `createdAt`-indexed shape is partition-friendly from day one).
+Scalability principles unchanged from Revision 1 (every hot commerce table carries `restaurantId` directly, `OrderEvent`/`Transaction` are partition candidates, `IdempotencyKey`/`WebhookEvent` dedupe must be Postgres-backed for correctness under multiple instances — restated, not weakened, by this revision).
 
-**Hard dependency, stated explicitly**: the in-memory rate-limiting and local-disk storage limitations the audit already flagged apply with *more* force to commerce — an in-memory idempotency check would be actively unsafe across multiple instances (two instances could each "not find" the same key and double-charge a customer). `IdempotencyKey` and `WebhookEvent` dedupe **must** be backed by Postgres from day one (already the plan in §2), independent of whether Redis/multi-instance work happens in Sprint 09 — this is a correctness requirement now, not a future nice-to-have.
+**Order source tracking**, new in this revision: `Order.source` uses an `OrderSource` enum — `WEBSITE` (public-site checkout, the Sprint 07 default), `QR_DINE_IN` (§18), `POS` (an order rung up directly in the restaurant's existing POS system and synced in, §17), `PHONE` (staff manually keying in a phone order — uses the same staff-facing order-creation surface as POS-originated manual entry, no separate model needed), `MARKETPLACE` (reserved for §20, unused in Sprint 07), `MOBILE_APP` (reserved for §20, unused in Sprint 07). This is purely an attribution/reporting field — it powers the owner-facing "orders by channel" breakdown and is indexed (`[restaurantId, source]`) for that purpose — and, per §14, is never used as a trust or authorization signal.
 
 ---
 
-## 17. API Design
+## 17. POS Adapter Architecture `[NEW]`
+
+A restaurant that already runs Square POS, Clover POS, Toast, or Lightspeed in-store should never be forced to abandon it to use OrderVora — this is the same BYOP philosophy extended to point-of-sale.
+
+**`POSProviderAdapter` interface**: `importMenu()` → pulls the restaurant's current menu (items/categories/prices) from the POS system, mapped into OrderVora's `MenuItem`/`MenuCategory` shape (reusing, not duplicating, the exact mapping problem already solved by the Import Engine's adapters in Sprint 04/05 — conceptually a sixth import source, but live/ongoing rather than one-time); `exportOrder(order)` → pushes a completed OrderVora order into the POS system so it appears in the restaurant's existing reporting/kitchen-printer/inventory workflow; `getSyncStatus()`; `parseWebhookEvent(payload)` (for POS systems that push menu-change or order-status webhooks).
+
+**Registry**, same `implemented`-flag pattern as payments/fulfillment: **all POS providers (Square POS, Clover POS, Toast, Lightspeed) are registered as stub adapters in Sprint 07** (`implemented: false`) — the interface, schema (`POSProvider`, `POSSyncLog`), and registry are built and proven now (satisfying "architecture must be designed for future expansion"), but no live POS integration ships this sprint. This is a deliberate, honest scope boundary, not a hidden gap: POS integrations vary enormously in API maturity and typically require per-provider partnership/certification, which is real work appropriately deferred rather than rushed.
+
+**`syncDirection`** is modeled explicitly per connection (`MENU_IMPORT`, `ORDER_EXPORT`, or `BIDIRECTIONAL`) because not every restaurant wants both directions active — some want their POS to remain the single source of truth for the menu (import-only), others want OrderVora orders to flow into their POS for kitchen printing without touching the POS's menu data (export-only).
+
+Every sync attempt writes a `POSSyncLog` row (§2), so partial/failed syncs are visible to the owner rather than silently stale.
+
+---
+
+## 18. QR Ordering Architecture `[NEW]`
+
+**Table model** (§2): each physical table gets a `Table` row with a unique, high-entropy `qrToken`. The owner dashboard (§22) generates a printable QR code per table encoding a URL of the form `https://{platformDomain-or-customDomain}/order?table={qrToken}`.
+
+**Flow**: a diner scans the code → lands on the restaurant's public site with `fulfillmentType` pre-set to `DINE_IN` and the `Cart` pre-associated with that `tableId` (resolved server-side from the token, never trusting a client-supplied table ID directly) → browses the same live menu the website already renders → adds items → checks out exactly like a pickup/delivery order, minus address/scheduling steps → the resulting `Order` carries `source: QR_DINE_IN` and `tableId` set.
+
+**Kitchen-facing difference**: dine-in orders appear in the same kitchen/orders queue (§6, §22) as pickup/delivery orders, distinguished by fulfillment type and table label, so staff don't need a separate screen to see "table 12 wants X" — this reuses the one orders pipeline rather than building a parallel dine-in-only system, per §1's "one order pipeline, many entry points" principle.
+
+**Explicitly out of scope for Sprint 07**: split-check/bill-splitting across multiple diners at one table, table-side "call the server" buttons, and any table-status board (occupied/available) beyond the QR-ordering flow itself — all reasonable dine-in features, but not required to make QR ordering functional, and better scoped once real usage patterns from Sprint 07's minimal version are known.
+
+---
+
+## 19. Loyalty & Gift Cards — Future-Ready Schema `[NEW]`
+
+Both are schema-only in Sprint 07, deliberately, for the same reason: shipping a half-built rewards or stored-value feature (a balance customers can see but that behaves inconsistently, or that isn't fully reconciled against refunds/cancellations) is worse than shipping no feature at all.
+
+- **Gift Cards** — schema unchanged from Revision 1 (`GiftCard`, `GiftCardTransaction`), reaffirmed schema-only per this revision's explicit instruction.
+- **Loyalty** — new this revision: `LoyaltyProgram` (per-restaurant configuration: points-per-dollar, redemption rate, active flag), `LoyaltyAccount` (per-customer-per-restaurant balance — deliberately not a platform-wide points currency, matching the per-restaurant-provider pattern already established for saved cards), `LoyaltyTransaction` (append-only earn/redeem/adjust/expire ledger, mirroring `Transaction`'s audit-trail pattern). No checkout step earns or redeems points in Sprint 07; no dashboard surfaces a balance. Activating either system is scoped as future work once the core commerce engine has proven itself in production.
+
+---
+
+## 20. Future Reserved Architecture `[NEW]`
+
+This section exists to make one thing explicit: **nothing in this specification blocks the following future capabilities**, and each is called out here specifically so the Sprint 07 build can be reviewed against "does this choice foreclose that option later?" without any of them being designed or built now.
+
+- **Marketplace** (a platform-wide discovery surface listing multiple restaurants, vs. today's one-restaurant-per-site model) — `Order.source` already reserves `MARKETPLACE` as a value; the per-restaurant BYOP/BYO-delivery/BYO-POS model means a marketplace layer would need its own aggregation/settlement logic on top, but no restaurant-level data model needs to change to support restaurants also appearing in a future marketplace.
+- **Franchise** (multi-location restaurant groups sharing a menu/brand but operating independent locations) — every commerce model is scoped to a single `restaurantId`; a franchise layer would sit *above* `Restaurant` as a new `RestaurantGroup`-style parent, not require restructuring `Order`/`Payment`/`Fulfillment`, which are correctly location-scoped already.
+- **White-label** (reselling OrderVora under a partner's own brand) — the existing custom-domain support (Sprint 06) and per-restaurant BYOP/BYO-delivery model already avoid hardcoding "OrderVora" as a payment/delivery party anywhere in the money-movement path, which is the hard part of white-labeling; the remaining work would be presentation-layer (theming the dashboard itself), not commerce-schema work.
+- **AI Phone Ordering** / **Voice Ordering** — both are simply new order-*sources*: a phone/voice system that ultimately constructs a `Cart` and calls the same `checkout`/`orders` pipeline as website or QR ordering, reported via a new `Order.source` value. The "one order pipeline, many entry points" principle (§1) is specifically what makes this addable later without touching `orders`, `payments`, or `fulfillment`.
+- **Inventory** (formal stock management beyond per-item availability) — `MenuItemInventory` (§2) already models opt-in quantity tracking; a fuller inventory system (ingredient-level, supplier/purchasing) would extend this model rather than replace it.
+- **CRM** (structured customer relationship/marketing tooling) — `Customer`, `CustomerAddress`, `Order` history, and `LoyaltyAccount` already form the data substrate a CRM layer would read from; no new customer-identity model would be needed, only new read-side tooling.
+- **Mobile Apps** — `Order.source` already reserves `MOBILE_APP`; because the entire commerce engine is API-first (§17's API design section), a native app is a new API consumer, not a reason to change any backend module.
+
+No schema, endpoint, or module in this specification should be read as a decision to build any of the above in Sprint 07 — this section is a review checklist for future-proofing, not a roadmap commitment.
+
+---
+
+## 21. API Design
 
 **Public/customer-facing** (guest or `Customer` JWT):
-`POST /api/public/restaurants/:id/cart` · `GET /api/public/cart/:cartId` · `POST /api/public/cart/:cartId/items` · `PATCH /api/public/cart/:cartId/items/:itemId` · `DELETE /api/public/cart/:cartId/items/:itemId` · `POST /api/public/cart/:cartId/coupon` · `DELETE /api/public/cart/:cartId/coupon` · `GET /api/public/checkout/:cartId/fulfillment-options` · `POST /api/public/checkout/:cartId/quote` · `POST /api/public/checkout/:cartId/place-order` (idempotency-key required) · `GET /api/public/orders/:orderId` · `GET /api/public/orders/:orderId/timeline`
+`POST /api/public/restaurants/:id/cart` · `GET /api/public/cart/:cartId` · `POST /api/public/cart/:cartId/items` · `PATCH /api/public/cart/:cartId/items/:itemId` · `DELETE /api/public/cart/:cartId/items/:itemId` · `POST /api/public/cart/:cartId/coupon` · `DELETE /api/public/cart/:cartId/coupon` · `GET /api/public/checkout/:cartId/fulfillment-options` · `POST /api/public/checkout/:cartId/quote` · `POST /api/public/checkout/:cartId/place-order` (idempotency-key required) · `GET /api/public/orders/:orderId` · `GET /api/public/orders/:orderId/timeline` · `GET /api/public/tables/:qrToken` **`[NEW]`** (resolves a scanned QR token to its restaurant/table, used to bootstrap a dine-in cart)
 
-**Customer account**:
-`POST /api/customer/register` · `POST /api/customer/login` · `POST /api/customer/logout` · `POST /api/customer/refresh` · `GET /api/customer/me` · `GET /api/customer/orders` (paginated) · `POST /api/customer/orders/:id/reorder` · `GET|POST|PATCH|DELETE /api/customer/addresses[/:id]` · `GET|POST|DELETE /api/customer/payment-methods[/:id]` · `GET|POST|DELETE /api/customer/favorites[/:id]`
+**Customer account**: unchanged from Revision 1 — register/login/logout/refresh/me/orders(paginated)/reorder/addresses/payment-methods/favorites.
 
-**Staff/owner order management** (tenant-scoped, `requireAuth` + `staffOrOwner`):
-`GET /api/restaurants/me/orders` (paginated, filterable) · `GET /api/restaurants/me/orders/:id` · `GET /api/restaurants/me/orders/:id/events` · `PATCH /api/restaurants/me/orders/:id/confirm|start-preparing|mark-ready|complete|cancel|mark-paid` · `POST /api/restaurants/me/orders/:id/refund` · `POST /api/restaurants/me/fulfillment/:id/assign-driver` · `PATCH /api/restaurants/me/fulfillment/:id/status`
+**Staff/owner order management** (tenant-scoped): unchanged core set (`GET/PATCH .../orders`, `.../orders/:id/confirm|start-preparing|mark-ready|complete|cancel|mark-paid`, `.../orders/:id/refund`, `.../fulfillment/:id/assign-driver|status`), plus `GET /api/restaurants/me/orders?source=` **`[NEW]`** (filter by order source for channel reporting).
 
-**Menu commerce management** (owner):
-`GET|POST|PATCH|DELETE /api/restaurants/me/menu-items/:id/variants[/:vid]` · `GET|POST|PATCH|DELETE /api/restaurants/me/modifier-groups[/:id]` · `GET|POST|PATCH|DELETE /api/restaurants/me/modifier-groups/:id/options[/:oid]` · `POST /api/restaurants/me/menu-items/:id/modifier-groups` · `PATCH /api/restaurants/me/menu-items/:id/inventory` · `PATCH /api/restaurants/me/menu-items/:id/86`
+**Menu commerce management**: unchanged from Revision 1 (variants, modifier groups/options, inventory, 86-toggle endpoints).
 
-**Payments config** (owner):
-`GET /api/restaurants/me/payment-providers` · `POST /api/restaurants/me/payment-providers/:type/connect` · `DELETE /api/restaurants/me/payment-providers/:type` · `GET|PATCH /api/restaurants/me/payment-methods`
+**Payments config**: `GET /api/restaurants/me/payment-providers` · `POST /api/restaurants/me/payment-providers/:type/connect` · `DELETE /api/restaurants/me/payment-providers/:type` · `PATCH /api/restaurants/me/payment-providers/:type/priority` **`[NEW]`** (reorder failover priority / set default) · `GET|PATCH /api/restaurants/me/payment-methods`
 
-**Delivery config** (owner):
-`GET|POST|PATCH|DELETE /api/restaurants/me/delivery-zones[/:id]` · `GET|POST|PATCH|DELETE /api/restaurants/me/delivery-rules[/:id]` · `GET|POST|PATCH|DELETE /api/restaurants/me/fulfillment-providers[/:type]`
+**Delivery & fees config** `[REVISED]`: `GET|PATCH /api/restaurants/me/delivery-config` **`[NEW]`** (radius, max distance, min order amounts, enable/disable per fulfillment type) · `GET|POST|PATCH|DELETE /api/restaurants/me/delivery-zones[/:id]` · `GET|POST|PATCH|DELETE /api/restaurants/me/delivery-rules[/:id]` · `GET|POST|PATCH|DELETE /api/restaurants/me/delivery-fee-rules[/:id]` **`[NEW]`** · `GET|POST|PATCH|DELETE /api/restaurants/me/service-fee-rules[/:id]` **`[NEW]`** · `GET|POST|PATCH|DELETE /api/restaurants/me/fulfillment-providers[/:type]`
 
-**Coupons** (owner): `GET|POST|PATCH|DELETE /api/restaurants/me/coupons[/:id]`
+**Kitchen** `[NEW]`: `GET|PATCH /api/restaurants/me/kitchen-capacity` (pause/resume, set max concurrent orders / avg prep time)
 
-**Webhooks** (provider-initiated, signature-verified instead of user-authed):
-`POST /api/webhooks/payments/:providerType` · `POST /api/webhooks/fulfillment/:providerType`
+**POS** `[NEW]`: `GET /api/restaurants/me/pos-providers` · `POST /api/restaurants/me/pos-providers/:type/connect` · `DELETE /api/restaurants/me/pos-providers/:type` · `PATCH /api/restaurants/me/pos-providers/:type/sync-direction` · `POST /api/restaurants/me/pos-providers/:type/sync-now` · `GET /api/restaurants/me/pos-providers/:type/sync-log`
 
----
+**QR Ordering / Tables** `[NEW]`: `GET|POST|PATCH|DELETE /api/restaurants/me/tables[/:id]` · `POST /api/restaurants/me/tables/:id/regenerate-qr-token`
 
-## 18. Frontend
+**Coupons**: unchanged (`GET|POST|PATCH|DELETE /api/restaurants/me/coupons[/:id]`)
 
-**Customer-facing** (new — see scope note below): interactive menu/ordering page (extends the existing static `MenuSection` renderer with real "Add to Cart" behavior — the first time the public site needs client-side interactivity at all), item customization modal, cart drawer, multi-step checkout (fulfillment → schedule/address → review → payment → confirmation), order confirmation page, order tracking page, customer account (login/register, order history, reorder, saved addresses/cards, favorites).
+**Driver tracking** `[NEW]`: `POST /api/restaurants/me/fulfillment/:id/location-ping` (driver app writes its current position)
 
-**Owner-facing** (extends `/dashboard`): orders inbox (filterable list), order detail (items, customer, timeline, refund action), menu commerce management (extends `/dashboard/menu`), payment provider connection (`/dashboard/payments`), delivery zones/rules editor (`/dashboard/delivery`), coupon management (`/dashboard/coupons`), a minimal "today's orders/revenue" widget (full analytics remains Sprint 10 per the existing roadmap).
-
-**Staff-facing**: a minimal orders/kitchen view (status queue with "mark ready" actions) and a driver view (assigned deliveries, mark picked up/delivered).
-
-**Scope boundary requiring a decision**: the 06.5 audit recommended a full real-time Kitchen Display System for Sprint 08. Sprint 07 cannot ship a working commerce engine without *some* staff-facing view — orders need somewhere to land — so this spec proposes Sprint 07 includes a bare-bones polling-based orders/kitchen list (no websockets, no sound alerts, no printer integration), with the full real-time KDS remaining Sprint 08 as already planned. Flagging this explicitly since it's a real scope call, not an obvious default.
+**Webhooks**: `POST /api/webhooks/payments/:providerType` · `POST /api/webhooks/fulfillment/:providerType` · `POST /api/webhooks/pos/:providerType` **`[NEW]`**
 
 ---
 
-## 19. Testing Strategy
+## 22. Frontend
 
-**Unit**: state-machine transition validity (every legal/illegal transition), price computation (variant + modifier + tax + coupon + tip math), Smart Routing Engine decisions across open/closed/busy/distance/payment-eligibility permutations, `DeliveryRule` priority/fallback resolution, and a shared **interface-conformance test suite** run against every `PaymentProviderAdapter` implementation (including stubs), so Stripe and every future provider are held to identical behavioral guarantees. All following the existing vitest-with-fully-mocked-collaborators convention — no live Stripe/DB/network required, consistent with every prior sprint.
+**Customer-facing**: unchanged core set (interactive menu/ordering page, item customization modal, cart drawer, multi-step checkout, confirmation, order tracking, customer account), with checkout now branching on `DINE_IN` (no address/scheduling steps when entered via QR, §18) and the quote step surfacing minimum-order/delivery-fee/service-fee line items clearly.
 
-**Integration**: full cart → checkout → order-placement flow against a mocked payment provider (authorize + capture succeed, correct `OrderEvent` trail is produced); webhook idempotency (same webhook delivered twice processes exactly once); refund flows (full and partial); coupon-redemption limits under concurrent-ish requests.
+**Owner-facing** (extends `/dashboard`): unchanged core set (orders inbox, order detail, menu commerce management, coupons), plus:
+- `/dashboard/payments` — now a multi-provider list (connect/disconnect each, set priority/default) **`[REVISED]`**
+- `/dashboard/delivery` — extended to include radius/max-distance/min-order settings and delivery-fee-rule + service-fee-rule editors, alongside the existing zones/rules editor **`[REVISED]`**
+- `/dashboard/kitchen-capacity` **`[NEW]`** — pause/resume toggle, max-concurrent-orders and avg-prep-time settings
+- `/dashboard/pos` **`[NEW]`** — POS provider connection (all shown as "coming soon" given Sprint 07's stub-only implementation, consistent with how DoorDash/UberEats/Grubhub are shown today) and sync log
+- `/dashboard/tables` **`[NEW]`** — table list, QR code generation/download/print, regenerate-token action
+- Minimal "today's orders/revenue, broken down by source" widget **`[REVISED]`** — now includes the channel breakdown enabled by `Order.source`
 
-**End-to-end**: Sprint 07 is the first sprint where real user-facing interactivity is introduced (cart/checkout), making genuine browser-driven E2E (Playwright) worth introducing for the first time — the guest-checkout happy path (browse → customize → guest checkout → mock payment → confirmation) and the owner order-management happy path (new order → confirm → ready → complete), run against a local test database and Stripe test-mode keys, never live third-party APIs.
-
-**New testing-policy precedent worth naming explicitly**: given money is involved, the price-computation and payment-status-transition suites should be treated as release-blocking with zero tolerance for a "known failing test," a stricter bar than any subsystem has been formally held to before.
+**Staff-facing**: minimal orders/kitchen queue (unchanged in spirit, now also displaying dine-in orders by table label) and driver view (assigned deliveries, mark picked up/delivered, now periodically posting a location ping per §21).
 
 ---
 
-## 20. Acceptance Criteria
+## 23. Testing Strategy
 
-- [ ] Cart CRUD (create/add/update/remove items, apply/remove coupon) works end-to-end with mocked collaborators.
-- [ ] Checkout quote correctly computes subtotal, tax, tip, delivery fee, and discount for representative scenarios (pickup, delivery, scheduled, with/without coupon).
-- [ ] Order placement is idempotent: two identical requests with the same `Idempotency-Key` never create two orders or two charges.
-- [ ] Stripe adapter supports authorize, capture, void, partial refund, and full refund against test-mode credentials; the interface-conformance suite passes for the Stripe implementation.
-- [ ] Webhook endpoints reject unsigned or invalid-signature payloads without processing them; a duplicate-delivered webhook is processed exactly once.
-- [ ] Smart Routing Engine correctly filters available fulfillment/payment combinations across closed-restaurant, busy-kitchen, no-available-driver, and out-of-range-distance scenarios.
-- [ ] `DeliveryRule` priority and fallback chains resolve as configured, including the busy-driver-triggers-fallback case.
-- [ ] Cash on Delivery / Cash at Pickup orders bypass the payment provider correctly but still produce a `Transaction` record once marked paid.
-- [ ] Guest checkout requires no account; a `Customer` account correctly scopes saved cards per `PaymentProvider`, never cross-restaurant.
-- [ ] Staff/owner order actions (confirm/prepare/ready/complete/cancel/refund) are tenant-isolated under the existing 404-not-403 convention — verified against another restaurant's order.
-- [ ] Marking an item "86'd" removes it from checkout availability immediately, not just from display.
-- [ ] Inventory decrement (where `trackInventory` is enabled) is atomic under concurrent order placement — no overselling under a race condition test.
-- [ ] `Order.status`/`paymentStatus`/`fulfillmentStatus` transitions are only reachable through the centralized state-machine service; an illegal transition is rejected with a typed error.
-- [ ] Every order-lifecycle transition produces exactly one `OrderEvent`, and customer-visible milestones produce a corresponding `OrderTimeline` row.
-- [ ] Clover/Square/Authorize.net/Adyen/Fiserv and Uber Direct/DoorDash Drive/Local Courier remain visibly registered but return a clear "not available" response when selected — proven by re-running the registry pattern's existing test precedent.
+Unchanged core strategy from Revision 1 (vitest with fully-mocked collaborators for unit/integration, Playwright for the first genuine E2E coverage of guest checkout and owner order-management happy paths, release-blocking treatment for price-computation and payment-status-transition suites). **Additions for this revision's scope:**
+
+- **Multi-provider failover unit tests**: primary provider `DISCONNECTED`/erroring correctly triggers fallback to the next-priority `CONNECTED` provider; no fallback available correctly surfaces a clear error rather than a silent failure.
+- **Delivery economics unit tests**: `DeliveryFeeRule` and `ServiceFeeRule` resolution across flat/per-mile/percentage types and distance bands; `DeliveryConfig.maxDeliveryDistanceMiles` correctly short-circuits before zone/rule evaluation; minimum-order-amount enforcement blocks and unblocks correctly at the boundary.
+- **Kitchen capacity unit tests**: manual pause blocks new orders regardless of `maxConcurrentOrders`; auto-pause triggers exactly at the configured concurrent-order threshold, not one-off.
+- **QR ordering integration test**: scanning a `qrToken` correctly resolves to the right restaurant/table and produces a `DINE_IN`-sourced order; an invalid/deactivated token is rejected, not silently treated as pickup.
+- **POS adapter interface-conformance tests**: the shared contract test suite (already planned for payment/fulfillment adapters in Revision 1) is extended to cover `POSProviderAdapter` stubs, so a future real POS integration is held to the same behavioral guarantees from day one.
+- **Order source attribution tests**: every entry point (website, QR, staff-keyed phone order) produces the correct `Order.source` value, verified across the full placement flow, not just at the schema level.
+
+---
+
+## 24. Acceptance Criteria
+
+All Revision 1 criteria remain in force (cart CRUD, quote accuracy, idempotent placement, Stripe authorize/capture/void/refund, webhook signature verification and dedup, routing across closed/busy/no-driver/out-of-range scenarios, cash-method handling, guest/customer checkout, tenant-isolated staff order actions, 86-toggle immediacy, atomic inventory decrement, centralized state-machine enforcement, complete `OrderEvent`/`OrderTimeline` trail, stub providers remaining visibly registered but unavailable, full verification suite, no regression to Sprints 01–06). **Additional criteria for this revision:**
+
+- [ ] A restaurant can connect two or more `PaymentProvider`s simultaneously; disabling/disconnecting the primary provider for a payment method correctly triggers orchestration-level failover to the next-priority connected provider on the next authorization attempt.
+- [ ] `DeliveryConfig.maxDeliveryDistanceMiles` rejects an out-of-range delivery address before any zone/rule evaluation runs.
+- [ ] `DeliveryConfig.deliveryRadiusMiles` correctly governs delivery eligibility when no `DeliveryZone`/`DeliveryRule` rows exist for a restaurant, and is correctly superseded once they do.
+- [ ] Orders below `minOrderCentsForDelivery`/`minOrderCentsForPickup` are blocked at the quote step with a specific "add $X more" message, not a generic error.
+- [ ] `DeliveryFeeRule` and `ServiceFeeRule` resolve correctly across all three fee types (flat/per-mile/percentage) and are itemized as separate, correctly labeled line items on the order (never merged with tip).
+- [ ] `KitchenCapacity.isAcceptingOrders = false` blocks new orders platform-wide for that restaurant with a clear message; `maxConcurrentOrders` auto-pauses and auto-resumes correctly as the in-flight order count crosses the threshold.
+- [ ] `DriverAssignment.currentLat/Lng` reflects the most recent `DriverLocationPing`; historical pings are queryable per delivery for a full route reconstruction.
+- [ ] Every order carries a correct `Order.source` value regardless of entry point (website, QR dine-in, staff-keyed phone); the owner orders list is filterable by source.
+- [ ] A scanned `Table` QR token correctly bootstraps a `DINE_IN` cart scoped to the right restaurant and table; a deactivated or regenerated (stale) token is rejected.
+- [ ] All registered `POSProvider` types remain visible-but-unavailable (`implemented: false`) in the owner dashboard without breaking existing adapter-registry tests; the `POSProviderAdapter` interface and `POSSyncLog` schema exist and pass interface-conformance tests against their stub implementations.
+- [ ] `GiftCard`/`GiftCardTransaction` and `LoyaltyProgram`/`LoyaltyAccount`/`LoyaltyTransaction` exist in the schema and pass migration/validation, with zero UI surfaces or checkout steps referencing them.
 - [ ] Full verification suite passes: `pnpm install`, `prisma generate`, `prisma validate`, `lint`, `typecheck`, `test`, `build`.
-- [ ] No regression to any Sprint 01–06 functionality (auth, menu, import engine, AI website builder, renderer) — full existing test suite still passes unchanged.
 
 ---
 
 ## Decisions Requiring Approval
 
-1. **Stripe-first payment provider** (implemented), with Clover/Square/Authorize.net/Adyen/Fiserv as registered stubs — same pattern as prior sprints' source rollouts. Confirm this is acceptable, or specify a different first provider if a design partner already uses one of the others.
-2. **Minimal polling-based kitchen/orders view included in Sprint 07** (vs. deferring all staff-facing UI to Sprint 08's full KDS) — proposed because orders need somewhere to land, but this does expand Sprint 07's frontend scope beyond pure commerce.
-3. **In-process event emitter, no message broker, in Sprint 07** — Redis/SQS deferred to Sprint 09 per the existing roadmap. Confirm this sequencing still holds given commerce is now in the picture.
-4. **Gift cards are schema-only** in Sprint 07 (data model exists, no checkout UI) — confirm this satisfies "future-ready" as intended, or if partial UI is wanted sooner.
-5. **Structured hours model** is introduced in Sprint 07 as a checkout-scheduling prerequisite, ahead of its originally-planned Sprint 10 slot (SEO/JSON-LD use case) — confirm this pull-forward is acceptable.
+1. **Stripe-first payment provider** (implemented), with Clover/Square/Authorize.net/Adyen/Fiserv as registered multi-provider-capable stubs. Confirm, or specify a different first provider.
+2. **Minimal polling-based kitchen/orders view included in Sprint 07** (vs. deferring all staff-facing UI to Sprint 08's full KDS) — dine-in orders from QR ordering now also land in this same minimal view.
+3. **In-process event emitter, no message broker, in Sprint 07** — Redis/SQS still deferred to Sprint 09.
+4. **Gift cards and loyalty are both schema-only** in Sprint 07 — confirm this satisfies "future-ready" as intended for both.
+5. **Structured hours model** introduced in Sprint 07 as a checkout-scheduling prerequisite (pulled forward from its original Sprint 10 slot).
+6. **All POS providers (Square POS, Clover POS, Toast, Lightspeed) are stubs in Sprint 07** — no live POS sync ships this sprint; confirm this is acceptable, or identify one POS system to prioritize as "implemented: true" if a design partner needs it sooner (mirroring the Stripe-first payment decision).
+7. **QR ordering ships without split-check/bill-splitting, call-server buttons, or a table-status board** — confirm this minimal scope (order placement only) is the right first slice.
+8. **Multi-provider payment failover is automatic and transparent to the customer** (no "choose your processor" UI) — confirm this matches the intended restaurant/customer experience, versus, alternatively, exposing provider choice explicitly somewhere in the owner or customer flow.
 
 ---
 
