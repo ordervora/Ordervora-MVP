@@ -2,7 +2,13 @@ import type { Payment, PaymentAttempt, PaymentMethodType, RefundReason } from "@
 import { ProviderConnectionStatus } from "@prisma/client";
 import { decryptSecret } from "../../../lib/encryption";
 import { prisma } from "../../../lib/prisma";
-import { NoAvailableProviderError, PaymentMethodNotFoundError } from "./payments.errors";
+import {
+  NoAvailableProviderError,
+  PaymentMethodNotFoundError,
+  PaymentNotFoundError,
+  PaymentVoidFailedError,
+  RefundFailedError,
+} from "./payments.errors";
 import { paymentProviderRegistry } from "./registry";
 
 export interface AuthorizeOrderPaymentInput {
@@ -17,6 +23,11 @@ export interface AuthorizeOrderPaymentInput {
 export interface AuthorizeOrderPaymentResult {
   payment: Payment;
   attempt: PaymentAttempt;
+  /** Set when the provider requires a customer-facing 3DS/SCA challenge.
+   * The caller must not proceed to captureOrderPayment or try another
+   * provider — this is a customer-interaction-required state, not a
+   * provider outage or decline (Sprint 07.6 C-6). */
+  requiresAction?: { clientSecret: string };
 }
 
 /**
@@ -58,6 +69,23 @@ export async function authorizeOrderPayment(input: AuthorizeOrderPaymentInput): 
 
     attemptNumber += 1;
     const credentials = decryptSecret(candidate.credentialsEncrypted);
+
+    // Reserve the attempt row BEFORE calling the provider — if the
+    // provider call succeeds but a subsequent DB write fails, this row
+    // (PENDING, no providerPaymentIntentId yet) still exists to anchor a
+    // reconciliation pass, rather than the authorization being left with
+    // zero record anywhere in the database.
+    const pendingAttempt = await prisma.paymentAttempt.create({
+      data: {
+        orderId: input.orderId,
+        providerId: candidate.id,
+        methodType: input.methodType,
+        attemptNumber,
+        status: "PENDING",
+        amountCents: input.amountCents,
+      },
+    });
+
     const result = await adapter.authorize(
       {
         orderId: input.orderId,
@@ -68,17 +96,13 @@ export async function authorizeOrderPayment(input: AuthorizeOrderPaymentInput): 
       credentials,
     );
 
-    const attempt = await prisma.paymentAttempt.create({
+    const attempt = await prisma.paymentAttempt.update({
+      where: { id: pendingAttempt.id },
       data: {
-        orderId: input.orderId,
-        providerId: candidate.id,
-        methodType: input.methodType,
-        attemptNumber,
-        status: result.success ? "AUTHORIZED" : "FAILED",
+        status: result.success ? "AUTHORIZED" : result.requiresAction ? "REQUIRES_ACTION" : "FAILED",
         providerPaymentIntentId: result.providerPaymentIntentId,
         failureCode: result.failureCode,
         failureMessage: result.failureMessage,
-        amountCents: input.amountCents,
       },
     });
 
@@ -102,6 +126,29 @@ export async function authorizeOrderPayment(input: AuthorizeOrderPaymentInput): 
       return { payment, attempt };
     }
 
+    if (result.requiresAction) {
+      // A 3DS/SCA challenge, not a decline — never fall through to try
+      // another provider; the customer must complete this exact
+      // authorization's challenge.
+      const payment = await prisma.payment.upsert({
+        where: { orderId: input.orderId },
+        create: {
+          orderId: input.orderId,
+          providerId: candidate.id,
+          successfulAttemptId: attempt.id,
+          status: "REQUIRES_ACTION",
+          authorizedAmountCents: input.amountCents,
+        },
+        update: {
+          providerId: candidate.id,
+          successfulAttemptId: attempt.id,
+          status: "REQUIRES_ACTION",
+          authorizedAmountCents: input.amountCents,
+        },
+      });
+      return { payment, attempt, requiresAction: result.requiresAction };
+    }
+
     lastFailure = { failureCode: result.failureCode, failureMessage: result.failureMessage };
   }
 
@@ -115,7 +162,7 @@ export async function authorizeOrderPayment(input: AuthorizeOrderPaymentInput): 
 export async function captureOrderPayment(paymentId: string, restaurantId: string): Promise<Payment> {
   const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { provider: true } });
   if (!payment) {
-    throw new Error("Payment not found");
+    throw new PaymentNotFoundError();
   }
 
   const adapter = paymentProviderRegistry.get(payment.provider.providerType);
@@ -130,6 +177,17 @@ export async function captureOrderPayment(paymentId: string, restaurantId: strin
   const credentials = decryptSecret(payment.provider.credentialsEncrypted);
   const result = await adapter.capture(attempt.providerPaymentIntentId, undefined, credentials);
   if (!result.success) {
+    // Capture failed after a successful authorize — the customer's card
+    // still carries a live hold. Release it rather than leaving the
+    // authorization dangling; only a genuine "void also failed" case
+    // (both the capture AND the compensating void rejected) needs a
+    // human to look at it.
+    const voidResult = await adapter.void(attempt.providerPaymentIntentId, credentials);
+    if (!voidResult.success) {
+      await prisma.payment.update({ where: { id: paymentId }, data: { status: "FAILED" } });
+      throw new PaymentVoidFailedError(paymentId, attempt.providerPaymentIntentId, voidResult.failureMessage);
+    }
+    await prisma.payment.update({ where: { id: paymentId }, data: { status: "VOIDED" } });
     throw new Error(result.failureMessage ?? "Capture failed");
   }
 
@@ -157,19 +215,23 @@ export interface RefundOrderPaymentInput {
 export async function refundOrderPayment(input: RefundOrderPaymentInput) {
   const payment = await prisma.payment.findUnique({ where: { id: input.paymentId }, include: { provider: true } });
   if (!payment) {
-    throw new Error("Payment not found");
+    throw new PaymentNotFoundError();
   }
   const adapter = paymentProviderRegistry.get(payment.provider.providerType);
   const attempt = payment.successfulAttemptId
     ? await prisma.paymentAttempt.findUnique({ where: { id: payment.successfulAttemptId } })
     : null;
   if (!adapter || !payment.provider.credentialsEncrypted || !attempt?.providerPaymentIntentId) {
-    throw new Error("Payment cannot be refunded — no successful provider charge on record");
+    throw new PaymentNotFoundError();
   }
 
   const credentials = decryptSecret(payment.provider.credentialsEncrypted);
   const result = await adapter.refund(attempt.providerPaymentIntentId, input.amountCents, credentials);
 
+  // The Refund row is written regardless of outcome — a FAILED attempt
+  // must still be auditable — but a failed refund is ALWAYS surfaced as
+  // an exception. Callers must never be able to treat a rejected refund
+  // as if money had moved.
   const refund = await prisma.refund.create({
     data: {
       paymentId: payment.id,
@@ -182,24 +244,26 @@ export async function refundOrderPayment(input: RefundOrderPaymentInput) {
     },
   });
 
-  if (result.success) {
-    const newRefundedTotal = payment.refundedAmountCents + input.amountCents;
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        refundedAmountCents: newRefundedTotal,
-        status: newRefundedTotal >= payment.capturedAmountCents ? "REFUNDED" : "PARTIALLY_REFUNDED",
-      },
-    });
-    await prisma.transaction.create({
-      data: {
-        orderId: payment.orderId,
-        restaurantId: input.restaurantId,
-        type: "REFUND",
-        amountCents: -input.amountCents,
-      },
-    });
+  if (!result.success) {
+    throw new RefundFailedError(result.failureMessage);
   }
+
+  const newRefundedTotal = payment.refundedAmountCents + input.amountCents;
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      refundedAmountCents: newRefundedTotal,
+      status: newRefundedTotal >= payment.capturedAmountCents ? "REFUNDED" : "PARTIALLY_REFUNDED",
+    },
+  });
+  await prisma.transaction.create({
+    data: {
+      orderId: payment.orderId,
+      restaurantId: input.restaurantId,
+      type: "REFUND",
+      amountCents: -input.amountCents,
+    },
+  });
 
   return refund;
 }

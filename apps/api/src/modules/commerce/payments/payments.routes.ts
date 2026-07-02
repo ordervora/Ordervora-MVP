@@ -1,5 +1,6 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
+import { publicCommerceRateLimiter } from "../../../middleware/rate-limit";
 import { requireAuth } from "../../../middleware/require-auth";
 import { requireRole } from "../../../middleware/require-role";
 import {
@@ -10,6 +11,7 @@ import {
   updateMethodHandler,
   updateProviderPriorityHandler,
 } from "./payments.controller";
+import { getPublicPaymentConfigHandler } from "./public-payment-config.controller";
 import { paymentWebhookHandler } from "./webhook.controller";
 
 // Owner/staff-facing config routes — mounted at "/api/restaurants" myself,
@@ -29,3 +31,14 @@ paymentsRouter.patch("/me/payment-methods/:methodType", requireAuth, staffOrOwne
 // Public webhook router — no requireAuth, signature-verified instead.
 export const paymentWebhookRouter = Router();
 paymentWebhookRouter.post("/:providerType", paymentWebhookHandler);
+
+// Public, unauthenticated — the checkout page's own Stripe Elements
+// bootstrap. Returns only providerType/publicKey, nothing else (Sprint 07.6
+// C-1). Mounted at "/api/public" myself, alongside the other public
+// commerce routers.
+export const publicPaymentConfigRouter = Router();
+publicPaymentConfigRouter.get(
+  "/restaurants/:restaurantId/payment-config",
+  publicCommerceRateLimiter,
+  getPublicPaymentConfigHandler,
+);

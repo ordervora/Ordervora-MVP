@@ -14,8 +14,14 @@ vi.mock("../menu-commerce/modifiers.service", () => ({
   listModifierGroupsForItem: vi.fn(),
 }));
 
+vi.mock("../qr-ordering/tables.service", () => ({
+  resolveTableByToken: vi.fn(),
+}));
+
 import { prisma } from "../../../lib/prisma";
 import { listModifierGroupsForItem } from "../menu-commerce/modifiers.service";
+import { InvalidQrTokenError } from "../qr-ordering/qr-ordering.errors";
+import { resolveTableByToken } from "../qr-ordering/tables.service";
 import {
   CartItemNotFoundError,
   CartNotFoundError,
@@ -23,7 +29,14 @@ import {
   InvalidModifierSelectionError,
   ItemNotOrderableError,
 } from "./cart.errors";
-import { addCartItem, cartSubtotalCents, getCartWithItems, getOrCreateActiveCart, updateCartItemQuantity } from "./cart.service";
+import {
+  addCartItem,
+  bindCartToTable,
+  cartSubtotalCents,
+  getCartWithItems,
+  getOrCreateActiveCart,
+  updateCartItemQuantity,
+} from "./cart.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -160,5 +173,38 @@ describe("getCartWithItems", () => {
   it("throws CartNotFoundError for a missing cart", async () => {
     mockPrisma.cart.findUnique.mockResolvedValue(null as never);
     await expect(getCartWithItems("missing")).rejects.toBeInstanceOf(CartNotFoundError);
+  });
+});
+
+describe("bindCartToTable", () => {
+  it("resolves the qrToken server-side and sets tableId + DINE_IN for a same-restaurant table", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", restaurantId: "r1", items: [] } as never);
+    vi.mocked(resolveTableByToken).mockResolvedValue({ id: "table-1", restaurantId: "r1" } as never);
+    mockPrisma.cart.update.mockResolvedValue({ id: "cart-1", tableId: "table-1", fulfillmentType: "DINE_IN" } as never);
+
+    const result = await bindCartToTable("cart-1", "qr-token-abc");
+
+    expect(resolveTableByToken).toHaveBeenCalledWith("qr-token-abc");
+    expect(mockPrisma.cart.update).toHaveBeenCalledWith({
+      where: { id: "cart-1" },
+      data: { tableId: "table-1", fulfillmentType: "DINE_IN" },
+    });
+    expect(result.tableId).toBe("table-1");
+  });
+
+  it("rejects (CartRestaurantMismatchError) when the token resolves to a different restaurant's table", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", restaurantId: "r1", items: [] } as never);
+    vi.mocked(resolveTableByToken).mockResolvedValue({ id: "table-1", restaurantId: "other-restaurant" } as never);
+
+    await expect(bindCartToTable("cart-1", "qr-token-abc")).rejects.toBeInstanceOf(CartRestaurantMismatchError);
+    expect(mockPrisma.cart.update).not.toHaveBeenCalled();
+  });
+
+  it("propagates InvalidQrTokenError for an invalid/expired token without mutating the cart", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", restaurantId: "r1", items: [] } as never);
+    vi.mocked(resolveTableByToken).mockRejectedValue(new InvalidQrTokenError());
+
+    await expect(bindCartToTable("cart-1", "bad-token")).rejects.toBeInstanceOf(InvalidQrTokenError);
+    expect(mockPrisma.cart.update).not.toHaveBeenCalled();
   });
 });

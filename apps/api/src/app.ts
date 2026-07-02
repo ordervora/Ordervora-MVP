@@ -13,7 +13,7 @@ import { fulfillmentRouter } from "./modules/commerce/fulfillment/fulfillment.ro
 import { menuCommerceRouter } from "./modules/commerce/menu-commerce/menu-commerce.routes";
 import { publicMenuRouter } from "./modules/commerce/menu-commerce/public-menu.routes";
 import { ordersRouter, publicOrdersRouter } from "./modules/commerce/orders/orders.routes";
-import { paymentsRouter, paymentWebhookRouter } from "./modules/commerce/payments/payments.routes";
+import { paymentsRouter, paymentWebhookRouter, publicPaymentConfigRouter } from "./modules/commerce/payments/payments.routes";
 import { posRouter } from "./modules/commerce/pos/pos.routes";
 import { publicTablesRouter, tablesRouter } from "./modules/commerce/qr-ordering/tables.routes";
 import { importRouter } from "./modules/imports/import.routes";
@@ -85,6 +85,7 @@ export function createApp() {
   // (guest/customer identity resolved from cookies, not requireAuth).
   app.use("/api/public", publicMenuRouter);
   app.use("/api/public", publicCartRouter);
+  app.use("/api/public", publicPaymentConfigRouter);
   app.use("/api/public", checkoutRouter);
   app.use("/api/public", publicOrdersRouter);
   app.use("/api/public", publicTablesRouter);

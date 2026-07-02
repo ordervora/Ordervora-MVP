@@ -2,7 +2,6 @@ import { z } from "zod";
 
 export const createCartSchema = z.object({
   fulfillmentType: z.enum(["PICKUP", "DELIVERY", "DINE_IN"]).default("PICKUP"),
-  tableId: z.uuid().optional(),
 });
 
 export const addCartItemSchema = z.object({
@@ -21,11 +20,17 @@ export const setFulfillmentSchema = z.object({
   fulfillmentType: z.enum(["PICKUP", "DELIVERY", "DINE_IN"]),
   scheduledFor: z.coerce.date().optional(),
   deliveryAddressId: z.uuid().optional(),
-  tableId: z.uuid().optional(),
 });
 
 export const applyCouponSchema = z.object({
   code: z.string().min(1).max(32),
+});
+
+// A table is bound to a cart only via a scanned QR token, never a raw
+// client-supplied tableId — the token is resolved to a real Table row
+// server-side (see bindCartToTable in cart.service.ts).
+export const bindTableSchema = z.object({
+  qrToken: z.string().min(1),
 });
 
 export type CreateCartInput = z.infer<typeof createCartSchema>;
@@ -33,3 +38,4 @@ export type AddCartItemInput = z.infer<typeof addCartItemSchema>;
 export type UpdateCartItemInput = z.infer<typeof updateCartItemSchema>;
 export type SetFulfillmentInput = z.infer<typeof setFulfillmentSchema>;
 export type ApplyCouponInput = z.infer<typeof applyCouponSchema>;
+export type BindTableInput = z.infer<typeof bindTableSchema>;

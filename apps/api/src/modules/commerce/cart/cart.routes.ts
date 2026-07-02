@@ -3,6 +3,7 @@ import { publicCommerceRateLimiter } from "../../../middleware/rate-limit";
 import {
   addCartItemHandler,
   applyCouponHandler,
+  bindTableHandler,
   createCartHandler,
   getCartHandler,
   removeCartItemHandler,
@@ -21,5 +22,6 @@ publicCartRouter.post("/cart/:cartId/items", publicCommerceRateLimiter, addCartI
 publicCartRouter.patch("/cart/:cartId/items/:itemId", publicCommerceRateLimiter, updateCartItemHandler);
 publicCartRouter.delete("/cart/:cartId/items/:itemId", removeCartItemHandler);
 publicCartRouter.patch("/cart/:cartId/fulfillment", publicCommerceRateLimiter, setFulfillmentHandler);
+publicCartRouter.post("/cart/:cartId/bind-table", publicCommerceRateLimiter, bindTableHandler);
 publicCartRouter.post("/cart/:cartId/coupon", publicCommerceRateLimiter, applyCouponHandler);
 publicCartRouter.delete("/cart/:cartId/coupon", removeCouponHandler);

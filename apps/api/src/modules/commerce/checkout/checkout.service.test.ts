@@ -9,13 +9,14 @@ vi.mock("../../../lib/prisma", () => ({
     restaurant: { findUnique: vi.fn() },
     user: { findFirst: vi.fn() },
     customer: { findUnique: vi.fn() },
-    order: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
+    order: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     orderItem: { findMany: vi.fn(), update: vi.fn() },
     orderTimeline: { create: vi.fn() },
     transaction: { createMany: vi.fn() },
-    guestCustomer: { create: vi.fn() },
-    couponRedemption: { create: vi.fn() },
+    guestCustomer: { create: vi.fn(), findUnique: vi.fn() },
+    couponRedemption: { create: vi.fn(), count: vi.fn().mockResolvedValue(0) },
     cart: { update: vi.fn() },
+    payment: { findUnique: vi.fn() },
   },
 }));
 
@@ -58,8 +59,11 @@ vi.mock("./quote.service", () => ({
   computeCheckoutQuote: vi.fn(),
 }));
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { getCartWithItems } from "../cart/cart.service";
+import { validateCouponForRedemption } from "../coupons/coupons.service";
+import { sendOrderConfirmation } from "../notifications/notifications.service";
 import { NoAvailableProviderError } from "../payments/payments.errors";
 import { computeCheckoutQuote } from "./quote.service";
 import {
@@ -69,7 +73,7 @@ import {
   PaymentFailedError,
   PriceDriftError,
 } from "./checkout.errors";
-import { placeOrder } from "./checkout.service";
+import { confirmCardPayment, placeOrder } from "./checkout.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -94,6 +98,7 @@ function baseCart(overrides: Record<string, unknown> = {}) {
     restaurantId: "r1",
     customerId: "cust-1",
     guestSessionId: null,
+    status: "ACTIVE",
     couponCode: null,
     fulfillmentType: "PICKUP",
     tableId: null,
@@ -125,6 +130,12 @@ beforeEach(() => {
   mockPrisma.customer.findUnique.mockResolvedValue({ email: "customer@example.com" } as never);
   mockPrisma.orderItem.findMany.mockResolvedValue([{ id: "oi-1", menuItemId: "item-1" }] as never);
   mockPrisma.order.findUniqueOrThrow.mockResolvedValue({
+    id: "order-1",
+    orderNumber: 1,
+    status: "PENDING_PAYMENT",
+    totalCents: 1090,
+  } as never);
+  mockPrisma.order.findUnique.mockResolvedValue({
     id: "order-1",
     orderNumber: 1,
     status: "PENDING_PAYMENT",
@@ -188,6 +199,31 @@ describe("placeOrder — pre-flight validation", () => {
       placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
     ).rejects.toBeInstanceOf(CheckoutIneligibleError);
   });
+
+  it("rejects a cart that has already been converted by a prior placeOrder call", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ status: "CONVERTED" }));
+
+    await expect(
+      placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent double-checkout (P2002 on Order.cartId) to CheckoutIneligibleError", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart());
+    mockCreatedOrder();
+    mockPrisma.$transaction.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+        meta: { target: ["cartId"] },
+      }),
+    );
+
+    await expect(
+      placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
 });
 
 describe("placeOrder — cash methods bypass the payment provider", () => {
@@ -207,7 +243,7 @@ describe("placeOrder — cash methods bypass the payment provider", () => {
 describe("placeOrder — card payment success", () => {
   it("authorizes, captures, confirms the order, and writes sub-ledger transactions", async () => {
     vi.mocked(getCartWithItems).mockResolvedValue(baseCart());
-    mockCreatedOrder();
+    mockCreatedOrder({ tipCents: 200, serviceFeeCents: 100 });
     mockAuthorize.mockResolvedValue({ payment: { id: "pay-1" }, attempt: { id: "attempt-1" } });
     mockCapture.mockResolvedValue({ id: "pay-1", status: "CAPTURED" });
     vi.mocked(computeCheckoutQuote).mockResolvedValue(eligibleQuote({ tipCents: 200, serviceFeeCents: 100, totalCents: 1390 }) as never);
@@ -236,6 +272,38 @@ describe("placeOrder — card payment success", () => {
     ).rejects.toBeInstanceOf(PaymentFailedError);
     expect(mockAuthorize).not.toHaveBeenCalled();
   });
+
+  it("does not throw when the post-capture confirmOrder transition fails (capture has already succeeded)", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart());
+    mockCreatedOrder();
+    mockAuthorize.mockResolvedValue({ payment: { id: "pay-1" }, attempt: { id: "attempt-1" } });
+    mockCapture.mockResolvedValue({ id: "pay-1", status: "CAPTURED" });
+    // confirmOrder internally calls order.findUniqueOrThrow — make that
+    // specific post-capture lookup fail to simulate a DB hiccup after money
+    // has already moved.
+    mockPrisma.order.findUniqueOrThrow.mockRejectedValue(new Error("db hiccup"));
+
+    const result = await placeOrder("cart-1", "r1", { tipCents: 0, methodType: "VISA", methodToken: "pm_123" } as never);
+
+    expect(result.order.id).toBe("order-1");
+    // Crucially: failOrder must NOT have been invoked as a result of this
+    // post-capture failure (that would incorrectly mark a paid order FAILED).
+    expect(mockPrisma.order.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }),
+    );
+  });
+
+  it("does not throw when the post-capture order confirmation email fails", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart());
+    mockCreatedOrder();
+    mockAuthorize.mockResolvedValue({ payment: { id: "pay-1" }, attempt: { id: "attempt-1" } });
+    mockCapture.mockResolvedValue({ id: "pay-1", status: "CAPTURED" });
+    vi.mocked(sendOrderConfirmation).mockRejectedValue(new Error("email provider down"));
+
+    const result = await placeOrder("cart-1", "r1", { tipCents: 0, methodType: "VISA", methodToken: "pm_123" } as never);
+
+    expect(result.order.id).toBe("order-1");
+  });
 });
 
 describe("placeOrder — card payment failure", () => {
@@ -252,5 +320,152 @@ describe("placeOrder — card payment failure", () => {
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }),
     );
     expect(mockCapture).not.toHaveBeenCalled();
+  });
+});
+
+describe("placeOrder — coupon redemption race", () => {
+  it("rejects when the in-transaction recount finds the global cap already reached", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ couponCode: "SAVE10" }));
+    mockCreatedOrder();
+    vi.mocked(validateCouponForRedemption).mockResolvedValue({
+      coupon: { id: "coupon-1", maxRedemptions: 5, maxRedemptionsPerCustomer: null } as never,
+      discountCents: 100,
+    });
+    mockPrisma.couponRedemption.count.mockResolvedValueOnce(5);
+
+    await expect(
+      placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
+
+  it("rejects when the in-transaction recount finds the per-customer cap already reached", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ couponCode: "SAVE10" }));
+    mockCreatedOrder();
+    vi.mocked(validateCouponForRedemption).mockResolvedValue({
+      coupon: { id: "coupon-1", maxRedemptions: null, maxRedemptionsPerCustomer: 1 } as never,
+      discountCents: 100,
+    });
+    mockPrisma.couponRedemption.count.mockResolvedValueOnce(1);
+
+    await expect(
+      placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
+
+  it("maps a Postgres serialization failure (P2034) to CheckoutIneligibleError", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ couponCode: "SAVE10" }));
+    mockCreatedOrder();
+    vi.mocked(validateCouponForRedemption).mockResolvedValue({
+      coupon: { id: "coupon-1", maxRedemptions: 5, maxRedemptionsPerCustomer: null } as never,
+      discountCents: 100,
+    });
+    mockPrisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Transaction failed due to a write conflict", {
+        code: "P2034",
+        clientVersion: "test",
+      }),
+    );
+
+    await expect(
+      placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
+
+  it("runs the transaction with Serializable isolation when a coupon is present", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ couponCode: "SAVE10" }));
+    mockCreatedOrder();
+    vi.mocked(validateCouponForRedemption).mockResolvedValue({
+      coupon: { id: "coupon-1", maxRedemptions: 5, maxRedemptionsPerCustomer: null } as never,
+      discountCents: 100,
+    });
+
+    await placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never);
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable }),
+    );
+  });
+});
+
+describe("placeOrder — 3DS/SCA requiresAction (C-6)", () => {
+  it("returns requiresAction without capturing or confirming when authorizeOrderPayment requires a challenge", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart());
+    mockCreatedOrder();
+    mockAuthorize.mockResolvedValue({
+      payment: { id: "pay-1" },
+      attempt: { id: "attempt-1" },
+      requiresAction: { clientSecret: "pi_123_secret_abc" },
+    });
+    mockPrisma.order.findUnique.mockResolvedValue({ id: "order-1", orderNumber: 1, paymentStatus: "REQUIRES_ACTION" } as never);
+
+    const result = await placeOrder("cart-1", "r1", { tipCents: 0, methodType: "VISA", methodToken: "pm_123" } as never);
+
+    expect(result.requiresAction).toEqual({ clientSecret: "pi_123_secret_abc" });
+    expect(mockCapture).not.toHaveBeenCalled();
+    expect(mockPrisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ paymentStatus: "REQUIRES_ACTION" }) }),
+    );
+    expect(sendOrderConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmCardPayment (C-6)", () => {
+  it("rejects a cart/order that does not belong to this restaurant", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue({ id: "order-1", restaurantId: "other" } as never);
+
+    await expect(confirmCardPayment("cart-1", "r1")).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
+
+  it("rejects an order that is not awaiting payment confirmation", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue({ id: "order-1", restaurantId: "r1", paymentStatus: "PAID" } as never);
+
+    await expect(confirmCardPayment("cart-1", "r1")).rejects.toBeInstanceOf(CheckoutIneligibleError);
+    expect(mockCapture).not.toHaveBeenCalled();
+  });
+
+  it("captures and completes the order once the 3DS challenge has been completed", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue({
+      id: "order-1",
+      restaurantId: "r1",
+      cartId: "cart-1",
+      orderNumber: 7,
+      paymentStatus: "REQUIRES_ACTION",
+      tipCents: 0,
+      serviceFeeCents: 0,
+      totalCents: 1090,
+      customerId: null,
+      guestCustomerId: null,
+    } as never);
+    mockPrisma.payment.findUnique.mockResolvedValue({ id: "pay-1" } as never);
+    mockCapture.mockResolvedValue({ id: "pay-1", status: "CAPTURED" });
+
+    const result = await confirmCardPayment("cart-1", "r1");
+
+    expect(mockCapture).toHaveBeenCalledWith("pay-1", "r1");
+    expect(mockPrisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONFIRMED" }) }),
+    );
+    expect(result.order.id).toBe("order-1");
+  });
+
+  it("throws PaymentFailedError (and marks the order FAILED) when the resumed capture fails", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue({
+      id: "order-1",
+      restaurantId: "r1",
+      cartId: "cart-1",
+      orderNumber: 7,
+      paymentStatus: "REQUIRES_ACTION",
+      status: "PENDING_PAYMENT",
+      customerId: null,
+      guestCustomerId: null,
+    } as never);
+    mockPrisma.payment.findUnique.mockResolvedValue({ id: "pay-1" } as never);
+    mockCapture.mockRejectedValue(new Error("capture failed"));
+
+    await expect(confirmCardPayment("cart-1", "r1")).rejects.toBeInstanceOf(PaymentFailedError);
+    expect(mockPrisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }),
+    );
   });
 });

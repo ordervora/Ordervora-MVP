@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createCart, resolveTableByQrToken } from "@/lib/commerce-api";
+import { bindCartToTable, createCart, resolveTableByQrToken } from "@/lib/commerce-api";
 import { setStoredCartId } from "@/lib/cart-storage";
 
 /**
@@ -22,11 +22,13 @@ export default function QrTableLandingPage() {
     let cancelled = false;
     resolveTableByQrToken(qrToken)
       .then(({ table }) =>
-        createCart(table.restaurantId, "DINE_IN", table.id).then(({ cart }) => {
-          if (cancelled) return;
-          setStoredCartId(table.restaurantId, cart.id);
-          router.replace(`/order/${table.restaurantId}`);
-        }),
+        createCart(table.restaurantId, "DINE_IN").then(({ cart }) =>
+          bindCartToTable(cart.id, qrToken).then(({ cart: bound }) => {
+            if (cancelled) return;
+            setStoredCartId(table.restaurantId, bound.id);
+            router.replace(`/order/${table.restaurantId}`);
+          }),
+        ),
       )
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "This QR code is no longer valid");

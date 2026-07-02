@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
-import { verifyCustomerAccessToken } from "../customers/customer-jwt";
-import { CUSTOMER_ACCESS_TOKEN_COOKIE } from "../customers/customer-cookies";
 import { CouponInvalidError, CouponNotFoundError } from "../coupons/coupons.errors";
 import { validateCouponForRedemption } from "../coupons/coupons.service";
+import { InvalidQrTokenError } from "../qr-ordering/qr-ordering.errors";
+import { assertCartOwnership, resolveCartIdentity } from "./cart-identity";
 import {
   CartItemNotFoundError,
   CartNotFoundError,
@@ -12,6 +12,7 @@ import {
 } from "./cart.errors";
 import {
   addCartItem,
+  bindCartToTable,
   cartSubtotalCents,
   getCartWithItems,
   getOrCreateActiveCart,
@@ -20,22 +21,14 @@ import {
   setCartFulfillment,
   updateCartItemQuantity,
 } from "./cart.service";
-import { addCartItemSchema, applyCouponSchema, createCartSchema, setFulfillmentSchema, updateCartItemSchema } from "./cart.validation";
-import { resolveGuestSessionId } from "./guest-session";
-import type { CartIdentity } from "./cart.service";
-
-/** Soft customer-auth check — a cart is usable by guests, so a missing/invalid customer token just falls back to guest identity. */
-function resolveCartIdentity(req: Request, res: Response): CartIdentity {
-  const token = req.cookies?.[CUSTOMER_ACCESS_TOKEN_COOKIE];
-  if (token) {
-    try {
-      return { customerId: verifyCustomerAccessToken(token) };
-    } catch {
-      // fall through to guest identity
-    }
-  }
-  return { guestSessionId: resolveGuestSessionId(req, res) };
-}
+import {
+  addCartItemSchema,
+  applyCouponSchema,
+  bindTableSchema,
+  createCartSchema,
+  setFulfillmentSchema,
+  updateCartItemSchema,
+} from "./cart.validation";
 
 export async function createCartHandler(req: Request, res: Response): Promise<void> {
   const parsed = createCartSchema.safeParse(req.body);
@@ -46,13 +39,43 @@ export async function createCartHandler(req: Request, res: Response): Promise<vo
 
   const restaurantId = req.params.restaurantId as string;
   const identity = resolveCartIdentity(req, res);
-  const cart = await getOrCreateActiveCart(restaurantId, identity, parsed.data.fulfillmentType, parsed.data.tableId);
+  const cart = await getOrCreateActiveCart(restaurantId, identity, parsed.data.fulfillmentType);
   res.status(201).json({ cart });
+}
+
+/**
+ * The only endpoint that may set Cart.tableId — always via a scanned QR
+ * token resolved server-side, never a client-supplied tableId (C-13).
+ */
+export async function bindTableHandler(req: Request, res: Response): Promise<void> {
+  const parsed = bindTableSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const cart = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(cart, resolveCartIdentity(req, res));
+    const updated = await bindCartToTable(cart.id, parsed.data.qrToken);
+    res.status(200).json({ cart: updated });
+  } catch (err) {
+    if (err instanceof CartNotFoundError || err instanceof InvalidQrTokenError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof CartRestaurantMismatchError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function getCartHandler(req: Request, res: Response): Promise<void> {
   try {
     const cart = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(cart, resolveCartIdentity(req, res));
     res.status(200).json({ cart, subtotalCents: cartSubtotalCents(cart.items) });
   } catch (err) {
     if (err instanceof CartNotFoundError) {
@@ -72,6 +95,7 @@ export async function addCartItemHandler(req: Request, res: Response): Promise<v
 
   try {
     const cart = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(cart, resolveCartIdentity(req, res));
     const item = await addCartItem(cart.restaurantId, cart.id, parsed.data);
     res.status(201).json({ item });
   } catch (err) {
@@ -99,10 +123,12 @@ export async function updateCartItemHandler(req: Request, res: Response): Promis
   }
 
   try {
+    const cart = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(cart, resolveCartIdentity(req, res));
     const item = await updateCartItemQuantity(req.params.cartId as string, req.params.itemId as string, parsed.data.quantity);
     res.status(200).json({ item });
   } catch (err) {
-    if (err instanceof CartItemNotFoundError) {
+    if (err instanceof CartNotFoundError || err instanceof CartItemNotFoundError) {
       res.status(404).json({ error: err.message });
       return;
     }
@@ -112,10 +138,12 @@ export async function updateCartItemHandler(req: Request, res: Response): Promis
 
 export async function removeCartItemHandler(req: Request, res: Response): Promise<void> {
   try {
+    const cart = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(cart, resolveCartIdentity(req, res));
     await removeCartItem(req.params.cartId as string, req.params.itemId as string);
     res.status(204).send();
   } catch (err) {
-    if (err instanceof CartItemNotFoundError) {
+    if (err instanceof CartNotFoundError || err instanceof CartItemNotFoundError) {
       res.status(404).json({ error: err.message });
       return;
     }
@@ -131,6 +159,8 @@ export async function setFulfillmentHandler(req: Request, res: Response): Promis
   }
 
   try {
+    const existing = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(existing, resolveCartIdentity(req, res));
     const cart = await setCartFulfillment(req.params.cartId as string, parsed.data);
     res.status(200).json({ cart });
   } catch (err) {
@@ -152,6 +182,7 @@ export async function applyCouponHandler(req: Request, res: Response): Promise<v
   try {
     const cart = await getCartWithItems(req.params.cartId as string);
     const identity = resolveCartIdentity(req, res);
+    assertCartOwnership(cart, identity);
     const { discountCents } = await validateCouponForRedemption(
       cart.restaurantId,
       parsed.data.code,
@@ -175,6 +206,8 @@ export async function applyCouponHandler(req: Request, res: Response): Promise<v
 
 export async function removeCouponHandler(req: Request, res: Response): Promise<void> {
   try {
+    const existing = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(existing, resolveCartIdentity(req, res));
     const cart = await setCartCoupon(req.params.cartId as string, null);
     res.status(200).json({ cart });
   } catch (err) {

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { prisma } from "../../../lib/prisma";
 import { NoRestaurantError } from "../../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
+import { RefundFailedError } from "../payments/payments.errors";
 import { InvalidOrderTransitionError } from "./order-state-machine";
 import { OrderNotFoundError } from "./orders.errors";
 import {
@@ -155,6 +156,12 @@ export async function refundHandler(req: Request, res: Response): Promise<void> 
     }
     if (err instanceof InvalidOrderTransitionError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof RefundFailedError) {
+      // The platform's own request was fine; the upstream provider
+      // rejected the refund — never mapped to 200/success.
+      res.status(502).json({ error: "The payment provider rejected this refund. Please try again or contact support." });
       return;
     }
     throw err;

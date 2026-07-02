@@ -38,6 +38,25 @@ describe("connectProvider", () => {
     );
     expect(mockPrisma.paymentProvider.upsert).not.toHaveBeenCalled();
   });
+
+  it("persists publicKey when supplied (Sprint 07.6 C-1)", async () => {
+    mockPrisma.paymentProvider.upsert.mockResolvedValue({ id: "p1" } as never);
+
+    await connectProvider("r1", "STRIPE", { credentials: "sk_live_secret", publicKey: "pk_live_public" });
+
+    const call = mockPrisma.paymentProvider.upsert.mock.calls[0][0];
+    expect(call.create.publicKey).toBe("pk_live_public");
+    expect(call.update.publicKey).toBe("pk_live_public");
+  });
+
+  it("leaves publicKey null when omitted", async () => {
+    mockPrisma.paymentProvider.upsert.mockResolvedValue({ id: "p1" } as never);
+
+    await connectProvider("r1", "STRIPE", { credentials: "sk_live_secret" });
+
+    const call = mockPrisma.paymentProvider.upsert.mock.calls[0][0];
+    expect(call.create.publicKey).toBeUndefined();
+  });
 });
 
 describe("tenant isolation", () => {

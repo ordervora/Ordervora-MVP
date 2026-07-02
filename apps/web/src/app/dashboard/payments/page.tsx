@@ -16,6 +16,7 @@ export default function PaymentsPage() {
   const [providers, setProviders] = useState<PaymentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [publicKeys, setPublicKeys] = useState<Record<string, string>>({});
 
   function refresh() {
     return listPaymentProviders()
@@ -41,7 +42,7 @@ export default function PaymentsPage() {
     const creds = credentials[type];
     if (!creds) return;
     try {
-      await connectPaymentProvider(type, creds);
+      await connectPaymentProvider(type, creds, undefined, undefined, publicKeys[type] || undefined);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect provider");
@@ -116,21 +117,32 @@ export default function PaymentsPage() {
                   </div>
                 ) : (
                   implemented && (
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        placeholder="Secret key / credentials"
-                        value={credentials[type] ?? ""}
-                        onChange={(e) => setCredentials((prev) => ({ ...prev, [type]: e.target.value }))}
-                        className="flex-1 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleConnect(type)}
-                        className="rounded-full bg-foreground px-4 py-2 text-sm text-background"
-                      >
-                        Connect
-                      </button>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          placeholder="Secret key / credentials"
+                          value={credentials[type] ?? ""}
+                          onChange={(e) => setCredentials((prev) => ({ ...prev, [type]: e.target.value }))}
+                          className="flex-1 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleConnect(type)}
+                          className="rounded-full bg-foreground px-4 py-2 text-sm text-background"
+                        >
+                          Connect
+                        </button>
+                      </div>
+                      {type === "STRIPE" && (
+                        <input
+                          type="text"
+                          placeholder="Publishable key (pk_..., required for card/wallet checkout)"
+                          value={publicKeys[type] ?? ""}
+                          onChange={(e) => setPublicKeys((prev) => ({ ...prev, [type]: e.target.value }))}
+                          className="rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                        />
+                      )}
                     </div>
                   )
                 )}

@@ -4,7 +4,7 @@ vi.mock("../../../lib/prisma", () => ({
   prisma: {
     paymentMethod: { findUnique: vi.fn() },
     paymentProvider: { findMany: vi.fn() },
-    paymentAttempt: { create: vi.fn(), findUnique: vi.fn() },
+    paymentAttempt: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     payment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     refund: { create: vi.fn() },
     transaction: { create: vi.fn() },
@@ -17,6 +17,8 @@ vi.mock("../../../lib/encryption", () => ({
 }));
 
 const mockAuthorize = vi.fn();
+const mockCapture = vi.fn();
+const mockVoid = vi.fn();
 const mockRefund = vi.fn();
 vi.mock("./registry", () => ({
   paymentProviderRegistry: {
@@ -24,19 +26,31 @@ vi.mock("./registry", () => ({
       providerType: "STRIPE",
       implemented: true,
       authorize: mockAuthorize,
+      capture: mockCapture,
+      void: mockVoid,
       refund: mockRefund,
     })),
   },
 }));
 
 import { prisma } from "../../../lib/prisma";
-import { NoAvailableProviderError, PaymentMethodNotFoundError } from "./payments.errors";
-import { authorizeOrderPayment, refundOrderPayment } from "./orchestrator";
+import {
+  NoAvailableProviderError,
+  PaymentMethodNotFoundError,
+  PaymentNotFoundError,
+  PaymentVoidFailedError,
+  RefundFailedError,
+} from "./payments.errors";
+import { authorizeOrderPayment, captureOrderPayment, refundOrderPayment } from "./orchestrator";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Every test's happy-path attempt-row lifecycle: create the PENDING
+  // reservation, then update it with the provider's result.
+  mockPrisma.paymentAttempt.create.mockResolvedValue({ id: "attempt-1" } as never);
+  mockPrisma.paymentAttempt.update.mockResolvedValue({ id: "attempt-1" } as never);
 });
 
 function provider(overrides: Record<string, unknown> = {}) {
@@ -73,7 +87,6 @@ describe("authorizeOrderPayment", () => {
       provider: provider(),
     } as never);
     mockAuthorize.mockResolvedValue({ success: true, providerPaymentIntentId: "pi_123" });
-    mockPrisma.paymentAttempt.create.mockResolvedValue({ id: "attempt-1" } as never);
     mockPrisma.payment.upsert.mockResolvedValue({ id: "payment-1", status: "AUTHORIZED" } as never);
 
     const result = await authorizeOrderPayment({
@@ -90,6 +103,68 @@ describe("authorizeOrderPayment", () => {
     expect(mockAuthorize).toHaveBeenCalledTimes(1);
   });
 
+  it("reserves a PENDING attempt row before calling the provider, then updates it with the result", async () => {
+    mockPrisma.paymentMethod.findUnique.mockResolvedValue({
+      isEnabled: true,
+      provider: provider(),
+    } as never);
+    mockAuthorize.mockResolvedValue({ success: true, providerPaymentIntentId: "pi_123" });
+    mockPrisma.payment.upsert.mockResolvedValue({ id: "payment-1" } as never);
+
+    await authorizeOrderPayment({
+      orderId: "o1",
+      restaurantId: "r1",
+      methodType: "VISA",
+      methodToken: "pm_123",
+      amountCents: 1000,
+      currency: "usd",
+    });
+
+    // The PENDING row is created BEFORE the provider call — if the
+    // provider succeeds but the subsequent update fails, this row still
+    // anchors a reconciliation pass rather than the authorization being
+    // left with zero record anywhere.
+    expect(mockPrisma.paymentAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "PENDING" }) }),
+    );
+    const createOrder = mockPrisma.paymentAttempt.create.mock.invocationCallOrder[0];
+    const authorizeOrder = mockAuthorize.mock.invocationCallOrder[0];
+    expect(createOrder).toBeLessThan(authorizeOrder);
+
+    expect(mockPrisma.paymentAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "attempt-1" },
+        data: expect.objectContaining({ status: "AUTHORIZED", providerPaymentIntentId: "pi_123" }),
+      }),
+    );
+  });
+
+  it("leaves a PENDING attempt row queryable if the provider call succeeds but the result-update write fails", async () => {
+    mockPrisma.paymentMethod.findUnique.mockResolvedValue({
+      isEnabled: true,
+      provider: provider(),
+    } as never);
+    mockAuthorize.mockResolvedValue({ success: true, providerPaymentIntentId: "pi_123" });
+    mockPrisma.paymentAttempt.update.mockRejectedValue(new Error("connection pool exhausted"));
+
+    await expect(
+      authorizeOrderPayment({
+        orderId: "o1",
+        restaurantId: "r1",
+        methodType: "VISA",
+        methodToken: "pm_123",
+        amountCents: 1000,
+        currency: "usd",
+      }),
+    ).rejects.toThrow("connection pool exhausted");
+
+    // The PENDING row from before the provider call is still there —
+    // this is the finding's whole point: no record is ever fully lost.
+    expect(mockPrisma.paymentAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ orderId: "o1", status: "PENDING" }) }),
+    );
+  });
+
   it("falls back to the next-priority connected provider when the primary is disconnected", async () => {
     mockPrisma.paymentMethod.findUnique.mockResolvedValue({
       isEnabled: true,
@@ -102,7 +177,6 @@ describe("authorizeOrderPayment", () => {
     mockAuthorize
       .mockResolvedValueOnce({ success: false, failureMessage: "declined" })
       .mockResolvedValueOnce({ success: true, providerPaymentIntentId: "pi_456" });
-    mockPrisma.paymentAttempt.create.mockResolvedValue({ id: "attempt-1" } as never);
     mockPrisma.payment.upsert.mockResolvedValue({ id: "payment-1" } as never);
 
     const result = await authorizeOrderPayment({
@@ -146,7 +220,6 @@ describe("authorizeOrderPayment", () => {
       provider: provider(),
     } as never);
     mockAuthorize.mockResolvedValue({ success: false, failureMessage: "card declined" });
-    mockPrisma.paymentAttempt.create.mockResolvedValue({ id: "attempt-1" } as never);
 
     await expect(
       authorizeOrderPayment({
@@ -159,10 +232,104 @@ describe("authorizeOrderPayment", () => {
       }),
     ).rejects.toBeInstanceOf(NoAvailableProviderError);
   });
+
+  it("propagates requiresAction without trying a fallback provider (3DS/SCA, Sprint 07.6 C-6)", async () => {
+    mockPrisma.paymentMethod.findUnique.mockResolvedValue({
+      isEnabled: true,
+      provider: provider({ status: "DISCONNECTED" }),
+    } as never);
+    mockPrisma.paymentProvider.findMany.mockResolvedValue([provider(), provider({ id: "prov-2", priority: 1 })] as never);
+    mockAuthorize.mockResolvedValue({
+      success: false,
+      providerPaymentIntentId: "pi_123",
+      requiresAction: { clientSecret: "pi_123_secret_abc" },
+    });
+    mockPrisma.payment.upsert.mockResolvedValue({ id: "payment-1", status: "REQUIRES_ACTION" } as never);
+
+    const result = await authorizeOrderPayment({
+      orderId: "o1",
+      restaurantId: "r1",
+      methodType: "VISA",
+      methodToken: "pm_123",
+      amountCents: 1000,
+      currency: "usd",
+    });
+
+    expect(result.requiresAction).toEqual({ clientSecret: "pi_123_secret_abc" });
+    expect(mockAuthorize).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.paymentAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "REQUIRES_ACTION" }) }),
+    );
+    expect(mockPrisma.payment.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ status: "REQUIRES_ACTION" }) }),
+    );
+  });
+});
+
+describe("captureOrderPayment", () => {
+  function payment(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "payment-1",
+      orderId: "o1",
+      provider: provider(),
+      successfulAttemptId: "attempt-1",
+      authorizedAmountCents: 1000,
+      ...overrides,
+    };
+  }
+
+  it("throws PaymentNotFoundError when the payment doesn't exist", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(null as never);
+
+    await expect(captureOrderPayment("payment-1", "r1")).rejects.toBeInstanceOf(PaymentNotFoundError);
+  });
+
+  it("captures successfully and records a CHARGE transaction", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(payment() as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockCapture.mockResolvedValue({ success: true, capturedAmountCents: 1000 });
+    mockPrisma.payment.update.mockResolvedValue({ id: "payment-1", status: "CAPTURED" } as never);
+
+    const result = await captureOrderPayment("payment-1", "r1");
+
+    expect(result.status).toBe("CAPTURED");
+    expect(mockVoid).not.toHaveBeenCalled();
+    expect(mockPrisma.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "CHARGE", amountCents: 1000 }) }),
+    );
+  });
+
+  it("voids the authorization and marks the Payment VOIDED when capture fails but the void succeeds", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(payment() as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockCapture.mockResolvedValue({ success: false, failureMessage: "processing error" });
+    mockVoid.mockResolvedValue({ success: true });
+
+    await expect(captureOrderPayment("payment-1", "r1")).rejects.toThrow("processing error");
+
+    expect(mockVoid).toHaveBeenCalledWith("pi_123", "sk_test_123");
+    expect(mockPrisma.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "payment-1" }, data: { status: "VOIDED" } }),
+    );
+    expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it("throws PaymentVoidFailedError (not the generic capture error) when both capture AND the compensating void fail", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(payment() as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockCapture.mockResolvedValue({ success: false, failureMessage: "processing error" });
+    mockVoid.mockResolvedValue({ success: false, failureMessage: "intent already expired" });
+
+    await expect(captureOrderPayment("payment-1", "r1")).rejects.toBeInstanceOf(PaymentVoidFailedError);
+
+    expect(mockPrisma.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "payment-1" }, data: { status: "FAILED" } }),
+    );
+  });
 });
 
 describe("refundOrderPayment", () => {
-  it("throws when the payment has no successful provider charge on record", async () => {
+  it("throws PaymentNotFoundError when the payment has no successful provider charge on record", async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: "pay-1",
       provider: provider(),
@@ -176,7 +343,7 @@ describe("refundOrderPayment", () => {
         reason: "CUSTOMER_REQUEST",
         restaurantId: "r1",
       }),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(PaymentNotFoundError);
   });
 
   it("creates a Refund row and a negative Transaction on success", async () => {
@@ -206,5 +373,36 @@ describe("refundOrderPayment", () => {
     expect(mockPrisma.payment.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "PARTIALLY_REFUNDED" }) }),
     );
+  });
+
+  it("throws RefundFailedError (never returns silently) when the provider rejects the refund, and does not touch Order/Payment status", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: "pay-1",
+      orderId: "o1",
+      provider: provider(),
+      successfulAttemptId: "attempt-1",
+      refundedAmountCents: 0,
+      capturedAmountCents: 1000,
+    } as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockRefund.mockResolvedValue({ success: false, failureMessage: "already refunded" });
+    mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "FAILED" } as never);
+
+    await expect(
+      refundOrderPayment({
+        paymentId: "pay-1",
+        amountCents: 500,
+        reason: "CUSTOMER_REQUEST",
+        restaurantId: "r1",
+      }),
+    ).rejects.toBeInstanceOf(RefundFailedError);
+
+    // The FAILED attempt is still recorded for audit purposes...
+    expect(mockPrisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }),
+    );
+    // ...but nothing downstream that implies success ever runs.
+    expect(mockPrisma.payment.update).not.toHaveBeenCalled();
+    expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
   });
 });

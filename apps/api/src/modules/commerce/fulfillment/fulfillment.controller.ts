@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { NoRestaurantError } from "../../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
 import {
+  DriverAlreadyBusyError,
   DriverAssignmentNotFoundError,
   DriverNotOnStaffError,
   FulfillmentNotFoundError,
@@ -110,6 +111,10 @@ export async function assignDriverHandler(req: Request, res: Response): Promise<
     }
     if (err instanceof DriverNotOnStaffError) {
       res.status(400).json({ error: err.message });
+      return;
+    }
+    if (err instanceof DriverAlreadyBusyError) {
+      res.status(409).json({ error: err.message });
       return;
     }
     throw err;

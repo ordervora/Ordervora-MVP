@@ -60,6 +60,8 @@ export async function computeCheckoutQuote(
     ]);
 
   let distanceMiles: number | undefined;
+  let deliveryLat: number | undefined;
+  let deliveryLng: number | undefined;
   if (cart.fulfillmentType === "DELIVERY") {
     const address = cart.deliveryAddressId
       ? await prisma.customerAddress.findUnique({ where: { id: cart.deliveryAddressId } })
@@ -78,6 +80,8 @@ export async function computeCheckoutQuote(
       };
     }
     distanceMiles = distanceMilesBetween(restaurant.lat, restaurant.lng, address.lat, address.lng);
+    deliveryLat = address.lat;
+    deliveryLng = address.lng;
   }
 
   const routing = evaluateRouting({
@@ -89,6 +93,8 @@ export async function computeCheckoutQuote(
     deliveryZones,
     deliveryRules,
     distanceMiles,
+    deliveryLat,
+    deliveryLng,
     subtotalCents,
     fulfillmentType: cart.fulfillmentType,
     enabledPaymentMethodTypes: [],

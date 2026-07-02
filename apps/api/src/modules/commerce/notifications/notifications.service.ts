@@ -184,3 +184,20 @@ export async function sendNewOrderStaffAlert(
     restaurantId,
   });
 }
+
+/** Sent to a driver the moment they're offered a new delivery (Sprint 07.6 C-10). SMS is the realistic channel for a driver who may not have the dashboard open. */
+export async function sendDriverAssignmentOfferNotification(
+  orderId: string,
+  restaurantId: string,
+  driverPhone: string,
+  orderNumber: number,
+): Promise<void> {
+  await sendNotification({
+    type: "DRIVER_ASSIGNMENT_OFFER",
+    channel: "SMS",
+    to: driverPhone,
+    body: `You've been offered a new delivery for order #${orderNumber}. Open the app to accept or decline.`,
+    orderId,
+    restaurantId,
+  });
+}

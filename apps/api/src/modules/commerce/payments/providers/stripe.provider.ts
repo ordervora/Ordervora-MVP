@@ -57,6 +57,14 @@ export class StripePaymentProviderAdapter implements PaymentProviderAdapter {
         return { success: true, providerPaymentIntentId: intent.id };
       }
 
+      if (intent.status === "requires_action" && intent.client_secret) {
+        return {
+          success: false,
+          providerPaymentIntentId: intent.id,
+          requiresAction: { clientSecret: intent.client_secret },
+        };
+      }
+
       return {
         success: false,
         providerPaymentIntentId: intent.id,

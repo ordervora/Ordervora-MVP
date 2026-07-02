@@ -17,7 +17,12 @@ vi.mock("./registry", () => ({
 }));
 
 import { prisma } from "../../../lib/prisma";
-import { sendNewOrderStaffAlert, sendNotification, sendOrderConfirmation } from "./notifications.service";
+import {
+  sendDriverAssignmentOfferNotification,
+  sendNewOrderStaffAlert,
+  sendNotification,
+  sendOrderConfirmation,
+} from "./notifications.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -74,6 +79,16 @@ describe("convenience wrappers", () => {
 
     expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ type: "NEW_ORDER_STAFF_ALERT" }) }),
+    );
+  });
+
+  it("sendDriverAssignmentOfferNotification calls sendNotification with type DRIVER_ASSIGNMENT_OFFER over SMS", async () => {
+    await sendDriverAssignmentOfferNotification("o1", "r1", "+15551234567", 42);
+
+    expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: "DRIVER_ASSIGNMENT_OFFER", channel: "SMS", status: "SKIPPED_CHANNEL_DISABLED" }),
+      }),
     );
   });
 });

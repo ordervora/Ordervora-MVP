@@ -133,4 +133,46 @@ describe("computeCheckoutQuote", () => {
     expect(quote.eligible).toBe(true);
     expect(quote.discountCents).toBe(0);
   });
+
+  describe("zone geometry threading (C-12)", () => {
+    const zone = {
+      id: "zone-1",
+      restaurantId: "r1",
+      name: "Downtown",
+      geometry: { type: "radius", centerLat: 41.8, centerLng: -87.6, radiusMiles: 1 },
+    };
+    const zoneScopedRule = {
+      id: "rule-1",
+      restaurantId: "r1",
+      zoneId: "zone-1",
+      minDistanceMiles: 0,
+      maxDistanceMiles: 50,
+      fulfillmentMethod: "RESTAURANT_DRIVER",
+      priority: 0,
+      fallbackToRuleId: null,
+      isActive: true,
+    };
+
+    beforeEach(() => {
+      mockPrisma.deliveryZone.findMany.mockResolvedValue([zone] as never);
+      mockPrisma.deliveryRule.findMany.mockResolvedValue([zoneScopedRule] as never);
+    });
+
+    it("passes the delivery address's own lat/lng through to the zone containment check — eligible when inside the zone", async () => {
+      mockPrisma.customerAddress.findUnique.mockResolvedValue({ id: "addr-1", lat: 41.8005, lng: -87.6 } as never);
+
+      const quote = await computeCheckoutQuote(cart({ fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+
+      expect(quote.eligible).toBe(true);
+      expect(quote.resolvedFulfillmentMethod).toBe("RESTAURANT_DRIVER");
+    });
+
+    it("rejects when the address's lat/lng falls outside the zone-scoped rule's polygon/radius", async () => {
+      mockPrisma.customerAddress.findUnique.mockResolvedValue({ id: "addr-1", lat: 42.5, lng: -87.6 } as never);
+
+      const quote = await computeCheckoutQuote(cart({ fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+
+      expect(quote.eligible).toBe(false);
+    });
+  });
 });

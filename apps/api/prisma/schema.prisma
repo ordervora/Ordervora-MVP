@@ -18,6 +18,9 @@ model User {
   passwordHash String
   name         String
   role         Role
+  // Staff-only, optional — SMS driver-assignment offers (Sprint 07.6 C-10)
+  // are skipped (not an error) for staff with no phone on file.
+  phone        String?
 
   invitedById String?
   invitedBy   User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])
@@ -643,6 +646,10 @@ enum OrderStatus {
 enum OrderPaymentStatus {
   UNPAID
   AUTHORIZED
+  // A 3DS/SCA challenge is required before the authorization can be
+  // captured — the order is parked here until the confirm-payment
+  // endpoint resumes it (Sprint 07.6 C-6).
+  REQUIRES_ACTION
   PAID
   PARTIALLY_REFUNDED
   REFUNDED
@@ -769,6 +776,7 @@ enum OrderEventType {
   POS_SYNC_COMPLETED
   POS_SYNC_FAILED
   TABLE_ORDER_PLACED
+  DRIVER_OFFER_EXPIRED
 }
 
 enum OrderEventActorType {
@@ -854,6 +862,9 @@ enum PaymentMethodType {
 enum PaymentAttemptStatus {
   PENDING
   AUTHORIZED
+  // A 3DS/SCA challenge is required before this attempt can resolve to
+  // AUTHORIZED — distinct from FAILED (Sprint 07.6 C-6).
+  REQUIRES_ACTION
   FAILED
   CAPTURED
   VOIDED
@@ -862,6 +873,7 @@ enum PaymentAttemptStatus {
 enum PaymentStatus {
   PENDING
   AUTHORIZED
+  REQUIRES_ACTION
   CAPTURED
   PARTIALLY_REFUNDED
   REFUNDED
@@ -940,6 +952,10 @@ model PaymentProvider {
   credentialsEncrypted   String?
   externalAccountId      String?
   webhookSecretEncrypted String?
+  // Stripe publishable key — safe to expose client-side by design (unlike
+  // credentialsEncrypted's secret key); powers the checkout page's Stripe
+  // Elements integration (Sprint 07.6 C-1).
+  publicKey              String?
   implemented            Boolean                   @default(false)
   connectedAt            DateTime?
 
@@ -1287,6 +1303,10 @@ enum DriverAssignmentStatus {
   OFFERED
   ACCEPTED
   DECLINED
+  // The offer's own offerExpiresAt passed with no driver response — distinct
+  // from DECLINED (driver actively said no) so staff dispatch can tell "no
+  // one answered" apart from "the driver refused" (Sprint 07.6 C-11).
+  EXPIRED
   EN_ROUTE
   DELIVERED
 }
@@ -1346,6 +1366,10 @@ model DriverAssignment {
   assignedAt     DateTime                @default(now())
   acceptedAt     DateTime?
   status         DriverAssignmentStatus  @default(OFFERED)
+  // Set whenever a fresh OFFERED assignment is created; a scheduled sweep
+  // (expireStaleOffers) transitions any assignment still OFFERED past this
+  // time to EXPIRED (Sprint 07.6 C-11).
+  offerExpiresAt DateTime?
   // Denormalized latest-known position for fast reads without scanning
   // history — see DriverLocationPing for the append-only tracking log.
   currentLat     Float?
@@ -1646,6 +1670,7 @@ enum NotificationType {
   PAYMENT_FAILED
   REFUND_ISSUED
   NEW_ORDER_STAFF_ALERT
+  DRIVER_ASSIGNMENT_OFFER
 }
 
 enum NotificationStatus {

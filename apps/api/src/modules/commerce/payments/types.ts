@@ -12,6 +12,12 @@ export interface AuthorizeInput {
 export interface AuthorizeResult {
   success: boolean;
   providerPaymentIntentId?: string;
+  /** Set when the provider requires a customer-facing 3DS/SCA challenge
+   * before this authorization can proceed — distinct from a hard failure.
+   * `success` is `false` alongside this (no capturable authorization yet),
+   * but callers must check `requiresAction` first: it is not a decline and
+   * must never trigger provider failover (Sprint 07.6 C-6). */
+  requiresAction?: { clientSecret: string };
   failureCode?: string;
   failureMessage?: string;
 }

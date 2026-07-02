@@ -1,7 +1,10 @@
 import type { DriverAssignment, Fulfillment, FulfillmentDetailStatus } from "@prisma/client";
 import { DriverAssignmentStatus, Role } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
+import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
+import { sendDriverAssignmentOfferNotification } from "../notifications/notifications.service";
 import {
+  DriverAlreadyBusyError,
   DriverAssignmentNotFoundError,
   DriverNotOnStaffError,
   FulfillmentNotFoundError,
@@ -22,6 +25,9 @@ const BUSY_DRIVER_ASSIGNMENT_STATUSES: DriverAssignmentStatus[] = [
   DriverAssignmentStatus.EN_ROUTE,
 ];
 
+/** How long an OFFERED assignment waits for a driver response before expireStaleOffers reclaims it (Sprint 07.6 C-11). */
+const OFFER_TIMEOUT_MS = Number(process.env.DRIVER_OFFER_TIMEOUT_MS ?? 3 * 60_000);
+
 export async function getFulfillment(restaurantId: string, fulfillmentId: string): Promise<Fulfillment> {
   const fulfillment = await prisma.fulfillment.findUnique({ where: { id: fulfillmentId } });
   if (!fulfillment || fulfillment.restaurantId !== restaurantId) {
@@ -39,6 +45,22 @@ export async function updateFulfillmentStatus(
   return prisma.fulfillment.update({ where: { id: fulfillment.id }, data: { status } });
 }
 
+/**
+ * Count of a specific driver's currently-busy (OFFERED/ACCEPTED/EN_ROUTE)
+ * assignments, optionally excluding one fulfillment's own assignment row —
+ * so reassigning a fulfillment to the driver it's already on isn't blocked
+ * by its own existing row (Sprint 07.6 C-9).
+ */
+export async function countActiveAssignmentsForDriver(driverId: string, excludeFulfillmentId?: string): Promise<number> {
+  return prisma.driverAssignment.count({
+    where: {
+      driverId,
+      status: { in: BUSY_DRIVER_ASSIGNMENT_STATUSES },
+      ...(excludeFulfillmentId ? { fulfillmentId: { not: excludeFulfillmentId } } : {}),
+    },
+  });
+}
+
 export async function assignDriver(
   restaurantId: string,
   fulfillmentId: string,
@@ -51,19 +73,49 @@ export async function assignDriver(
     throw new DriverNotOnStaffError();
   }
 
-  return prisma.driverAssignment.upsert({
+  const busyCount = await countActiveAssignmentsForDriver(driverId, fulfillment.id);
+  if (busyCount > 0) {
+    throw new DriverAlreadyBusyError();
+  }
+
+  const offerExpiresAt = new Date(Date.now() + OFFER_TIMEOUT_MS);
+  const assignment = await prisma.driverAssignment.upsert({
     where: { fulfillmentId: fulfillment.id },
     create: {
       fulfillmentId: fulfillment.id,
       driverId,
       status: DriverAssignmentStatus.OFFERED,
+      offerExpiresAt,
     },
     update: {
       driverId,
       status: DriverAssignmentStatus.OFFERED,
       acceptedAt: null,
+      offerExpiresAt,
     },
   });
+
+  // Best-effort — a notification failure must never prevent the
+  // assignment itself from being considered successfully created
+  // (Sprint 07.6 C-10, mirroring the C-2/C-15 post-success pattern).
+  if (driver.phone) {
+    try {
+      const orderNumber = await orderNumberForFulfillment(fulfillment.id);
+      await sendDriverAssignmentOfferNotification(fulfillment.orderId, restaurantId, driver.phone, orderNumber);
+    } catch (err) {
+      console.error("assignDriver: driver offer notification failed", err);
+    }
+  }
+
+  return assignment;
+}
+
+async function orderNumberForFulfillment(fulfillmentId: string): Promise<number> {
+  const fulfillment = await prisma.fulfillment.findUniqueOrThrow({
+    where: { id: fulfillmentId },
+    include: { order: true },
+  });
+  return fulfillment.order.orderNumber;
 }
 
 async function findOwnDriverAssignment(driverId: string, driverAssignmentId: string): Promise<DriverAssignment> {
@@ -147,4 +199,45 @@ export async function countActiveDriverAssignments(restaurantId: string): Promis
       },
     },
   });
+}
+
+/**
+ * Transitions every OFFERED assignment whose offer has timed out to
+ * EXPIRED, and alerts staff via an OrderEvent that the fulfillment needs
+ * manual reassignment (Sprint 07.6 C-11). Intended to run on an interval —
+ * see stale-offer-scheduler.ts. Never throws for an individual row failure;
+ * one bad row does not stop the sweep from processing the rest.
+ */
+export async function expireStaleOffers(): Promise<{ expiredCount: number }> {
+  const stale = await prisma.driverAssignment.findMany({
+    where: { status: DriverAssignmentStatus.OFFERED, offerExpiresAt: { lt: new Date() } },
+    include: { fulfillment: true },
+  });
+
+  let expiredCount = 0;
+  for (const assignment of stale) {
+    try {
+      await prisma.driverAssignment.update({
+        where: { id: assignment.id },
+        data: { status: DriverAssignmentStatus.EXPIRED },
+      });
+      await writeOrderEvent({
+        orderId: assignment.fulfillment.orderId,
+        restaurantId: assignment.fulfillment.restaurantId,
+        type: "DRIVER_OFFER_EXPIRED",
+        payload: { fulfillmentId: assignment.fulfillmentId, driverId: assignment.driverId },
+      });
+      emitOrderEvent({
+        orderId: assignment.fulfillment.orderId,
+        restaurantId: assignment.fulfillment.restaurantId,
+        type: "DRIVER_OFFER_EXPIRED",
+        payload: { fulfillmentId: assignment.fulfillmentId, driverId: assignment.driverId },
+      });
+      expiredCount += 1;
+    } catch (err) {
+      console.error("expireStaleOffers: failed to expire assignment", assignment.id, err);
+    }
+  }
+
+  return { expiredCount };
 }

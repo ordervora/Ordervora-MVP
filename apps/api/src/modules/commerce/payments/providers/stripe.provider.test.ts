@@ -49,6 +49,19 @@ describe("StripePaymentProviderAdapter", () => {
     );
   });
 
+  it("authorize() returns a requiresAction result (not a failure) on requires_action (Sprint 07.6 C-6)", async () => {
+    mockCreate.mockResolvedValue({ id: "pi_3", status: "requires_action", client_secret: "pi_3_secret_xyz" });
+
+    const result = await adapter.authorize(
+      { orderId: "o1", amountCents: 1000, currency: "usd", methodToken: "pm_1" },
+      "sk_test_123",
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.requiresAction).toEqual({ clientSecret: "pi_3_secret_xyz" });
+    expect(result.providerPaymentIntentId).toBe("pi_3");
+  });
+
   it("authorize() returns a structured failure on decline, without throwing", async () => {
     mockCreate.mockResolvedValue({
       id: "pi_2",

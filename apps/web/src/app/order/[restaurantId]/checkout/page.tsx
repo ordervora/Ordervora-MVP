@@ -1,25 +1,35 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  confirmCardPayment,
   getCart,
   getCheckoutQuote,
+  getPublicPaymentConfig,
   placeOrder,
   type Cart,
   type CheckoutQuote,
   type PaymentMethodType,
+  type PublicPaymentConfig,
 } from "@/lib/commerce-api";
 import { clearIdempotencyKey, clearStoredCartId, getOrCreateIdempotencyKey, getStoredCartId } from "@/lib/cart-storage";
+import { CardPaymentForm, type CardPaymentFormHandle } from "./card-payment-form";
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+const CARD_METHOD_TYPE: PaymentMethodType = "VISA";
+
 const PAYMENT_METHODS: { value: PaymentMethodType; label: string }[] = [
   { value: "CASH_ON_DELIVERY", label: "Cash on delivery" },
   { value: "CASH_AT_PICKUP", label: "Cash at pickup" },
-  { value: "VISA", label: "Card (Visa/Mastercard/Amex/Discover)" },
+  // A single card/wallet option — Stripe's PaymentElement surfaces
+  // Apple Pay/Google Pay automatically alongside card entry when the
+  // customer's browser/device supports them, so one Element covers all of
+  // Sprint 07.6 C-1's card + wallet scope without a second integration.
+  { value: CARD_METHOD_TYPE, label: "Card / Apple Pay / Google Pay" },
 ];
 
 export default function CheckoutPage() {
@@ -36,7 +46,10 @@ export default function CheckoutPage() {
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig | null>(null);
+  const cardFormRef = useRef<CardPaymentFormHandle>(null);
 
   useEffect(() => {
     if (!cartId) {
@@ -65,24 +78,69 @@ export default function CheckoutPage() {
     };
   }, [cartId, tipCents]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getPublicPaymentConfig(restaurantId)
+      .then(({ config }) => {
+        if (!cancelled) setPaymentConfig(config);
+      })
+      .catch(() => {
+        // Card checkout simply stays unavailable — cash methods are unaffected.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantId]);
+
   async function handlePlaceOrder(event: React.FormEvent) {
     event.preventDefault();
     if (!cartId) return;
     setSubmitting(true);
     setError(null);
     try {
+      let methodToken: string | undefined;
+      if (methodType === CARD_METHOD_TYPE) {
+        if (!paymentConfig) {
+          setError("Card payments are not available for this restaurant yet.");
+          return;
+        }
+        // Tokenization must resolve before placeOrder is ever called — a
+        // failed/incomplete card entry blocks submission here, client-side,
+        // before any network call to the checkout endpoint (Sprint 07.6 C-1).
+        const token = await cardFormRef.current?.confirmAndTokenize();
+        if (!token) return;
+        methodToken = token;
+      }
+
       const idempotencyKey = getOrCreateIdempotencyKey();
-      const { order } = await placeOrder(
+      const { order, requiresAction } = await placeOrder(
         cartId,
         {
           tipCents,
           methodType,
+          methodToken,
           guestEmail: guestEmail || undefined,
           guestName: guestName || undefined,
           guestPhone: guestPhone || undefined,
         },
         idempotencyKey,
       );
+
+      if (requiresAction) {
+        // 3DS/SCA challenge (Sprint 07.6 C-6) — complete it client-side,
+        // then resume the same order via the confirm-payment endpoint.
+        const completed = await cardFormRef.current?.confirmChallenge(requiresAction.clientSecret);
+        if (!completed) {
+          setError("Additional verification was not completed. Please try again.");
+          return;
+        }
+        const { order: confirmedOrder } = await confirmCardPayment(cartId);
+        clearIdempotencyKey();
+        clearStoredCartId(restaurantId);
+        router.push(`/order/confirmation/${confirmedOrder.id}`);
+        return;
+      }
+
       clearIdempotencyKey();
       clearStoredCartId(restaurantId);
       router.push(`/order/confirmation/${order.id}`);
@@ -144,10 +202,25 @@ export default function CheckoutPage() {
                 name="methodType"
                 checked={methodType === method.value}
                 onChange={() => setMethodType(method.value)}
+                disabled={method.value === CARD_METHOD_TYPE && !paymentConfig}
               />
               {method.label}
+              {method.value === CARD_METHOD_TYPE && !paymentConfig && (
+                <span className="text-xs text-zinc-500">(not available)</span>
+              )}
             </label>
           ))}
+          {methodType === CARD_METHOD_TYPE && paymentConfig && (
+            <div className="mt-2 rounded border border-black/[.08] p-3 dark:border-white/[.145]">
+              <CardPaymentForm
+                ref={cardFormRef}
+                publicKey={paymentConfig.publicKey}
+                amountCents={quote.totalCents}
+                onError={setCardError}
+              />
+              {cardError && <p className="mt-2 text-sm text-red-600">{cardError}</p>}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">

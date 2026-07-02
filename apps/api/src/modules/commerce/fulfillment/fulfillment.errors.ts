@@ -27,3 +27,9 @@ export class DriverNotOnStaffError extends Error {
     super("Driver is not on this restaurant's staff");
   }
 }
+
+export class DriverAlreadyBusyError extends Error {
+  constructor() {
+    super("This driver already has an active delivery");
+  }
+}

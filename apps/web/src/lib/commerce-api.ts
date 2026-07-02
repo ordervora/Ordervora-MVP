@@ -194,10 +194,19 @@ export function resolveTableByQrToken(qrToken: string) {
 
 // --- Cart --------------------------------------------------------------------
 
-export function createCart(restaurantId: string, fulfillmentType: FulfillmentType = "PICKUP", tableId?: string) {
+export function createCart(restaurantId: string, fulfillmentType: FulfillmentType = "PICKUP") {
   return apiFetch<{ cart: Cart }>(`/api/public/restaurants/${restaurantId}/cart`, {
     method: "POST",
-    body: JSON.stringify({ fulfillmentType, tableId }),
+    body: JSON.stringify({ fulfillmentType }),
+  });
+}
+
+/** Binds a cart to a table via a scanned QR token — the only way a cart's
+ * tableId is ever set (never a raw client-supplied tableId). */
+export function bindCartToTable(cartId: string, qrToken: string) {
+  return apiFetch<{ cart: Cart }>(`/api/public/cart/${cartId}/bind-table`, {
+    method: "POST",
+    body: JSON.stringify({ qrToken }),
   });
 }
 
@@ -256,12 +265,34 @@ export function getCheckoutQuote(cartId: string, tipCents = 0) {
   });
 }
 
+export interface RequiresAction {
+  clientSecret: string;
+}
+
 export function placeOrder(cartId: string, input: PlaceOrderInput, idempotencyKey: string) {
-  return apiFetch<{ order: Order }>(`/api/public/checkout/${cartId}/place-order`, {
+  return apiFetch<{ order: Order; requiresAction?: RequiresAction }>(`/api/public/checkout/${cartId}/place-order`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
+}
+
+/** Resumes checkout after the customer completes a 3DS/SCA challenge client-side (Sprint 07.6 C-6). */
+export function confirmCardPayment(cartId: string) {
+  return apiFetch<{ order: Order }>(`/api/public/checkout/${cartId}/confirm-payment`, {
+    method: "POST",
+  });
+}
+
+// --- Payment config (Stripe Elements bootstrap) --------------------------------
+
+export interface PublicPaymentConfig {
+  providerType: string;
+  publicKey: string;
+}
+
+export function getPublicPaymentConfig(restaurantId: string) {
+  return apiFetch<{ config: PublicPaymentConfig | null }>(`/api/public/restaurants/${restaurantId}/payment-config`);
 }
 
 // --- Order tracking -----------------------------------------------------------

@@ -18,8 +18,14 @@ vi.mock("../cart/cart.service", () => ({
   getCartWithItems: vi.fn(),
 }));
 
+vi.mock("../cart/cart-identity", () => ({
+  resolveCartIdentity: vi.fn(() => ({ guestSessionId: "guest-1" })),
+  assertCartOwnership: vi.fn(),
+}));
+
 import type { Request, Response } from "express";
 import { completeIdempotencyKey, failIdempotencyKey, reserveIdempotencyKey } from "../../../lib/idempotency";
+import { assertCartOwnership } from "../cart/cart-identity";
 import { getCartWithItems } from "../cart/cart.service";
 import { CartNotFoundError } from "../cart/cart.errors";
 import { getQuoteHandler, placeOrderHandler } from "./checkout.controller";
@@ -181,5 +187,42 @@ describe("placeOrderHandler idempotency", () => {
     await placeOrderHandler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(422);
+  });
+});
+
+describe("cart ownership (IDOR guard)", () => {
+  it("getQuoteHandler returns 404 and never computes a quote when the caller doesn't own the cart", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue({ id: "cart-1", restaurantId: "r1" } as never);
+    vi.mocked(assertCartOwnership).mockImplementationOnce(() => {
+      throw new CartNotFoundError();
+    });
+
+    const req = { params: { cartId: "cart-1" }, body: {} } as unknown as Request;
+    const res = mockRes();
+
+    await getQuoteHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(computeCheckoutQuote).not.toHaveBeenCalled();
+  });
+
+  it("placeOrderHandler returns 404, marks the idempotency key failed, and never calls placeOrder when the caller doesn't own the cart", async () => {
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(getCartWithItems).mockResolvedValue({ id: "cart-1", restaurantId: "r1" } as never);
+    vi.mocked(assertCartOwnership).mockImplementationOnce(() => {
+      throw new CartNotFoundError();
+    });
+
+    const req = {
+      params: { cartId: "cart-1" },
+      body: { methodType: "CASH_ON_DELIVERY" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await placeOrderHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(placeOrder).not.toHaveBeenCalled();
   });
 });

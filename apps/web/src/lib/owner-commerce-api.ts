@@ -165,10 +165,16 @@ export function listPaymentProviders() {
   return apiFetch<{ providers: PaymentProvider[] }>("/api/restaurants/me/payment-providers");
 }
 
-export function connectPaymentProvider(type: string, credentials: string, webhookSecret?: string, displayName?: string) {
+export function connectPaymentProvider(
+  type: string,
+  credentials: string,
+  webhookSecret?: string,
+  displayName?: string,
+  publicKey?: string,
+) {
   return apiFetch<{ provider: PaymentProvider }>(`/api/restaurants/me/payment-providers/${type}/connect`, {
     method: "POST",
-    body: JSON.stringify({ credentials, webhookSecret, displayName }),
+    body: JSON.stringify({ credentials, webhookSecret, displayName, publicKey }),
   });
 }
 

@@ -1,4 +1,5 @@
 import type { DeliveryConfig, DeliveryRule, DeliveryZone, FulfillmentMethod, FulfillmentType } from "@prisma/client";
+import { isPointInZone } from "./geometry";
 
 const DEFAULT_MAX_CONCURRENT_DRIVER_DELIVERIES = 5;
 
@@ -12,6 +13,9 @@ export interface RoutingInput {
   deliveryZones: DeliveryZone[];
   deliveryRules: DeliveryRule[];
   distanceMiles?: number;
+  /** The delivery address's own coordinates — required for any rule with a zoneId to be evaluated; undefined for an ungeocoded address (fails closed for zone-scoped rules only, per C-12). */
+  deliveryLat?: number;
+  deliveryLng?: number;
   subtotalCents: number;
   fulfillmentType: FulfillmentType;
   enabledPaymentMethodTypes: string[];
@@ -89,7 +93,15 @@ export function evaluateRouting(input: RoutingInput): RoutingResult {
   const maxConcurrent = input.maxConcurrentDriverDeliveries ?? DEFAULT_MAX_CONCURRENT_DRIVER_DELIVERIES;
 
   if (input.deliveryRules.length > 0) {
-    const resolved = resolveRuleChain(input.deliveryRules, distanceMiles, input.activeDriverCount, maxConcurrent);
+    const resolved = resolveRuleChain(
+      input.deliveryRules,
+      input.deliveryZones,
+      distanceMiles,
+      input.activeDriverCount,
+      maxConcurrent,
+      input.deliveryLat,
+      input.deliveryLng,
+    );
     if (!resolved) {
       return { eligible: false, reason: "Delivery address is outside our delivery area" };
     }
@@ -113,24 +125,39 @@ export function evaluateRouting(input: RoutingInput): RoutingResult {
 
 /**
  * Walks active rules in priority order, finding the first whose distance
- * band contains `distanceMiles`. If that rule needs a restaurant driver
- * and the driver concurrency limit is reached, it's treated as
- * unavailable and the chain continues to its `fallbackToRuleId` (if set)
- * or the next rule by priority.
+ * band contains `distanceMiles` AND — for a rule scoped to a zone via
+ * `zoneId` — whose zone's polygon/radius geometry actually contains the
+ * delivery point. A zone-scoped rule with no delivery point available
+ * (ungeocoded address) never matches — fails closed rather than silently
+ * ignoring the zone requirement (Sprint 07.6 C-12). If a matching rule
+ * needs a restaurant driver and the driver concurrency limit is reached,
+ * it's treated as unavailable and the chain continues to its
+ * `fallbackToRuleId` (if set) or the next rule by priority.
  */
 function resolveRuleChain(
   rules: DeliveryRule[],
+  zones: DeliveryZone[],
   distanceMiles: number,
   activeDriverCount: number,
   maxConcurrent: number,
+  deliveryLat?: number,
+  deliveryLng?: number,
 ): DeliveryRule | undefined {
   const byId = new Map(rules.map((r) => [r.id, r]));
+  const zonesById = new Map(zones.map((z) => [z.id, z]));
   const sorted = [...rules].filter((r) => r.isActive).sort((a, b) => a.priority - b.priority);
 
   for (const rule of sorted) {
     const min = rule.minDistanceMiles ?? 0;
     const max = rule.maxDistanceMiles ?? Infinity;
     if (distanceMiles < min || distanceMiles > max) continue;
+
+    if (rule.zoneId) {
+      const zone = zonesById.get(rule.zoneId);
+      if (!zone || deliveryLat === undefined || deliveryLng === undefined || !isPointInZone(zone, deliveryLat, deliveryLng)) {
+        continue;
+      }
+    }
 
     if (rule.fulfillmentMethod === "RESTAURANT_DRIVER" && activeDriverCount >= maxConcurrent) {
       // Busy — try this rule's explicit fallback, if any, else keep

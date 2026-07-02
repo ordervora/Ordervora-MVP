@@ -22,9 +22,15 @@ vi.mock("./provider.service", () => ({
 
 import type { Request, Response } from "express";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
-import { locationPingHandler, myAssignmentsHandler, respondToAssignmentHandler } from "./fulfillment.controller";
-import { DriverAssignmentNotFoundError } from "./fulfillment.errors";
 import {
+  assignDriverHandler,
+  locationPingHandler,
+  myAssignmentsHandler,
+  respondToAssignmentHandler,
+} from "./fulfillment.controller";
+import { DriverAlreadyBusyError, DriverAssignmentNotFoundError, DriverNotOnStaffError } from "./fulfillment.errors";
+import {
+  assignDriver,
   getDriverAssignmentByFulfillment,
   getFulfillment,
   listMyDriverAssignments,
@@ -115,6 +121,44 @@ describe("respondToAssignmentHandler", () => {
     await respondToAssignmentHandler(req, res);
 
     expect(respondToAssignment).toHaveBeenCalledWith("driver-1", "da1", true);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe("assignDriverHandler", () => {
+  it("maps DriverAlreadyBusyError to 409", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(assignDriver).mockRejectedValue(new DriverAlreadyBusyError());
+
+    const req = { user: { id: "owner-1" }, params: { id: "f1" }, body: { driverId: "11111111-1111-4111-8111-111111111111" } } as unknown as Request;
+    const res = mockRes();
+
+    await assignDriverHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  it("maps DriverNotOnStaffError to 400", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(assignDriver).mockRejectedValue(new DriverNotOnStaffError());
+
+    const req = { user: { id: "owner-1" }, params: { id: "f1" }, body: { driverId: "11111111-1111-4111-8111-111111111111" } } as unknown as Request;
+    const res = mockRes();
+
+    await assignDriverHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it("succeeds for a valid, non-busy driver", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(assignDriver).mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    const req = { user: { id: "owner-1" }, params: { id: "f1" }, body: { driverId: "11111111-1111-4111-8111-111111111111" } } as unknown as Request;
+    const res = mockRes();
+
+    await assignDriverHandler(req, res);
+
     expect(res.status).toHaveBeenCalledWith(200);
   });
 });

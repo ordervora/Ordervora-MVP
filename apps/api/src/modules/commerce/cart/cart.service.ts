@@ -2,6 +2,7 @@ import type { Cart, CartItem, FulfillmentType } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { isItemOrderable } from "../menu-commerce/inventory.service";
 import { listModifierGroupsForItem } from "../menu-commerce/modifiers.service";
+import { resolveTableByToken } from "../qr-ordering/tables.service";
 import {
   CartItemNotFoundError,
   CartNotFoundError,
@@ -27,7 +28,6 @@ export async function getOrCreateActiveCart(
   restaurantId: string,
   identity: CartIdentity,
   fulfillmentType: FulfillmentType = "PICKUP",
-  tableId?: string,
 ): Promise<Cart> {
   const existing = await prisma.cart.findFirst({
     where: {
@@ -45,7 +45,6 @@ export async function getOrCreateActiveCart(
       customerId: identity.customerId,
       guestSessionId: identity.customerId ? undefined : identity.guestSessionId,
       fulfillmentType,
-      tableId,
       expiresAt: cartExpiry(),
     },
   });
@@ -162,7 +161,6 @@ export async function setCartFulfillment(cartId: string, input: SetFulfillmentIn
       fulfillmentType: input.fulfillmentType,
       scheduledFor: input.scheduledFor,
       deliveryAddressId: input.deliveryAddressId,
-      tableId: input.tableId,
     },
   });
 }
@@ -170,4 +168,23 @@ export async function setCartFulfillment(cartId: string, input: SetFulfillmentIn
 export async function setCartCoupon(cartId: string, code: string | null): Promise<Cart> {
   await getCartWithItems(cartId);
   return prisma.cart.update({ where: { id: cartId }, data: { couponCode: code } });
+}
+
+/**
+ * The sole path by which a Cart is ever associated with a Table — always
+ * via a scanned QR token resolved server-side (resolveTableByToken), never
+ * a client-supplied tableId. Rejects (CartRestaurantMismatchError) if the
+ * token resolves to a table belonging to a different restaurant than the
+ * cart's own, closing the cross-restaurant misattribution gap.
+ */
+export async function bindCartToTable(cartId: string, qrToken: string): Promise<Cart> {
+  const cart = await getCartWithItems(cartId);
+  const table = await resolveTableByToken(qrToken);
+  if (table.restaurantId !== cart.restaurantId) {
+    throw new CartRestaurantMismatchError();
+  }
+  return prisma.cart.update({
+    where: { id: cartId },
+    data: { tableId: table.id, fulfillmentType: "DINE_IN" },
+  });
 }

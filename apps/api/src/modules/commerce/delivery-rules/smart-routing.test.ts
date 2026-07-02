@@ -202,3 +202,81 @@ describe("evaluateRouting", () => {
     expect(result.reason).toMatch(/not been configured/i);
   });
 });
+
+describe("evaluateRouting — zone geometry (C-12)", () => {
+  const zoneInsideRadius = {
+    id: "zone-inside",
+    restaurantId: "r1",
+    name: "Downtown",
+    geometry: { type: "radius", centerLat: 40, centerLng: -74, radiusMiles: 2 },
+  } as never;
+
+  const zoneScopedRule = {
+    id: "rule-zone",
+    restaurantId: "r1",
+    zoneId: "zone-inside",
+    minDistanceMiles: 0,
+    maxDistanceMiles: 20,
+    fulfillmentMethod: "RESTAURANT_DRIVER",
+    priority: 0,
+    fallbackToRuleId: null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  it("skips a zone-scoped rule whose zone does not contain the delivery point, even though the distance band matches", () => {
+    const result = evaluateRouting(
+      baseInput({
+        distanceMiles: 3,
+        deliveryZones: [zoneInsideRadius],
+        deliveryRules: [zoneScopedRule] as never,
+        deliveryLat: 41, // ~69 miles from the zone center — outside its 2-mile radius
+        deliveryLng: -74,
+      }),
+    );
+    expect(result.eligible).toBe(false);
+  });
+
+  it("selects a zone-scoped rule whose zone does contain the delivery point", () => {
+    const result = evaluateRouting(
+      baseInput({
+        distanceMiles: 3,
+        deliveryZones: [zoneInsideRadius],
+        deliveryRules: [zoneScopedRule] as never,
+        deliveryLat: 40.01,
+        deliveryLng: -74,
+      }),
+    );
+    expect(result.eligible).toBe(true);
+    expect(result.resolvedFulfillmentMethod).toBe("RESTAURANT_DRIVER");
+  });
+
+  it("leaves a pure distance-band rule (no zoneId) unaffected by unrelated zones in deliveryZones", () => {
+    const distanceOnlyRule = { ...zoneScopedRule, id: "rule-distance", zoneId: null };
+    const result = evaluateRouting(
+      baseInput({
+        distanceMiles: 3,
+        deliveryZones: [zoneInsideRadius],
+        deliveryRules: [distanceOnlyRule] as never,
+        deliveryLat: undefined,
+        deliveryLng: undefined,
+      }),
+    );
+    expect(result.eligible).toBe(true);
+    expect(result.resolvedFulfillmentMethod).toBe("RESTAURANT_DRIVER");
+  });
+
+  it("skips (not throws) a zone-scoped rule when deliveryLat/deliveryLng are both undefined", () => {
+    const result = evaluateRouting(
+      baseInput({
+        distanceMiles: 3,
+        deliveryZones: [zoneInsideRadius],
+        deliveryRules: [zoneScopedRule] as never,
+        deliveryLat: undefined,
+        deliveryLng: undefined,
+      }),
+    );
+    expect(result.eligible).toBe(false);
+  });
+});

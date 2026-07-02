@@ -34,6 +34,7 @@ import {
   refundHandler,
   startPreparingHandler,
 } from "./orders.controller";
+import { RefundFailedError } from "../payments/payments.errors";
 import { InvalidOrderTransitionError } from "./order-state-machine";
 import { OrderNotFoundError } from "./orders.errors";
 import { completeOrder, getOrderTimeline, getOwnOrder, refundOrder, startPreparing } from "./orders.service";
@@ -118,6 +119,22 @@ describe("state-machine transition errors", () => {
     await refundHandler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  it("maps RefundFailedError to 502 on refundHandler", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(refundOrder).mockRejectedValue(new RefundFailedError("provider rejected the refund"));
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
   });
 
   it("cancelHandler returns 400 on invalid input", async () => {

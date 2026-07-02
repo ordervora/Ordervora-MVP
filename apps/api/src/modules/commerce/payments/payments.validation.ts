@@ -10,6 +10,8 @@ export const connectProviderSchema = z.object({
   credentials: z.string().min(1),
   webhookSecret: z.string().min(1).optional(),
   displayName: z.string().min(1).max(128).optional(),
+  /** Stripe publishable key — safe to store/serve in plaintext, unlike `credentials`. Powers the checkout page's client-side tokenization (Sprint 07.6 C-1). */
+  publicKey: z.string().min(1).optional(),
 });
 
 export type ConnectProviderInput = z.infer<typeof connectProviderSchema>;

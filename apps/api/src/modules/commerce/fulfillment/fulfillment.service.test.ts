@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
-    fulfillment: { findUnique: vi.fn(), update: vi.fn() },
+    fulfillment: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
     driverAssignment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
     driverLocationPing: { create: vi.fn() },
@@ -10,8 +10,20 @@ vi.mock("../../../lib/prisma", () => ({
   },
 }));
 
+vi.mock("../events/record-order-event", () => ({
+  writeOrderEvent: vi.fn(),
+  emitOrderEvent: vi.fn(),
+}));
+
+vi.mock("../notifications/notifications.service", () => ({
+  sendDriverAssignmentOfferNotification: vi.fn(),
+}));
+
 import { prisma } from "../../../lib/prisma";
+import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
+import { sendDriverAssignmentOfferNotification } from "../notifications/notifications.service";
 import {
+  DriverAlreadyBusyError,
   DriverAssignmentNotFoundError,
   DriverNotOnStaffError,
   FulfillmentNotFoundError,
@@ -19,6 +31,7 @@ import {
 import {
   assignDriver,
   countActiveDriverAssignments,
+  expireStaleOffers,
   getFulfillment,
   listMyDriverAssignments,
   recordLocationPing,
@@ -30,6 +43,12 @@ const mockPrisma = vi.mocked(prisma, { deep: true });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPrisma.driverAssignment.count.mockResolvedValue(0);
+  mockPrisma.fulfillment.findUniqueOrThrow.mockResolvedValue({
+    id: "f1",
+    orderId: "order-1",
+    order: { orderNumber: 42 },
+  } as never);
 });
 
 describe("tenant isolation", () => {
@@ -72,6 +91,129 @@ describe("assignDriver", () => {
 
     const result = await assignDriver("r1", "f1", "u1");
     expect(result.status).toBe("OFFERED");
+  });
+
+  it("sets offerExpiresAt in the future when creating a new offer", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "u1");
+
+    const call = mockPrisma.driverAssignment.upsert.mock.calls[0][0];
+    expect((call.create as { offerExpiresAt: Date }).offerExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect((call.update as { offerExpiresAt: Date }).offerExpiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("throws DriverAlreadyBusyError when the driver already has an active assignment on a different fulfillment", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF" } as never);
+    mockPrisma.driverAssignment.count.mockResolvedValue(1);
+
+    await expect(assignDriver("r1", "f1", "u1")).rejects.toBeInstanceOf(DriverAlreadyBusyError);
+    expect(mockPrisma.driverAssignment.upsert).not.toHaveBeenCalled();
+  });
+
+  it("excludes this fulfillment's own existing assignment from the busy count (idempotent reassignment)", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "u1");
+
+    expect(mockPrisma.driverAssignment.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ fulfillmentId: { not: "f1" } }) }),
+    );
+  });
+
+  it("succeeds when the driver only has terminal (DECLINED/DELIVERED) assignments", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF" } as never);
+    mockPrisma.driverAssignment.count.mockResolvedValue(0);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    const result = await assignDriver("r1", "f1", "u1");
+    expect(result.status).toBe("OFFERED");
+  });
+
+  it("sends a driver offer notification when the driver has a phone on file", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15551234567" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "u1");
+
+    expect(sendDriverAssignmentOfferNotification).toHaveBeenCalledWith("order-1", "r1", "+15551234567", 42);
+  });
+
+  it("does not send a notification when the driver has no phone on file", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: null } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "u1");
+
+    expect(sendDriverAssignmentOfferNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when the driver offer notification fails", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15551234567" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+    vi.mocked(sendDriverAssignmentOfferNotification).mockRejectedValue(new Error("sms provider down"));
+
+    const result = await assignDriver("r1", "f1", "u1");
+    expect(result.status).toBe("OFFERED");
+  });
+});
+
+describe("expireStaleOffers", () => {
+  it("transitions only stale OFFERED assignments and alerts staff via an OrderEvent", async () => {
+    mockPrisma.driverAssignment.findMany.mockResolvedValue([
+      {
+        id: "da1",
+        fulfillmentId: "f1",
+        driverId: "driver-1",
+        status: "OFFERED",
+        fulfillment: { orderId: "order-1", restaurantId: "r1" },
+      },
+    ] as never);
+    mockPrisma.driverAssignment.update.mockResolvedValue({ id: "da1", status: "EXPIRED" } as never);
+
+    const result = await expireStaleOffers();
+
+    expect(result.expiredCount).toBe(1);
+    expect(mockPrisma.driverAssignment.update).toHaveBeenCalledWith({
+      where: { id: "da1" },
+      data: { status: "EXPIRED" },
+    });
+    expect(writeOrderEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: "order-1", restaurantId: "r1", type: "DRIVER_OFFER_EXPIRED" }),
+    );
+    expect(emitOrderEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: "order-1", restaurantId: "r1", type: "DRIVER_OFFER_EXPIRED" }),
+    );
+  });
+
+  it("is a no-op when nothing is stale", async () => {
+    mockPrisma.driverAssignment.findMany.mockResolvedValue([] as never);
+
+    const result = await expireStaleOffers();
+
+    expect(result.expiredCount).toBe(0);
+    expect(mockPrisma.driverAssignment.update).not.toHaveBeenCalled();
+  });
+
+  it("only queries OFFERED assignments past their offerExpiresAt (ACCEPTED/EN_ROUTE untouched regardless of age)", async () => {
+    mockPrisma.driverAssignment.findMany.mockResolvedValue([] as never);
+
+    await expireStaleOffers();
+
+    expect(mockPrisma.driverAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "OFFERED", offerExpiresAt: expect.objectContaining({ lt: expect.any(Date) }) }),
+      }),
+    );
   });
 });
 
