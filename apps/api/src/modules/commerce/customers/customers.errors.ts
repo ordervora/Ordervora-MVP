@@ -16,6 +16,12 @@ export class InvalidCustomerRefreshTokenError extends Error {
   }
 }
 
+export class InvalidPasswordResetTokenError extends Error {
+  constructor() {
+    super("Invalid or expired password reset link");
+  }
+}
+
 export class CustomerAddressNotFoundError extends Error {
   constructor() {
     super("Address not found");

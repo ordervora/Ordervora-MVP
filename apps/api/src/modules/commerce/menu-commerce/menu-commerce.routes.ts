@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import { requireAuth } from "../../../middleware/require-auth";
 import { requireRole } from "../../../middleware/require-role";
+import { staffActionRateLimiter } from "../../../middleware/rate-limit";
 import { getInventoryHandler, toggleOutOfStockHandler, updateInventoryHandler } from "./inventory.controller";
 import {
   attachModifierGroupHandler,
@@ -22,28 +23,29 @@ export const menuCommerceRouter = Router();
 
 const staffOrOwner = requireRole(Role.RESTAURANT_OWNER, Role.RESTAURANT_STAFF);
 
-menuCommerceRouter.get("/me/menu-items/:itemId/variants", requireAuth, staffOrOwner, listVariantsHandler);
-menuCommerceRouter.post("/me/menu-items/:itemId/variants", requireAuth, staffOrOwner, createVariantHandler);
-menuCommerceRouter.patch("/me/menu-items/:itemId/variants/:variantId", requireAuth, staffOrOwner, updateVariantHandler);
-menuCommerceRouter.delete("/me/menu-items/:itemId/variants/:variantId", requireAuth, staffOrOwner, deleteVariantHandler);
+menuCommerceRouter.get("/me/menu-items/:itemId/variants", requireAuth, staffOrOwner, staffActionRateLimiter, listVariantsHandler);
+menuCommerceRouter.post("/me/menu-items/:itemId/variants", requireAuth, staffOrOwner, staffActionRateLimiter, createVariantHandler);
+menuCommerceRouter.patch("/me/menu-items/:itemId/variants/:variantId", requireAuth, staffOrOwner, staffActionRateLimiter, updateVariantHandler);
+menuCommerceRouter.delete("/me/menu-items/:itemId/variants/:variantId", requireAuth, staffOrOwner, staffActionRateLimiter, deleteVariantHandler);
 
-menuCommerceRouter.get("/me/modifier-groups", requireAuth, staffOrOwner, listModifierGroupsHandler);
-menuCommerceRouter.post("/me/modifier-groups", requireAuth, staffOrOwner, createModifierGroupHandler);
-menuCommerceRouter.patch("/me/modifier-groups/:id", requireAuth, staffOrOwner, updateModifierGroupHandler);
-menuCommerceRouter.delete("/me/modifier-groups/:id", requireAuth, staffOrOwner, deleteModifierGroupHandler);
+menuCommerceRouter.get("/me/modifier-groups", requireAuth, staffOrOwner, staffActionRateLimiter, listModifierGroupsHandler);
+menuCommerceRouter.post("/me/modifier-groups", requireAuth, staffOrOwner, staffActionRateLimiter, createModifierGroupHandler);
+menuCommerceRouter.patch("/me/modifier-groups/:id", requireAuth, staffOrOwner, staffActionRateLimiter, updateModifierGroupHandler);
+menuCommerceRouter.delete("/me/modifier-groups/:id", requireAuth, staffOrOwner, staffActionRateLimiter, deleteModifierGroupHandler);
 
-menuCommerceRouter.post("/me/modifier-groups/:id/options", requireAuth, staffOrOwner, createModifierOptionHandler);
-menuCommerceRouter.patch("/me/modifier-groups/:id/options/:optionId", requireAuth, staffOrOwner, updateModifierOptionHandler);
-menuCommerceRouter.delete("/me/modifier-groups/:id/options/:optionId", requireAuth, staffOrOwner, deleteModifierOptionHandler);
+menuCommerceRouter.post("/me/modifier-groups/:id/options", requireAuth, staffOrOwner, staffActionRateLimiter, createModifierOptionHandler);
+menuCommerceRouter.patch("/me/modifier-groups/:id/options/:optionId", requireAuth, staffOrOwner, staffActionRateLimiter, updateModifierOptionHandler);
+menuCommerceRouter.delete("/me/modifier-groups/:id/options/:optionId", requireAuth, staffOrOwner, staffActionRateLimiter, deleteModifierOptionHandler);
 
-menuCommerceRouter.post("/me/menu-items/:itemId/modifier-groups", requireAuth, staffOrOwner, attachModifierGroupHandler);
+menuCommerceRouter.post("/me/menu-items/:itemId/modifier-groups", requireAuth, staffOrOwner, staffActionRateLimiter, attachModifierGroupHandler);
 menuCommerceRouter.delete(
   "/me/menu-items/:itemId/modifier-groups/:modifierGroupId",
   requireAuth,
   staffOrOwner,
+  staffActionRateLimiter,
   detachModifierGroupHandler,
 );
 
-menuCommerceRouter.get("/me/menu-items/:itemId/inventory", requireAuth, staffOrOwner, getInventoryHandler);
-menuCommerceRouter.patch("/me/menu-items/:itemId/inventory", requireAuth, staffOrOwner, updateInventoryHandler);
-menuCommerceRouter.patch("/me/menu-items/:itemId/86", requireAuth, staffOrOwner, toggleOutOfStockHandler);
+menuCommerceRouter.get("/me/menu-items/:itemId/inventory", requireAuth, staffOrOwner, staffActionRateLimiter, getInventoryHandler);
+menuCommerceRouter.patch("/me/menu-items/:itemId/inventory", requireAuth, staffOrOwner, staffActionRateLimiter, updateInventoryHandler);
+menuCommerceRouter.patch("/me/menu-items/:itemId/86", requireAuth, staffOrOwner, staffActionRateLimiter, toggleOutOfStockHandler);

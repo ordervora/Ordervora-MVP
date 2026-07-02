@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../../../lib/idempotency", () => ({
+  reserveIdempotencyKey: vi.fn(),
+  completeIdempotencyKey: vi.fn(),
+  failIdempotencyKey: vi.fn(),
+}));
+
 vi.mock("../../restaurants/restaurant.service", () => ({
   getOwnRestaurantId: vi.fn(),
 }));
@@ -23,21 +29,23 @@ vi.mock("../../../lib/prisma", () => ({
 }));
 
 import type { Request, Response } from "express";
+import { completeIdempotencyKey, failIdempotencyKey, reserveIdempotencyKey } from "../../../lib/idempotency";
 import { prisma } from "../../../lib/prisma";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
 import {
   cancelHandler,
   completeHandler,
   getOrderHandler,
+  markPaidHandler,
   publicGetOrderHandler,
   publicGetOrderTimelineHandler,
   refundHandler,
   startPreparingHandler,
 } from "./orders.controller";
-import { RefundFailedError } from "../payments/payments.errors";
+import { RefundExceedsRemainingBalanceError, RefundFailedError } from "../payments/payments.errors";
 import { InvalidOrderTransitionError } from "./order-state-machine";
 import { OrderNotFoundError } from "./orders.errors";
-import { completeOrder, getOrderTimeline, getOwnOrder, refundOrder, startPreparing } from "./orders.service";
+import { completeOrder, getOrderTimeline, getOwnOrder, markPaidCash, refundOrder, startPreparing } from "./orders.service";
 
 function mockRes() {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -105,6 +113,7 @@ describe("state-machine transition errors", () => {
 
   it("maps InvalidOrderTransitionError to 409 on refundHandler", async () => {
     vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
     vi.mocked(refundOrder).mockRejectedValue(
       new InvalidOrderTransitionError("CANCELLED", "REFUNDED"),
     );
@@ -113,6 +122,7 @@ describe("state-machine transition errors", () => {
       user: { id: "u1" },
       params: { id: "order-1" },
       body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
     } as unknown as Request;
     const res = mockRes();
 
@@ -123,18 +133,38 @@ describe("state-machine transition errors", () => {
 
   it("maps RefundFailedError to 502 on refundHandler", async () => {
     vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
     vi.mocked(refundOrder).mockRejectedValue(new RefundFailedError("provider rejected the refund"));
 
     const req = {
       user: { id: "u1" },
       params: { id: "order-1" },
       body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
     } as unknown as Request;
     const res = mockRes();
 
     await refundHandler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(502);
+  });
+
+  it("maps RefundExceedsRemainingBalanceError to 422 on refundHandler", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(refundOrder).mockRejectedValue(new RefundExceedsRemainingBalanceError());
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 5000, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(422);
   });
 
   it("cancelHandler returns 400 on invalid input", async () => {
@@ -146,6 +176,139 @@ describe("state-machine transition errors", () => {
     await cancelHandler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe("markPaidHandler idempotency (Sprint 07.7 H-2)", () => {
+  it("short-circuits with the stored response when the key is already completed", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "completed", response: { order: { id: "o1" } } });
+
+    const req = { user: { id: "u1" }, params: { id: "order-1" }, idempotencyKey: "key-1" } as unknown as Request;
+    const res = mockRes();
+
+    await markPaidHandler(req, res);
+
+    expect(markPaidCash).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ order: { id: "o1" } });
+  });
+
+  it("returns 409 when an identical request is already in progress", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "in_progress" });
+
+    const req = { user: { id: "u1" }, params: { id: "order-1" }, idempotencyKey: "key-1" } as unknown as Request;
+    const res = mockRes();
+
+    await markPaidHandler(req, res);
+
+    expect(markPaidCash).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  it("marks the order paid and completes the key on success", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(markPaidCash).mockResolvedValue({ id: "order-1", paymentStatus: "PAID" } as never);
+
+    const req = { user: { id: "u1" }, params: { id: "order-1" }, idempotencyKey: "key-1" } as unknown as Request;
+    const res = mockRes();
+
+    await markPaidHandler(req, res);
+
+    expect(completeIdempotencyKey).toHaveBeenCalledWith("key-1", { order: { id: "order-1", paymentStatus: "PAID" } });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("fails the key and maps OrderNotFoundError to 404", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(markPaidCash).mockRejectedValue(new OrderNotFoundError());
+
+    const req = { user: { id: "u1" }, params: { id: "order-1" }, idempotencyKey: "key-1" } as unknown as Request;
+    const res = mockRes();
+
+    await markPaidHandler(req, res);
+
+    expect(failIdempotencyKey).toHaveBeenCalledWith("key-1");
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+});
+
+describe("refundHandler idempotency (Sprint 07.7 H-4)", () => {
+  it("short-circuits with the stored response when the key is already completed", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "completed", response: { order: { id: "o1" } } });
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(refundOrder).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ order: { id: "o1" } });
+  });
+
+  it("returns 409 when an identical request is already in progress", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "in_progress" });
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(refundOrder).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  it("issues the refund and completes the key on success", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(refundOrder).mockResolvedValue({ id: "order-1", status: "REFUNDED" } as never);
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(completeIdempotencyKey).toHaveBeenCalledWith("key-1", { order: { id: "order-1", status: "REFUNDED" } });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("fails the key on a rejected refund", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(refundOrder).mockRejectedValue(new RefundFailedError("provider rejected"));
+
+    const req = {
+      user: { id: "u1" },
+      params: { id: "order-1" },
+      body: { amountCents: 500, reason: "CUSTOMER_REQUEST" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await refundHandler(req, res);
+
+    expect(failIdempotencyKey).toHaveBeenCalledWith("key-1");
   });
 });
 

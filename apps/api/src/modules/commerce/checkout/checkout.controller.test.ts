@@ -138,6 +138,34 @@ describe("placeOrderHandler idempotency", () => {
     expect(res.status).toHaveBeenCalledWith(402);
   });
 
+  it("never forwards the raw provider decline message — only the safe, generic publicMessage (Sprint 07.7 H-3)", async () => {
+    vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
+    vi.mocked(getCartWithItems).mockResolvedValue({ id: "cart-1", restaurantId: "r1" } as never);
+    // A fake, non-matching stand-in for a raw provider secret (deliberately
+    // not shaped like a real Stripe key, to avoid tripping secret scanners)
+    // — the point is that whatever internal detail a provider error
+    // carries in .message must never reach the client.
+    const rawProviderDetail = "Your card's security code is incorrect. internal-provider-secret-token-REDACTED-EXAMPLE-0000";
+    vi.mocked(placeOrder).mockRejectedValue(new PaymentFailedError(rawProviderDetail, "declined_or_unavailable"));
+
+    const req = {
+      params: { cartId: "cart-1" },
+      body: { methodType: "VISA", methodToken: "pm_123" },
+      idempotencyKey: "key-1",
+    } as unknown as Request;
+    const res = mockRes();
+
+    await placeOrderHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(402);
+    const [[body]] = vi.mocked(res.json).mock.calls;
+    expect(JSON.stringify(body)).not.toContain(rawProviderDetail);
+    expect(JSON.stringify(body)).not.toContain("internal-provider-secret-token");
+    expect(body).toEqual({
+      error: "Your card was declined or this payment method could not be processed. Please try again or use a different payment method.",
+    });
+  });
+
   it("maps EmptyCartError to 400", async () => {
     vi.mocked(reserveIdempotencyKey).mockResolvedValue({ status: "fresh" });
     vi.mocked(getCartWithItems).mockResolvedValue({ id: "cart-1", restaurantId: "r1" } as never);

@@ -1,16 +1,23 @@
+import { createHash, randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
 
 const ACCESS_TTL = process.env.JWT_ACCESS_TTL ?? "15m";
-const REFRESH_TTL = "30d";
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * Deliberately not imported from lib/jwt.ts: that module's top-level
+ * requireEnv() calls for staff-only env vars (JWT_REFRESH_TTL,
+ * JWT_ACCESS_TTL) would otherwise become a load-time requirement for
+ * every customer-auth caller too, just to reuse this one pure hash
+ * function. Identical implementation (createHash("sha256")...digest("hex")).
+ */
+export function hashCustomerRefreshToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 interface CustomerAccessPayload {
   sub: string;
   kind: "customer";
-}
-
-interface CustomerRefreshPayload {
-  sub: string;
-  kind: "customer-refresh";
 }
 
 function requireSecret(): string {
@@ -23,16 +30,9 @@ function requireSecret(): string {
 
 /**
  * Separate end-diner identity, sharing JWT_ACCESS_SECRET with staff auth
- * (no new secret to manage) but a distinct `kind` discriminator per token
- * type — mirrors modules/sites/preview-token.ts's pattern — so a customer
- * token can never be mistaken for or reused as a staff access token, and
- * a customer access token can never be replayed as a refresh token.
- *
- * There is no CustomerRefreshToken table in the approved Sprint 07 schema
- * (unlike staff auth's opaque-hashed-token-in-DB RefreshToken model), so
- * refresh tokens here are self-contained signed JWTs instead — a
- * pragmatic divergence documented for a future migration that would add
- * reuse-detection/revocation parity with staff auth.
+ * (no new secret to manage) but a distinct `kind` discriminator — mirrors
+ * modules/sites/preview-token.ts's pattern — so a customer access token
+ * can never be mistaken for or reused as a staff access token.
  */
 export function signCustomerAccessToken(customerId: string): string {
   const payload: CustomerAccessPayload = { sub: customerId, kind: "customer" };
@@ -47,15 +47,19 @@ export function verifyCustomerAccessToken(token: string): string {
   return decoded.sub;
 }
 
-export function signCustomerRefreshToken(customerId: string): string {
-  const payload: CustomerRefreshPayload = { sub: customerId, kind: "customer-refresh" };
-  return jwt.sign(payload, requireSecret(), { expiresIn: REFRESH_TTL });
-}
-
-export function verifyCustomerRefreshToken(token: string): string {
-  const decoded = jwt.verify(token, requireSecret()) as Partial<CustomerRefreshPayload>;
-  if (decoded.kind !== "customer-refresh" || typeof decoded.sub !== "string") {
-    throw new Error("Not a valid customer refresh token");
-  }
-  return decoded.sub;
+/**
+ * Opaque, DB-backed refresh token (Sprint 07.7 H-7) — mirrors staff
+ * auth's RefreshToken pattern (lib/jwt.ts's generateRefreshToken),
+ * replacing the prior self-contained-JWT design that had no server-side
+ * revocation and survived logout. The raw token is only ever held by the
+ * client (as the cookie value); customers.service.ts stores only its
+ * hash, alongside customerId/expiresAt/revokedAt, in CustomerRefreshToken.
+ */
+export function generateCustomerRefreshToken(): { token: string; tokenHash: string; expiresAt: Date } {
+  const token = randomBytes(48).toString("hex");
+  return {
+    token,
+    tokenHash: hashCustomerRefreshToken(token),
+    expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+  };
 }

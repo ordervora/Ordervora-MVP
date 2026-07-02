@@ -64,3 +64,27 @@ export const publicCommerceRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
 });
+
+// Payment provider webhooks (Sprint 07.7 H-13) — no caller identity exists
+// pre-signature-verification, so this is IP-keyed like the other public
+// limiters, but tuned looser: real webhook traffic can legitimately burst
+// (e.g. a batch of retried events after an outage), unlike checkout.
+export const webhookRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});
+
+// Defense-in-depth for the authenticated staff-facing commerce surface
+// (Sprint 07.7 H-14) — looser than the public-facing limiters since staff
+// are already authenticated and legitimate dashboard usage can burst, but
+// present as a throttle on a compromised/leaked session.
+export const staffActionRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});

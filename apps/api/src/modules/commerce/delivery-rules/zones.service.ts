@@ -46,11 +46,34 @@ export async function listRules(restaurantId: string): Promise<DeliveryRule[]> {
   return prisma.deliveryRule.findMany({ where: { restaurantId }, orderBy: { priority: "asc" } });
 }
 
-async function validateFallback(restaurantId: string, fallbackToRuleId: string | undefined): Promise<void> {
+/** Mirrors smart-routing.ts's MAX_FALLBACK_DEPTH — bounds the cycle-detection walk below (Sprint 07.7 H-9). */
+const MAX_FALLBACK_CHAIN_DEPTH = 5;
+
+/**
+ * Rejects a fallback pointing at another restaurant's rule, at itself
+ * (self-reference), or at a chain that loops back to `ruleId` within a
+ * bounded number of hops (a would-be cycle) — `ruleId` is the rule being
+ * updated, undefined when creating a new rule (which can't yet be part of
+ * any existing chain) (Sprint 07.7 H-9).
+ */
+async function validateFallback(restaurantId: string, fallbackToRuleId: string | undefined, ruleId?: string): Promise<void> {
   if (!fallbackToRuleId) return;
+  if (fallbackToRuleId === ruleId) {
+    throw new InvalidFallbackRuleError();
+  }
   const fallback = await prisma.deliveryRule.findUnique({ where: { id: fallbackToRuleId } });
   if (!fallback || fallback.restaurantId !== restaurantId) {
     throw new InvalidFallbackRuleError();
+  }
+
+  if (ruleId) {
+    let current: DeliveryRule | null = fallback;
+    for (let depth = 0; current?.fallbackToRuleId && depth < MAX_FALLBACK_CHAIN_DEPTH; depth++) {
+      if (current.fallbackToRuleId === ruleId) {
+        throw new InvalidFallbackRuleError();
+      }
+      current = await prisma.deliveryRule.findUnique({ where: { id: current.fallbackToRuleId } });
+    }
   }
 }
 
@@ -73,7 +96,7 @@ export async function updateRule(
   input: UpdateDeliveryRuleInput,
 ): Promise<DeliveryRule> {
   const rule = await findOwnRule(restaurantId, id);
-  await validateFallback(restaurantId, input.fallbackToRuleId);
+  await validateFallback(restaurantId, input.fallbackToRuleId, rule.id);
   return prisma.deliveryRule.update({ where: { id: rule.id }, data: input });
 }
 

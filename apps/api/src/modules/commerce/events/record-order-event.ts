@@ -11,9 +11,13 @@ export interface OrderEventInput {
   payload?: Record<string, unknown>;
 }
 
-/** Writes the durable, append-only OrderEvent row. Safe to call inside a
- * `$transaction` callback by passing its `tx` client — the write then
- * commits or rolls back atomically with the state change it records. */
+/** Writes the durable, append-only OrderEvent row, plus a durable
+ * OutboxEvent staging row in the same transaction (Sprint 07.7 H-11) — the
+ * latter is what gives the in-process commerceEventBus at-least-once
+ * delivery surviving a process crash; outbox-worker.ts drains it. Safe to
+ * call inside a `$transaction` callback by passing its `tx` client — both
+ * writes then commit or roll back atomically with the state change they
+ * record. */
 export async function writeOrderEvent(input: OrderEventInput, tx: Prisma.TransactionClient = prisma): Promise<void> {
   await tx.orderEvent.create({
     data: {
@@ -21,6 +25,14 @@ export async function writeOrderEvent(input: OrderEventInput, tx: Prisma.Transac
       type: input.type,
       actorType: input.actorType ?? "SYSTEM",
       actorId: input.actorId,
+      payload: input.payload as Prisma.InputJsonValue | undefined,
+    },
+  });
+  await tx.outboxEvent.create({
+    data: {
+      type: input.type,
+      restaurantId: input.restaurantId,
+      orderId: input.orderId,
       payload: input.payload as Prisma.InputJsonValue | undefined,
     },
   });

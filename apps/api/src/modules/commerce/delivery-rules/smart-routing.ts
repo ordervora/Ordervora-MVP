@@ -31,6 +31,32 @@ function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Safety net bounding how many fallback hops resolveFallback will follow — zones.service.ts's validateFallback rejects cycles at creation time, so this should never actually be exhausted in practice (Sprint 07.7 H-9). */
+const MAX_FALLBACK_DEPTH = 5;
+
+/**
+ * Follows a rule's fallbackToRuleId chain, re-applying the same busy-driver
+ * check to each candidate — a fallback that is itself RESTAURANT_DRIVER and
+ * also over the concurrency limit must not be selected, it must keep
+ * falling back (Sprint 07.7 H-9). Bounded to MAX_FALLBACK_DEPTH hops as
+ * defense in depth against any pre-existing bad data.
+ */
+function resolveFallback(
+  rule: DeliveryRule,
+  byId: Map<string, DeliveryRule>,
+  activeDriverCount: number,
+  maxConcurrent: number,
+  depth = 0,
+): DeliveryRule | undefined {
+  if (depth >= MAX_FALLBACK_DEPTH) return undefined;
+  const fallback = rule.fallbackToRuleId ? byId.get(rule.fallbackToRuleId) : undefined;
+  if (!fallback?.isActive) return undefined;
+  if (fallback.fulfillmentMethod === "RESTAURANT_DRIVER" && activeDriverCount >= maxConcurrent) {
+    return resolveFallback(fallback, byId, activeDriverCount, maxConcurrent, depth + 1);
+  }
+  return fallback;
+}
+
 /**
  * The Smart Routing Engine (Sprint 07 spec §8) — a deterministic, rule-
  * based decision function, deliberately not AI-driven (money/logistics
@@ -160,10 +186,11 @@ function resolveRuleChain(
     }
 
     if (rule.fulfillmentMethod === "RESTAURANT_DRIVER" && activeDriverCount >= maxConcurrent) {
-      // Busy — try this rule's explicit fallback, if any, else keep
-      // scanning the priority-ordered list for another matching band.
-      const fallback = rule.fallbackToRuleId ? byId.get(rule.fallbackToRuleId) : undefined;
-      if (fallback?.isActive) {
+      // Busy — try this rule's explicit fallback (and, if that's also busy,
+      // its own fallback, and so on), else keep scanning the
+      // priority-ordered list for another matching band.
+      const fallback = resolveFallback(rule, byId, activeDriverCount, maxConcurrent);
+      if (fallback) {
         return fallback;
       }
       continue;

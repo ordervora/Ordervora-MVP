@@ -201,3 +201,32 @@ export async function sendDriverAssignmentOfferNotification(
     restaurantId,
   });
 }
+
+/** Sent to the previously-assigned driver when a delivery is reassigned to someone else — closes the "job silently vanished" confusion (Sprint 07.7 H-8). */
+export async function sendDriverReassignedAwayNotification(
+  orderId: string,
+  restaurantId: string,
+  driverPhone: string,
+  orderNumber: number,
+): Promise<void> {
+  await sendNotification({
+    type: "DRIVER_REASSIGNED_AWAY",
+    channel: "SMS",
+    to: driverPhone,
+    body: `Order #${orderNumber} has been reassigned to another driver and is no longer yours to deliver.`,
+    orderId,
+    restaurantId,
+  });
+}
+
+/** Sent when a customer requests a password reset (Sprint 07.7 H-6) — no orderId/restaurantId context, just the customer's own identity. */
+export async function sendPasswordResetEmail(customerId: string, customerEmail: string, resetLink: string): Promise<void> {
+  await sendNotification({
+    type: "PASSWORD_RESET_REQUESTED",
+    channel: "EMAIL",
+    to: customerEmail,
+    subject: "Reset your password",
+    body: `Use the link below to reset your password. This link expires in 1 hour.\n\n${resetLink}`,
+    customerId,
+  });
+}

@@ -91,7 +91,7 @@ export async function placeOrderHandler(req: Request, res: Response): Promise<vo
       return;
     }
     if (err instanceof PaymentFailedError) {
-      res.status(402).json({ error: err.message });
+      res.status(402).json({ error: err.publicMessage });
       return;
     }
     throw err;
@@ -123,7 +123,7 @@ export async function confirmPaymentHandler(req: Request, res: Response): Promis
       return;
     }
     if (err instanceof PaymentFailedError) {
-      res.status(402).json({ error: err.message });
+      res.status(402).json({ error: err.publicMessage });
       return;
     }
     throw err;

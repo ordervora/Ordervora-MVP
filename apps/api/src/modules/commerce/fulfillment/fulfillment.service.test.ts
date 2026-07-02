@@ -17,11 +17,15 @@ vi.mock("../events/record-order-event", () => ({
 
 vi.mock("../notifications/notifications.service", () => ({
   sendDriverAssignmentOfferNotification: vi.fn(),
+  sendDriverReassignedAwayNotification: vi.fn(),
 }));
 
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
-import { sendDriverAssignmentOfferNotification } from "../notifications/notifications.service";
+import {
+  sendDriverAssignmentOfferNotification,
+  sendDriverReassignedAwayNotification,
+} from "../notifications/notifications.service";
 import {
   DriverAlreadyBusyError,
   DriverAssignmentNotFoundError,
@@ -164,6 +168,56 @@ describe("assignDriver", () => {
 
     const result = await assignDriver("r1", "f1", "u1");
     expect(result.status).toBe("OFFERED");
+  });
+
+  it("reassigning from driver A to driver B notifies both — A that it's reassigned away, B with the new offer (Sprint 07.7 H-8)", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.driverAssignment.findUnique.mockResolvedValue({
+      id: "da1",
+      fulfillmentId: "f1",
+      driverId: "driver-a",
+      status: "OFFERED",
+    } as never);
+    mockPrisma.user.findUnique.mockImplementation(((args: { where: { id: string } }) => {
+      if (args.where.id === "driver-a") {
+        return Promise.resolve({ id: "driver-a", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15550000001" });
+      }
+      return Promise.resolve({ id: "driver-b", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15550000002" });
+    }) as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "driver-b");
+
+    expect(sendDriverReassignedAwayNotification).toHaveBeenCalledWith("order-1", "r1", "+15550000001", 42);
+    expect(sendDriverAssignmentOfferNotification).toHaveBeenCalledWith("order-1", "r1", "+15550000002", 42);
+  });
+
+  it("assigning a fulfillment with no prior driver only sends the new-offer notification, not a reassignment notice", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.driverAssignment.findUnique.mockResolvedValue(null as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "driver-b", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15550000002" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "driver-b");
+
+    expect(sendDriverAssignmentOfferNotification).toHaveBeenCalledWith("order-1", "r1", "+15550000002", 42);
+    expect(sendDriverReassignedAwayNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not notify the previous driver when their assignment was already terminal (e.g. DECLINED)", async () => {
+    mockPrisma.fulfillment.findUnique.mockResolvedValue({ id: "f1", restaurantId: "r1", orderId: "order-1" } as never);
+    mockPrisma.driverAssignment.findUnique.mockResolvedValue({
+      id: "da1",
+      fulfillmentId: "f1",
+      driverId: "driver-a",
+      status: "DECLINED",
+    } as never);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "driver-b", restaurantId: "r1", role: "RESTAURANT_STAFF", phone: "+15550000002" } as never);
+    mockPrisma.driverAssignment.upsert.mockResolvedValue({ id: "da1", status: "OFFERED" } as never);
+
+    await assignDriver("r1", "f1", "driver-b");
+
+    expect(sendDriverReassignedAwayNotification).not.toHaveBeenCalled();
   });
 });
 

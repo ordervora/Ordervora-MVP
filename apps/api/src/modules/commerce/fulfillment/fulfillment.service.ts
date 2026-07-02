@@ -2,7 +2,7 @@ import type { DriverAssignment, Fulfillment, FulfillmentDetailStatus } from "@pr
 import { DriverAssignmentStatus, Role } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
-import { sendDriverAssignmentOfferNotification } from "../notifications/notifications.service";
+import { sendDriverAssignmentOfferNotification, sendDriverReassignedAwayNotification } from "../notifications/notifications.service";
 import {
   DriverAlreadyBusyError,
   DriverAssignmentNotFoundError,
@@ -78,6 +78,18 @@ export async function assignDriver(
     throw new DriverAlreadyBusyError();
   }
 
+  // Captured before the upsert overwrites it — if this fulfillment already
+  // had a *different*, still-active driver assigned, that driver needs to
+  // be told the job is no longer theirs (Sprint 07.7 H-8), since the
+  // upsert below silently replaces their row otherwise.
+  const existingAssignment = await prisma.driverAssignment.findUnique({ where: { fulfillmentId: fulfillment.id } });
+  const previousDriverId =
+    existingAssignment &&
+    existingAssignment.driverId !== driverId &&
+    BUSY_DRIVER_ASSIGNMENT_STATUSES.includes(existingAssignment.status)
+      ? existingAssignment.driverId
+      : undefined;
+
   const offerExpiresAt = new Date(Date.now() + OFFER_TIMEOUT_MS);
   const assignment = await prisma.driverAssignment.upsert({
     where: { fulfillmentId: fulfillment.id },
@@ -104,6 +116,18 @@ export async function assignDriver(
       await sendDriverAssignmentOfferNotification(fulfillment.orderId, restaurantId, driver.phone, orderNumber);
     } catch (err) {
       console.error("assignDriver: driver offer notification failed", err);
+    }
+  }
+
+  if (previousDriverId) {
+    try {
+      const previousDriver = await prisma.user.findUnique({ where: { id: previousDriverId } });
+      if (previousDriver?.phone) {
+        const orderNumber = await orderNumberForFulfillment(fulfillment.id);
+        await sendDriverReassignedAwayNotification(fulfillment.orderId, restaurantId, previousDriver.phone, orderNumber);
+      }
+    } catch (err) {
+      console.error("assignDriver: driver reassignment notification failed", err);
     }
   }
 

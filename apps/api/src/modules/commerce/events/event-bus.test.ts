@@ -31,4 +31,16 @@ describe("commerceEventBus", () => {
 
     await vi.waitFor(() => expect(okHandler).toHaveBeenCalled());
   });
+
+  it("the module's built-in debug-log subscriber receives every emitted event (Sprint 07.7 H-10 smoke test)", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+
+    commerceEventBus.emit({ type: "ORDER_READY", restaurantId: "r4", orderId: "o4" });
+
+    await vi.waitFor(() =>
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining("ORDER_READY"), expect.objectContaining({ orderId: "o4", restaurantId: "r4" })),
+    );
+
+    debugSpy.mockRestore();
+  });
 });

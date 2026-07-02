@@ -13,6 +13,17 @@ const WILDCARD = "*";
  * dispatch, timeline projection, fraud evaluation) run as fire-and-forget
  * async handlers, mirroring the exact pattern already proven by
  * revalidatePublishedSite in Sprint 06.
+ *
+ * IMPORTANT (Sprint 07.7 H-10): as of this writing, this bus has exactly
+ * one production subscriber — the debug-log listener registered at the
+ * bottom of this file, purely for observability. Every emitOrderEvent()
+ * call throughout checkout.service.ts/orders.service.ts is otherwise
+ * emitted into a bus with no real listeners: in-process only, no
+ * durability, lost on process restart. Do not add a real subscriber here
+ * (notifications, timeline projection, fraud, POS sync, loyalty, etc.)
+ * without first resolving H-11 (giving emissions outbox-backed
+ * durability) or making an explicit, documented decision to accept
+ * single-instance/at-most-once semantics for that specific subscriber.
  */
 class CommerceEventBus {
   private readonly emitter = new EventEmitter();
@@ -47,3 +58,14 @@ class CommerceEventBus {
 }
 
 export const commerceEventBus = new CommerceEventBus();
+
+/**
+ * The bus's one real (if trivial) production subscriber — a debug-level
+ * log line on every emitted event, so a running environment can confirm
+ * the bus is actually receiving what its callers believe it is (Sprint
+ * 07.7 H-10). Registered once at module load; not a stand-in for a real
+ * subscriber.
+ */
+commerceEventBus.on(WILDCARD, (event) => {
+  console.debug(`[commerce-events] ${event.type}`, { orderId: event.orderId, restaurantId: event.restaurantId });
+});

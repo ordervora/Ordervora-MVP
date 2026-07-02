@@ -173,6 +173,64 @@ describe("evaluateRouting", () => {
     expect(result.resolvedFulfillmentMethod).toBe("LOCAL_COURIER");
   });
 
+  it("does not select a fallback rule that is itself RESTAURANT_DRIVER and also over the concurrency limit — the chain continues past it (Sprint 07.7 H-9)", () => {
+    const rules = [
+      {
+        id: "primary",
+        restaurantId: "r1",
+        zoneId: null,
+        minDistanceMiles: 0,
+        maxDistanceMiles: 10,
+        fulfillmentMethod: "RESTAURANT_DRIVER",
+        priority: 0,
+        fallbackToRuleId: "also-busy-driver-fallback",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: "also-busy-driver-fallback",
+        restaurantId: "r1",
+        zoneId: null,
+        minDistanceMiles: 0,
+        maxDistanceMiles: 10,
+        fulfillmentMethod: "RESTAURANT_DRIVER",
+        priority: 1,
+        fallbackToRuleId: "final-courier-fallback",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: "final-courier-fallback",
+        restaurantId: "r1",
+        zoneId: null,
+        minDistanceMiles: 0,
+        maxDistanceMiles: 10,
+        fulfillmentMethod: "LOCAL_COURIER",
+        priority: 2,
+        fallbackToRuleId: null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ] as never;
+
+    const result = evaluateRouting(
+      baseInput({ distanceMiles: 3, deliveryRules: rules, activeDriverCount: 5, maxConcurrentDriverDeliveries: 5 }),
+    );
+
+    expect(result.eligible).toBe(true);
+    expect(result.resolvedFulfillmentMethod).toBe("LOCAL_COURIER");
+  });
+
+  // The positive case — a fallback rule of a different (non-driver) method
+  // being correctly selected while the primary RESTAURANT_DRIVER rule is
+  // busy — is already covered above by "falls back to fallbackToRuleId
+  // when the busy-driver concurrency limit is reached"; re-confirmed
+  // passing after this fix since resolveFallback only changes behavior for
+  // a RESTAURANT_DRIVER fallback, not a LOCAL_COURIER/UBER_DIRECT one.
+
   it("is ineligible when no rule matches the distance and there is no fallback", () => {
     const rules = [
       {

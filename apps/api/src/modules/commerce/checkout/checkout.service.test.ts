@@ -13,7 +13,7 @@ vi.mock("../../../lib/prisma", () => ({
     orderItem: { findMany: vi.fn(), update: vi.fn() },
     orderTimeline: { create: vi.fn() },
     transaction: { createMany: vi.fn() },
-    guestCustomer: { create: vi.fn(), findUnique: vi.fn() },
+    guestCustomer: { create: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     couponRedemption: { create: vi.fn(), count: vi.fn().mockResolvedValue(0) },
     cart: { update: vi.fn() },
     payment: { findUnique: vi.fn() },
@@ -128,6 +128,7 @@ beforeEach(() => {
   mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "r1", ownerId: "owner-1" } as never);
   mockPrisma.user.findFirst.mockResolvedValue({ email: "owner@restaurant.com" } as never);
   mockPrisma.customer.findUnique.mockResolvedValue({ email: "customer@example.com" } as never);
+  mockPrisma.guestCustomer.findFirst.mockResolvedValue(null as never);
   mockPrisma.orderItem.findMany.mockResolvedValue([{ id: "oi-1", menuItemId: "item-1" }] as never);
   mockPrisma.order.findUniqueOrThrow.mockResolvedValue({
     id: "order-1",
@@ -223,6 +224,69 @@ describe("placeOrder — pre-flight validation", () => {
     await expect(
       placeOrder("cart-1", "r1", { tipCents: 0, methodType: "CASH_AT_PICKUP" } as never),
     ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+  });
+});
+
+describe("placeOrder — guest customer identity (Sprint 07.7 H-5)", () => {
+  it("reuses an existing GuestCustomer row found by email instead of creating a duplicate", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ customerId: null }));
+    mockCreatedOrder();
+    mockPrisma.guestCustomer.findFirst.mockResolvedValue({ id: "guest-existing", email: "guest@example.com" } as never);
+
+    await placeOrder("cart-1", "r1", {
+      tipCents: 0,
+      methodType: "CASH_AT_PICKUP",
+      guestEmail: "guest@example.com",
+      guestName: "Guest Person",
+    } as never);
+
+    expect(mockPrisma.guestCustomer.create).not.toHaveBeenCalled();
+    expect(mockPrisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ guestCustomerId: "guest-existing" }) }),
+    );
+  });
+
+  it("creates a new GuestCustomer row when no existing one matches the email", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ customerId: null }));
+    mockCreatedOrder();
+    mockPrisma.guestCustomer.findFirst.mockResolvedValue(null as never);
+    mockPrisma.guestCustomer.create = vi.fn().mockResolvedValue({ id: "guest-new" } as never) as never;
+
+    await placeOrder("cart-1", "r1", {
+      tipCents: 0,
+      methodType: "CASH_AT_PICKUP",
+      guestEmail: "new-guest@example.com",
+      guestName: "New Guest",
+    } as never);
+
+    expect(mockPrisma.guestCustomer.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: "new-guest@example.com" }) }),
+    );
+    expect(mockPrisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ guestCustomerId: "guest-new" }) }),
+    );
+  });
+
+  it("rejects a coupon once the resolved guest has hit their per-customer redemption cap", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(baseCart({ customerId: null, couponCode: "SAVE10" }));
+    mockCreatedOrder();
+    mockPrisma.guestCustomer.findFirst.mockResolvedValue({ id: "guest-existing", email: "guest@example.com" } as never);
+    vi.mocked(validateCouponForRedemption).mockResolvedValue({
+      coupon: { id: "coupon-1", maxRedemptions: null, maxRedemptionsPerCustomer: 1 } as never,
+      discountCents: 100,
+    });
+    mockPrisma.couponRedemption.count.mockResolvedValueOnce(1);
+
+    await expect(
+      placeOrder("cart-1", "r1", {
+        tipCents: 0,
+        methodType: "CASH_AT_PICKUP",
+        guestEmail: "guest@example.com",
+        guestName: "Guest Person",
+      } as never),
+    ).rejects.toBeInstanceOf(CheckoutIneligibleError);
+
+    expect(validateCouponForRedemption).toHaveBeenCalledWith("r1", "SAVE10", 1000, undefined, "guest-existing");
   });
 });
 

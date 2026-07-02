@@ -471,9 +471,44 @@ model Customer {
   carts             Cart[]
   loyaltyAccounts   LoyaltyAccount[]
   couponRedemptions CouponRedemption[]
+  refreshTokens     CustomerRefreshToken[]
+  passwordResetTokens CustomerPasswordResetToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Opaque, DB-tracked customer refresh tokens (Sprint 07.7 H-7) — mirrors
+// the staff-auth RefreshToken model above as closely as practical, closing
+// the gap where customer refresh tokens were previously self-contained
+// JWTs with no server-side revocation and a logout that only cleared
+// cookies.
+model CustomerRefreshToken {
+  id         String    @id @default(uuid())
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId])
+}
+
+// Opaque, DB-tracked, single-use password reset tokens (Sprint 07.7 H-6) —
+// same hashed-token-at-rest pattern as CustomerRefreshToken above; usedAt
+// (rather than revokedAt) reflects that a reset token is spent by a
+// successful confirm, not revoked in response to a session event.
+model CustomerPasswordResetToken {
+  id         String    @id @default(uuid())
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId])
 }
 
 // No password, ever — created at order placement for guest checkouts.
@@ -800,6 +835,27 @@ model OrderEvent {
   createdAt DateTime             @default(now())
 
   @@index([orderId, createdAt])
+}
+
+// Durable staging table for the in-process commerceEventBus (Sprint 07.7
+// H-11) — distinct from OrderEvent above, which is the domain audit log,
+// not a processing queue. writeOrderEvent writes a row here in the same
+// transaction as its OrderEvent write; outbox-worker.ts polls for
+// unprocessed rows and dispatches each to commerceEventBus.emit(), marking
+// processedAt on success. This gives at-least-once delivery surviving a
+// process crash between the original write and the in-memory emit — no
+// removal of the EventEmitter itself, this is a durability layer in front
+// of it.
+model OutboxEvent {
+  id           String         @id @default(uuid())
+  type         OrderEventType
+  restaurantId String
+  orderId      String?
+  payload      Json?
+  createdAt    DateTime       @default(now())
+  processedAt  DateTime?
+
+  @@index([processedAt, createdAt])
 }
 
 enum OrderMilestone {
@@ -1671,6 +1727,8 @@ enum NotificationType {
   REFUND_ISSUED
   NEW_ORDER_STAFF_ALERT
   DRIVER_ASSIGNMENT_OFFER
+  DRIVER_REASSIGNED_AWAY
+  PASSWORD_RESET_REQUESTED
 }
 
 enum NotificationStatus {

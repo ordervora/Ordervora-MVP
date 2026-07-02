@@ -61,4 +61,47 @@ describe("fallbackToRuleId validation", () => {
 
     expect(result.id).toBe("new-rule");
   });
+
+  it("rejects updateRule setting fallbackToRuleId to point at itself (Sprint 07.7 H-9)", async () => {
+    mockPrisma.deliveryRule.findUnique.mockResolvedValue({ id: "rule-1", restaurantId: "r1", fallbackToRuleId: null } as never);
+
+    await expect(
+      updateRule("r1", "rule-1", { fallbackToRuleId: "rule-1" }),
+    ).rejects.toBeInstanceOf(InvalidFallbackRuleError);
+  });
+
+  it("rejects updateRule creating a two-rule mutual-fallback cycle (A -> B, B -> A) (Sprint 07.7 H-9)", async () => {
+    // Rule A already has fallbackToRuleId: "rule-b". Now updating rule B to
+    // fall back to A would close the loop.
+    mockPrisma.deliveryRule.findUnique.mockImplementation(((args: { where: { id: string } }) => {
+      if (args.where.id === "rule-b") {
+        return Promise.resolve({ id: "rule-b", restaurantId: "r1", fallbackToRuleId: null });
+      }
+      if (args.where.id === "rule-a") {
+        return Promise.resolve({ id: "rule-a", restaurantId: "r1", fallbackToRuleId: "rule-b" });
+      }
+      return Promise.resolve(null);
+    }) as never);
+
+    await expect(
+      updateRule("r1", "rule-b", { fallbackToRuleId: "rule-a" }),
+    ).rejects.toBeInstanceOf(InvalidFallbackRuleError);
+  });
+
+  it("allows updateRule to set a fallback that does not create a cycle", async () => {
+    mockPrisma.deliveryRule.findUnique.mockImplementation(((args: { where: { id: string } }) => {
+      if (args.where.id === "rule-c") {
+        return Promise.resolve({ id: "rule-c", restaurantId: "r1", fallbackToRuleId: null });
+      }
+      if (args.where.id === "rule-b") {
+        return Promise.resolve({ id: "rule-b", restaurantId: "r1", fallbackToRuleId: null });
+      }
+      return Promise.resolve(null);
+    }) as never);
+    mockPrisma.deliveryRule.update.mockResolvedValue({ id: "rule-b" } as never);
+
+    const result = await updateRule("r1", "rule-b", { fallbackToRuleId: "rule-c" });
+
+    expect(result.id).toBe("rule-b");
+  });
 });

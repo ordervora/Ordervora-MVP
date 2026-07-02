@@ -7,6 +7,7 @@ import {
   PaymentMethodNotFoundError,
   PaymentNotFoundError,
   PaymentVoidFailedError,
+  RefundExceedsRemainingBalanceError,
   RefundFailedError,
 } from "./payments.errors";
 import { paymentProviderRegistry } from "./registry";
@@ -223,6 +224,14 @@ export async function refundOrderPayment(input: RefundOrderPaymentInput) {
     : null;
   if (!adapter || !payment.provider.credentialsEncrypted || !attempt?.providerPaymentIntentId) {
     throw new PaymentNotFoundError();
+  }
+
+  // Enforce the remaining-balance invariant at the application layer
+  // (Sprint 07.7 H-4) rather than relying entirely on the provider to
+  // reject an over-refund — checked before ever calling the provider.
+  const remaining = payment.capturedAmountCents - payment.refundedAmountCents;
+  if (input.amountCents > remaining) {
+    throw new RefundExceedsRemainingBalanceError();
   }
 
   const credentials = decryptSecret(payment.provider.credentialsEncrypted);

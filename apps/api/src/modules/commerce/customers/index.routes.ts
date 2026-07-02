@@ -1,7 +1,16 @@
 import { Router } from "express";
 import { customerAuthRateLimiter } from "../../../middleware/rate-limit";
 import { createAddressHandler, deleteAddressHandler, listAddressesHandler, updateAddressHandler } from "./addresses.controller";
-import { loginHandler, logoutHandler, meHandler, refreshHandler, registerHandler } from "./customers.controller";
+import {
+  changePasswordHandler,
+  confirmPasswordResetHandler,
+  loginHandler,
+  logoutHandler,
+  meHandler,
+  refreshHandler,
+  registerHandler,
+  requestPasswordResetHandler,
+} from "./customers.controller";
 import { createFavoriteHandler, deleteFavoriteHandler, listFavoritesHandler } from "./favorites.controller";
 import { createPaymentMethodHandler, deletePaymentMethodHandler, listPaymentMethodsHandler } from "./payment-methods.controller";
 import { requireCustomerAuth } from "./require-customer-auth";
@@ -12,6 +21,10 @@ authRouter.post("/login", customerAuthRateLimiter, loginHandler);
 authRouter.post("/refresh", refreshHandler);
 authRouter.post("/logout", logoutHandler);
 authRouter.get("/me", requireCustomerAuth, meHandler);
+// Sprint 07.7 H-6 — rate-limited like register/login to prevent email-bombing via repeated reset requests.
+authRouter.post("/password-reset/request", customerAuthRateLimiter, requestPasswordResetHandler);
+authRouter.post("/password-reset/confirm", customerAuthRateLimiter, confirmPasswordResetHandler);
+authRouter.post("/change-password", requireCustomerAuth, changePasswordHandler);
 
 const addressesRouter = Router();
 addressesRouter.get("/", requireCustomerAuth, listAddressesHandler);

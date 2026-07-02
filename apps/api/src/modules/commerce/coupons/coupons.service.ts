@@ -56,6 +56,7 @@ export async function validateCouponForRedemption(
   code: string,
   subtotalCents: number,
   customerId?: string,
+  guestCustomerId?: string,
 ): Promise<CouponRedemptionValidation> {
   const coupon = await prisma.coupon.findUnique({
     where: { restaurantId_code: { restaurantId, code: code.toUpperCase() } },
@@ -83,13 +84,22 @@ export async function validateCouponForRedemption(
       throw new CouponInvalidError("This coupon has reached its redemption limit");
     }
   }
-  // Guest checkouts have no stable identity at validation time, so the
-  // per-customer limit can only be enforced here for logged-in customers
-  // — checkout is responsible for a secondary enforcement pass at actual
-  // redemption time if it wants guest-level limits too.
-  if (customerId && coupon.maxRedemptionsPerCustomer !== null) {
-    const customerRedemptions = await prisma.couponRedemption.count({ where: { couponId: coupon.id, customerId } });
-    if (customerRedemptions >= coupon.maxRedemptionsPerCustomer) {
+  // Per-customer limit, enforced for logged-in customers by customerId and
+  // for guests by their resolved GuestCustomer id (Sprint 07.7 H-5). Note
+  // this is an EMAIL-keyed limit for guests, not an identity-verified one
+  // — checkout.service.ts resolves (reuses, rather than always creating) a
+  // GuestCustomer row by email, so repeat guest checkouts under the same
+  // email correctly share one id and hit this same limit. A guest willing
+  // to use a different email address each time is not blocked by this
+  // check; closing that fully would require an account/verification
+  // requirement for per-customer-limited coupons, a larger product
+  // decision out of scope here.
+  const redemptionIdentityWhere = customerId ? { customerId } : guestCustomerId ? { guestCustomerId } : null;
+  if (redemptionIdentityWhere && coupon.maxRedemptionsPerCustomer !== null) {
+    const priorRedemptions = await prisma.couponRedemption.count({
+      where: { couponId: coupon.id, ...redemptionIdentityWhere },
+    });
+    if (priorRedemptions >= coupon.maxRedemptionsPerCustomer) {
       throw new CouponInvalidError("You've already used this coupon the maximum number of times");
     }
   }

@@ -29,9 +29,24 @@ vi.mock("../notifications/notifications.service", () => ({
 }));
 
 import { prisma } from "../../../lib/prisma";
+import {
+  sendOrderDeliveredNotification,
+  sendOrderOutForDeliveryNotification,
+  sendOrderReadyNotification,
+  sendRefundIssuedNotification,
+} from "../notifications/notifications.service";
 import { InvalidOrderTransitionError } from "./order-state-machine";
 import { OrderNotFoundError } from "./orders.errors";
-import { cancelOrder, completeOrder, getOwnOrder, markPaidCash, refundOrder, startPreparing } from "./orders.service";
+import {
+  cancelOrder,
+  completeOrder,
+  getOwnOrder,
+  markOutForDelivery,
+  markPaidCash,
+  markReady,
+  refundOrder,
+  startPreparing,
+} from "./orders.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -91,6 +106,53 @@ describe("state transitions", () => {
   });
 });
 
+describe("notification-failure-must-not-throw (Sprint 07.7 H-12)", () => {
+  it("markReady: does not throw when the ready notification fails, and the READY transition already stuck", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order({ status: "PREPARING", customerId: "cust-1" }));
+    mockPrisma.order.update.mockResolvedValue(order({ status: "READY", customerId: "cust-1" }));
+    mockPrisma.customer.findUnique.mockResolvedValue({ email: "a@b.com" } as never);
+    vi.mocked(sendOrderReadyNotification).mockRejectedValue(new Error("email provider down"));
+
+    const result = await markReady("r1", "order-1");
+
+    expect(result.status).toBe("READY");
+  });
+
+  it("markOutForDelivery: does not throw when the notification fails", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order({ status: "PREPARING", customerId: "cust-1" }));
+    mockPrisma.order.update.mockResolvedValue(order({ status: "OUT_FOR_DELIVERY", customerId: "cust-1" }));
+    mockPrisma.customer.findUnique.mockResolvedValue({ email: "a@b.com" } as never);
+    vi.mocked(sendOrderOutForDeliveryNotification).mockRejectedValue(new Error("email provider down"));
+
+    const result = await markOutForDelivery("r1", "order-1");
+
+    expect(result.status).toBe("OUT_FOR_DELIVERY");
+  });
+
+  it("completeOrder: does not throw when the notification fails", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order({ status: "READY", customerId: "cust-1" }));
+    mockPrisma.order.update.mockResolvedValue(order({ status: "COMPLETED", customerId: "cust-1" }));
+    mockPrisma.customer.findUnique.mockResolvedValue({ email: "a@b.com" } as never);
+    vi.mocked(sendOrderDeliveredNotification).mockRejectedValue(new Error("email provider down"));
+
+    const result = await completeOrder("r1", "order-1");
+
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("refundOrder: does not throw when the refund-issued notification fails, and the refund/state transition already stuck", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order({ status: "CONFIRMED", totalCents: 1000, customerId: "cust-1" }));
+    mockRefundOrderPayment.mockResolvedValue({ id: "refund-1" });
+    mockPrisma.order.update.mockResolvedValue(order({ status: "REFUNDED", customerId: "cust-1" }));
+    mockPrisma.customer.findUnique.mockResolvedValue({ email: "a@b.com" } as never);
+    vi.mocked(sendRefundIssuedNotification).mockRejectedValue(new Error("email provider down"));
+
+    const result = await refundOrder("r1", "order-1", { amountCents: 1000, reason: "CUSTOMER_REQUEST" });
+
+    expect(result.status).toBe("REFUNDED");
+  });
+});
+
 describe("markPaidCash", () => {
   it("marks paymentStatus PAID and writes a CHARGE Transaction with no provider involved", async () => {
     mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "UNPAID", totalCents: 1500 }));
@@ -102,6 +164,20 @@ describe("markPaidCash", () => {
       expect.objectContaining({ data: expect.objectContaining({ type: "CHARGE", amountCents: 1500 }) }),
     );
     expect(mockRefundOrderPayment).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op on a repeat call once the order is already PAID (Sprint 07.7 H-2)", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "UNPAID", totalCents: 1500 }));
+    mockPrisma.order.update.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
+
+    await markPaidCash("r1", "order-1");
+
+    // Second call now observes the order as already PAID.
+    mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
+    await markPaidCash("r1", "order-1");
+
+    expect(mockPrisma.transaction.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
   });
 });
 

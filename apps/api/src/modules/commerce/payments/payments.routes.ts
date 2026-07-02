@@ -1,6 +1,6 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
-import { publicCommerceRateLimiter } from "../../../middleware/rate-limit";
+import { publicCommerceRateLimiter, staffActionRateLimiter, webhookRateLimiter } from "../../../middleware/rate-limit";
 import { requireAuth } from "../../../middleware/require-auth";
 import { requireRole } from "../../../middleware/require-role";
 import {
@@ -20,17 +20,23 @@ export const paymentsRouter = Router();
 
 const staffOrOwner = requireRole(Role.RESTAURANT_OWNER, Role.RESTAURANT_STAFF);
 
-paymentsRouter.get("/me/payment-providers", requireAuth, staffOrOwner, listProvidersHandler);
-paymentsRouter.post("/me/payment-providers/:type/connect", requireAuth, staffOrOwner, connectProviderHandler);
-paymentsRouter.delete("/me/payment-providers/:type", requireAuth, staffOrOwner, disconnectProviderHandler);
-paymentsRouter.patch("/me/payment-providers/:type/priority", requireAuth, staffOrOwner, updateProviderPriorityHandler);
+paymentsRouter.get("/me/payment-providers", requireAuth, staffOrOwner, staffActionRateLimiter, listProvidersHandler);
+paymentsRouter.post("/me/payment-providers/:type/connect", requireAuth, staffOrOwner, staffActionRateLimiter, connectProviderHandler);
+paymentsRouter.delete("/me/payment-providers/:type", requireAuth, staffOrOwner, staffActionRateLimiter, disconnectProviderHandler);
+paymentsRouter.patch(
+  "/me/payment-providers/:type/priority",
+  requireAuth,
+  staffOrOwner,
+  staffActionRateLimiter,
+  updateProviderPriorityHandler,
+);
 
-paymentsRouter.get("/me/payment-methods", requireAuth, staffOrOwner, listMethodsHandler);
-paymentsRouter.patch("/me/payment-methods/:methodType", requireAuth, staffOrOwner, updateMethodHandler);
+paymentsRouter.get("/me/payment-methods", requireAuth, staffOrOwner, staffActionRateLimiter, listMethodsHandler);
+paymentsRouter.patch("/me/payment-methods/:methodType", requireAuth, staffOrOwner, staffActionRateLimiter, updateMethodHandler);
 
 // Public webhook router — no requireAuth, signature-verified instead.
 export const paymentWebhookRouter = Router();
-paymentWebhookRouter.post("/:providerType", paymentWebhookHandler);
+paymentWebhookRouter.post("/:providerType", webhookRateLimiter, paymentWebhookHandler);
 
 // Public, unauthenticated — the checkout page's own Stripe Elements
 // bootstrap. Returns only providerType/publicKey, nothing else (Sprint 07.6

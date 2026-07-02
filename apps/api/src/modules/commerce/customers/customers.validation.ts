@@ -10,6 +10,14 @@ export const loginCustomerSchema = z.object({ email, password });
 export type RegisterCustomerInput = z.infer<typeof registerCustomerSchema>;
 export type LoginCustomerInput = z.infer<typeof loginCustomerSchema>;
 
+export const requestPasswordResetSchema = z.object({ email });
+export const confirmPasswordResetSchema = z.object({ token: z.string().min(1), newPassword: password });
+export const changePasswordSchema = z.object({ currentPassword: z.string().min(1), newPassword: password });
+
+export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>;
+export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 export const createAddressSchema = z.object({
   label: z.string().max(64).optional(),
   line1: z.string().min(1).max(256),

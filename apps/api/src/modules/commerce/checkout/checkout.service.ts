@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { Order } from "@prisma/client";
+import { bestEffort } from "../../../lib/best-effort";
 import { prisma } from "../../../lib/prisma";
 import { getCartWithItems } from "../cart/cart.service";
 import { isItemOrderable } from "../menu-commerce/inventory.service";
@@ -32,23 +33,6 @@ export interface PlaceOrderResult {
    * client-side (stripe.confirmCardPayment) and then call
    * confirmCardPayment to resume (Sprint 07.6 C-6). */
   requiresAction?: { clientSecret: string };
-}
-
-/**
- * Runs a post-payment-success side effect without ever letting it throw
- * out of placeOrder. Once a card capture (or a cash order) has succeeded,
- * nothing downstream — event writes, state transitions, notifications, the
- * final re-fetch — may cause placeOrder itself to throw: the checkout
- * controller treats a thrown error as a failed attempt and marks the
- * idempotency key FAILED (retryable), which would let a client retry
- * re-authorize/re-capture a payment that already succeeded.
- */
-async function bestEffort(action: () => Promise<unknown>): Promise<void> {
-  try {
-    await action();
-  } catch (err) {
-    console.error("placeOrder: best-effort post-payment step failed", err);
-  }
 }
 
 function isCartConflict(err: unknown): boolean {
@@ -130,6 +114,13 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
   const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
   const staffAlertEmail = restaurant ? await resolveStaffAlertEmail(restaurantId) : undefined;
 
+  // Resolved once here (non-transactional, best-effort UX lookup) so the
+  // pre-transaction coupon validation can enforce the same per-guest limit
+  // a repeat guest checkout under this email will hit inside the
+  // transaction below (Sprint 07.7 H-5).
+  const existingGuestCustomer =
+    !cart.customerId && input.guestEmail ? await prisma.guestCustomer.findFirst({ where: { email: input.guestEmail } }) : null;
+
   // Coupon re-validated independently here (not trusting the quote's
   // best-effort pass) since redemption is only ever recorded on a
   // successful order.
@@ -138,7 +129,13 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
   let couponMaxRedemptionsPerCustomer: number | null = null;
   if (cart.couponCode) {
     try {
-      const validation = await validateCouponForRedemption(restaurantId, cart.couponCode, quote.subtotalCents, cart.customerId ?? undefined);
+      const validation = await validateCouponForRedemption(
+        restaurantId,
+        cart.couponCode,
+        quote.subtotalCents,
+        cart.customerId ?? undefined,
+        existingGuestCustomer?.id,
+      );
       couponId = validation.coupon.id;
       couponMaxRedemptions = validation.coupon.maxRedemptions;
       couponMaxRedemptionsPerCustomer = validation.coupon.maxRedemptionsPerCustomer;
@@ -158,10 +155,19 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
     const result = await prisma.$transaction(async (tx) => {
       let resolvedGuestCustomerId: string | undefined;
       if (!cart.customerId && input.guestEmail && input.guestName) {
-        const guest = await tx.guestCustomer.create({
-          data: { email: input.guestEmail, name: input.guestName, phone: input.guestPhone },
-        });
-        resolvedGuestCustomerId = guest.id;
+        // Find-or-create by email so repeat guest checkouts under the same
+        // email reuse one GuestCustomer row — required for the
+        // per-customer coupon redemption cap below to actually apply
+        // across a guest's separate orders (Sprint 07.7 H-5).
+        const existingGuest = await tx.guestCustomer.findFirst({ where: { email: input.guestEmail } });
+        if (existingGuest) {
+          resolvedGuestCustomerId = existingGuest.id;
+        } else {
+          const guest = await tx.guestCustomer.create({
+            data: { email: input.guestEmail, name: input.guestName, phone: input.guestPhone },
+          });
+          resolvedGuestCustomerId = guest.id;
+        }
       }
 
       const orderNumber = await nextOrderNumber(tx, restaurantId);
@@ -223,9 +229,18 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
             throw new CouponInvalidError("This coupon has reached its redemption limit");
           }
         }
-        if (cart.customerId && couponMaxRedemptionsPerCustomer !== null) {
+        // Per-customer recount, authoritative and inside the same
+        // serializable transaction — covers both a logged-in customer and
+        // a guest keyed by their resolved (found-or-created) GuestCustomer
+        // id (Sprint 07.7 H-5).
+        const redemptionIdentityWhere = cart.customerId
+          ? { customerId: cart.customerId }
+          : resolvedGuestCustomerId
+            ? { guestCustomerId: resolvedGuestCustomerId }
+            : null;
+        if (redemptionIdentityWhere && couponMaxRedemptionsPerCustomer !== null) {
           const customerRedemptions = await tx.couponRedemption.count({
-            where: { couponId, customerId: cart.customerId },
+            where: { couponId, ...redemptionIdentityWhere },
           });
           if (customerRedemptions >= couponMaxRedemptionsPerCustomer) {
             throw new CouponInvalidError("You've already used this coupon the maximum number of times");
@@ -287,7 +302,7 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
   } else {
     if (!input.methodToken) {
       await failOrder(order.id, restaurantId);
-      throw new PaymentFailedError("A payment method is required for this method type");
+      throw new PaymentFailedError("A payment method is required for this method type", "method_token_required");
     }
     try {
       const authResult = await authorizeOrderPayment({
@@ -317,8 +332,15 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
       if (customerEmail) {
         await sendPaymentFailedNotification(order.id, restaurantId, customerEmail, order.orderNumber);
       }
-      if (err instanceof NoAvailableProviderError || err instanceof PaymentMethodNotFoundError) {
-        throw new PaymentFailedError(err.message);
+      if (err instanceof NoAvailableProviderError) {
+        // May carry the raw provider decline text in err.message — kept
+        // in PaymentFailedError's internal `detail` for server-side logs
+        // only; the public-facing category below is always the fixed,
+        // safe string (Sprint 07.7 H-3).
+        throw new PaymentFailedError(err.message, "declined_or_unavailable");
+      }
+      if (err instanceof PaymentMethodNotFoundError) {
+        throw new PaymentFailedError(err.message, "invalid_method");
       }
       throw err;
     }
@@ -351,7 +373,7 @@ export async function confirmCardPayment(cartId: string, restaurantId: string): 
 
   const payment = await prisma.payment.findUnique({ where: { orderId: order.id } });
   if (!payment) {
-    throw new PaymentFailedError("No payment found for this order");
+    throw new PaymentFailedError("No payment found for this order", "generic");
   }
 
   const customerEmail = await resolveOrderCustomerEmail(order);
@@ -365,7 +387,7 @@ export async function confirmCardPayment(cartId: string, restaurantId: string): 
     if (customerEmail) {
       await sendPaymentFailedNotification(order.id, restaurantId, customerEmail, order.orderNumber);
     }
-    throw err instanceof Error ? new PaymentFailedError(err.message) : err;
+    throw err instanceof Error ? new PaymentFailedError(err.message, "declined_or_unavailable") : err;
   }
 
   await completeCardPayment(order, restaurantId);

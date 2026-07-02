@@ -1,4 +1,5 @@
 import type { Order, OrderEvent, OrderTimeline, Prisma, RefundReason } from "@prisma/client";
+import { bestEffort } from "../../../lib/best-effort";
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
 import { refundOrderPayment } from "../payments/orchestrator";
@@ -76,7 +77,10 @@ export async function markReady(restaurantId: string, orderId: string): Promise<
   const order = await transition(restaurantId, orderId, "READY", "ORDER_READY", "READY", { readyAt: new Date() });
   const email = await resolveCustomerEmail(order);
   if (email) {
-    await sendOrderReadyNotification(order.id, restaurantId, email, order.orderNumber);
+    // The status transition above already committed — a notification
+    // failure must never surface as a 500 for an action that actually
+    // succeeded (Sprint 07.7 H-12, same pattern as C-2/C-15).
+    await bestEffort(() => sendOrderReadyNotification(order.id, restaurantId, email, order.orderNumber));
   }
   return order;
 }
@@ -85,7 +89,7 @@ export async function markOutForDelivery(restaurantId: string, orderId: string):
   const order = await transition(restaurantId, orderId, "OUT_FOR_DELIVERY", "ORDER_OUT_FOR_DELIVERY", "OUT_FOR_DELIVERY");
   const email = await resolveCustomerEmail(order);
   if (email) {
-    await sendOrderOutForDeliveryNotification(order.id, restaurantId, email, order.orderNumber);
+    await bestEffort(() => sendOrderOutForDeliveryNotification(order.id, restaurantId, email, order.orderNumber));
   }
   return order;
 }
@@ -94,7 +98,7 @@ export async function completeOrder(restaurantId: string, orderId: string): Prom
   const order = await transition(restaurantId, orderId, "COMPLETED", "ORDER_COMPLETED", "COMPLETED", { completedAt: new Date() });
   const email = await resolveCustomerEmail(order);
   if (email) {
-    await sendOrderDeliveredNotification(order.id, restaurantId, email, order.orderNumber);
+    await bestEffort(() => sendOrderDeliveredNotification(order.id, restaurantId, email, order.orderNumber));
   }
   return order;
 }
@@ -112,9 +116,19 @@ export async function cancelOrder(restaurantId: string, orderId: string, input: 
   });
 }
 
-/** For CASH_ON_DELIVERY/CASH_AT_PICKUP orders — no provider was ever involved, so a Transaction row is written directly here. */
+/**
+ * For CASH_ON_DELIVERY/CASH_AT_PICKUP orders — no provider was ever
+ * involved, so a Transaction row is written directly here. Idempotent:
+ * repeat calls (a double-submitted staff click, or an idempotency-key
+ * retry) are a no-op once the order is already PAID, so a second call
+ * never writes a second Transaction row for the same charge (Sprint 07.7
+ * H-2).
+ */
 export async function markPaidCash(restaurantId: string, orderId: string): Promise<Order> {
   const order = await getOwnOrder(restaurantId, orderId);
+  if (order.paymentStatus === "PAID") {
+    return order;
+  }
   const updated = await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "PAID" } });
   await prisma.transaction.create({ data: { orderId: order.id, restaurantId, type: "CHARGE", amountCents: order.totalCents } });
   return updated;
@@ -161,7 +175,7 @@ export async function refundOrder(
 
   const email = await resolveCustomerEmail(order);
   if (email) {
-    await sendRefundIssuedNotification(order.id, restaurantId, email, order.orderNumber, input.amountCents);
+    await bestEffort(() => sendRefundIssuedNotification(order.id, restaurantId, email, order.orderNumber, input.amountCents));
   }
 
   return updated;

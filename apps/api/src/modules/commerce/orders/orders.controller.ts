@@ -1,8 +1,9 @@
 import type { Request, Response } from "express";
+import { completeIdempotencyKey, failIdempotencyKey, reserveIdempotencyKey } from "../../../lib/idempotency";
 import { prisma } from "../../../lib/prisma";
 import { NoRestaurantError } from "../../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
-import { RefundFailedError } from "../payments/payments.errors";
+import { RefundExceedsRemainingBalanceError, RefundFailedError } from "../payments/payments.errors";
 import { InvalidOrderTransitionError } from "./order-state-machine";
 import { OrderNotFoundError } from "./orders.errors";
 import {
@@ -109,7 +110,47 @@ export const startPreparingHandler = transitionHandler(startPreparing);
 export const markReadyHandler = transitionHandler(markReady);
 export const markOutForDeliveryHandler = transitionHandler(markOutForDelivery);
 export const completeHandler = transitionHandler(completeOrder);
-export const markPaidHandler = transitionHandler(markPaidCash);
+
+/**
+ * Idempotency-key-guarded (Sprint 07.7 H-2) — a double-submitted mark-paid
+ * click or a client retry after a dropped response must never write a
+ * second Transaction row for the same cash charge. Mirrors
+ * checkout.controller.ts's placeOrderHandler reserve/complete/fail
+ * pattern.
+ */
+export async function markPaidHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const idempotencyKey = req.idempotencyKey!;
+  const reservation = await reserveIdempotencyKey<{ order: unknown }>(idempotencyKey, "orders.markPaidCash");
+  if (reservation.status === "completed") {
+    res.status(200).json(reservation.response);
+    return;
+  }
+  if (reservation.status === "in_progress") {
+    res.status(409).json({ error: "This request is already being processed" });
+    return;
+  }
+
+  try {
+    const order = await markPaidCash(restaurantId, paramId(req));
+    const response = { order };
+    await completeIdempotencyKey(idempotencyKey, response);
+    res.status(200).json(response);
+  } catch (err) {
+    await failIdempotencyKey(idempotencyKey);
+    if (err instanceof OrderNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof InvalidOrderTransitionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
 
 export async function cancelHandler(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
@@ -136,6 +177,13 @@ export async function cancelHandler(req: Request, res: Response): Promise<void> 
   }
 }
 
+/**
+ * Idempotency-key-guarded (Sprint 07.7 H-4) — a double-submitted refund
+ * click or a client retry after a dropped response must never issue a
+ * second real refund against the same payment. Mirrors
+ * checkout.controller.ts's placeOrderHandler reserve/complete/fail
+ * pattern.
+ */
 export async function refundHandler(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
   if (!restaurantId) return;
@@ -146,16 +194,34 @@ export async function refundHandler(req: Request, res: Response): Promise<void> 
     return;
   }
 
+  const idempotencyKey = req.idempotencyKey!;
+  const reservation = await reserveIdempotencyKey<{ order: unknown }>(idempotencyKey, "orders.refund");
+  if (reservation.status === "completed") {
+    res.status(200).json(reservation.response);
+    return;
+  }
+  if (reservation.status === "in_progress") {
+    res.status(409).json({ error: "This request is already being processed" });
+    return;
+  }
+
   try {
     const order = await refundOrder(restaurantId, paramId(req), parsed.data, req.user!.id);
-    res.status(200).json({ order });
+    const response = { order };
+    await completeIdempotencyKey(idempotencyKey, response);
+    res.status(200).json(response);
   } catch (err) {
+    await failIdempotencyKey(idempotencyKey);
     if (err instanceof OrderNotFoundError) {
       res.status(404).json({ error: err.message });
       return;
     }
     if (err instanceof InvalidOrderTransitionError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof RefundExceedsRemainingBalanceError) {
+      res.status(422).json({ error: err.message });
       return;
     }
     if (err instanceof RefundFailedError) {

@@ -95,12 +95,33 @@ describe("validateCouponForRedemption", () => {
     );
   });
 
-  it("skips the per-customer check entirely for a guest (no customerId)", async () => {
+  it("skips the per-customer check entirely when no identity (customerId or guestCustomerId) is known", async () => {
     mockPrisma.coupon.findUnique.mockResolvedValue(coupon({ maxRedemptionsPerCustomer: 1 }));
 
     const result = await validateCouponForRedemption("r1", "SAVE10", 1000);
 
     expect(mockPrisma.couponRedemption.count).not.toHaveBeenCalled();
+    expect(result.discountCents).toBe(100);
+  });
+
+  it("rejects once a guest (keyed by guestCustomerId) has hit maxRedemptionsPerCustomer (Sprint 07.7 H-5)", async () => {
+    mockPrisma.coupon.findUnique.mockResolvedValue(coupon({ maxRedemptionsPerCustomer: 1 }));
+    mockPrisma.couponRedemption.count.mockResolvedValue(1);
+
+    await expect(
+      validateCouponForRedemption("r1", "SAVE10", 1000, undefined, "guest-1"),
+    ).rejects.toBeInstanceOf(CouponInvalidError);
+    expect(mockPrisma.couponRedemption.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { couponId: "c1", guestCustomerId: "guest-1" } }),
+    );
+  });
+
+  it("allows a guest under their per-customer limit (Sprint 07.7 H-5)", async () => {
+    mockPrisma.coupon.findUnique.mockResolvedValue(coupon({ maxRedemptionsPerCustomer: 2 }));
+    mockPrisma.couponRedemption.count.mockResolvedValue(1);
+
+    const result = await validateCouponForRedemption("r1", "SAVE10", 1000, undefined, "guest-1");
+
     expect(result.discountCents).toBe(100);
   });
 

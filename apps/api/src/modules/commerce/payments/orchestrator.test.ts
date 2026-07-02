@@ -39,6 +39,7 @@ import {
   PaymentMethodNotFoundError,
   PaymentNotFoundError,
   PaymentVoidFailedError,
+  RefundExceedsRemainingBalanceError,
   RefundFailedError,
 } from "./payments.errors";
 import { authorizeOrderPayment, captureOrderPayment, refundOrderPayment } from "./orchestrator";
@@ -404,5 +405,53 @@ describe("refundOrderPayment", () => {
     // ...but nothing downstream that implies success ever runs.
     expect(mockPrisma.payment.update).not.toHaveBeenCalled();
     expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it("throws RefundExceedsRemainingBalanceError before ever calling the provider (Sprint 07.7 H-4)", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: "pay-1",
+      orderId: "o1",
+      provider: provider(),
+      successfulAttemptId: "attempt-1",
+      refundedAmountCents: 600,
+      capturedAmountCents: 1000,
+    } as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+
+    await expect(
+      refundOrderPayment({
+        paymentId: "pay-1",
+        amountCents: 500, // remaining is only 400
+        reason: "CUSTOMER_REQUEST",
+        restaurantId: "r1",
+      }),
+    ).rejects.toBeInstanceOf(RefundExceedsRemainingBalanceError);
+
+    expect(mockRefund).not.toHaveBeenCalled();
+    expect(mockPrisma.refund.create).not.toHaveBeenCalled();
+  });
+
+  it("succeeds when the refund amount exactly equals the remaining balance (boundary case)", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: "pay-1",
+      orderId: "o1",
+      provider: provider(),
+      successfulAttemptId: "attempt-1",
+      refundedAmountCents: 600,
+      capturedAmountCents: 1000,
+    } as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockRefund.mockResolvedValue({ success: true, providerRefundId: "re_123" });
+    mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "COMPLETED" } as never);
+
+    const refund = await refundOrderPayment({
+      paymentId: "pay-1",
+      amountCents: 400, // remaining is exactly 400
+      reason: "CUSTOMER_REQUEST",
+      restaurantId: "r1",
+    });
+
+    expect(refund.id).toBe("refund-1");
+    expect(mockRefund).toHaveBeenCalledWith("pi_123", 400, expect.any(String));
   });
 });
