@@ -18,7 +18,12 @@ export const locationPingSchema = z.object({
   lng: z.number().min(-180).max(180),
 });
 
+export const respondToAssignmentSchema = z.object({
+  accept: z.boolean(),
+});
+
 export type ConnectProviderInput = z.infer<typeof connectProviderSchema>;
 export type AssignDriverInput = z.infer<typeof assignDriverSchema>;
 export type UpdateFulfillmentStatusInput = z.infer<typeof updateFulfillmentStatusSchema>;
 export type LocationPingInput = z.infer<typeof locationPingSchema>;
+export type RespondToAssignmentInput = z.infer<typeof respondToAssignmentSchema>;

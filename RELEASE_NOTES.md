@@ -1146,3 +1146,250 @@ and tenant-isolation checks throughout.
   end-to-end generate → select → publish → serve round trip against a
   real browser, a real Lighthouse audit, and real ACME certificate
   issuance.
+
+## Sprint 07 Summary
+
+Sprint 07 is what makes `SiteFacts.hasOnlineOrdering` true and the "Order
+Now" CTA real: a full Commerce & Fulfillment Engine, implemented exactly
+against the approved (Revision 2) `SPRINT_07_MASTER_SPECIFICATION.md`.
+It adds guest/customer cart and checkout, multi-provider BYOP payment
+orchestration with transparent failover, BYO-delivery fulfillment with
+driver tracking, a rule-based Smart Delivery Routing engine, kitchen
+capacity management, coupons, QR dine-in ordering, a stub-only POS
+adapter architecture, schema-only loyalty/gift-cards, and customer-,
+owner-, and staff-facing frontends for the whole flow.
+
+`apps/api/src/modules/commerce/` follows the existing per-module layering
+(`routes → controller → service`, `validation.ts`/`errors.ts` per module,
+`getOwnRestaurantId` + explicit row-level ownership re-check for tenant
+isolation, cross-tenant access always 404 never 403) and reuses the
+adapter/registry pattern proven in Sprint 04's import engine for four
+separate provider families: payments, fulfillment, POS, and notifications.
+
+## Commerce Engine Architecture
+
+- 14 sub-modules under `commerce/`: `cart`, `checkout`, `orders`,
+  `payments`, `fulfillment`, `delivery-rules`, `menu-commerce`, `coupons`,
+  `customers`, `pos`, `qr-ordering`, `loyalty` (schema-only), `events`,
+  `notifications` — dependency direction is strictly one-way and acyclic:
+  `checkout` depends on `cart`/`menu-commerce`/`delivery-rules`/`payments`;
+  `orders` depends only on `checkout`'s output; `fulfillment` depends on
+  `orders`/`delivery-rules`; `pos` and `qr-ordering` are alternate
+  order-source entry points that funnel into the same `checkout`/`orders`
+  core rather than duplicating it; `events`/`notifications`/`loyalty` are
+  pure subscribers nothing in the core flow imports back.
+- **In-process event bus** (`commerce/events/`), typed on the Prisma
+  `OrderEventType` enum itself, with wildcard `"*"` subscription support.
+  A real bug was found and fixed here during testing: the bus only caught
+  *asynchronous* handler rejections, not synchronous throws, which would
+  have broken `emit()` for every sibling handler — fixed with an explicit
+  synchronous `try/catch` alongside the async one.
+- **`writeOrderEvent`/`emitOrderEvent` are deliberately separate calls**:
+  the DB write happens inside a `$transaction`, the event-bus emission
+  happens only after that transaction commits — an event is never emitted
+  for a write that could still roll back.
+- **Envelope encryption** (`lib/encryption.ts`, AES-256-GCM) protects
+  every stored payment/fulfillment/POS provider credential and webhook
+  secret; plaintext never touches the database.
+- **Postgres-backed idempotency** (`lib/idempotency.ts`): every mutating
+  endpoint that can plausibly be double-submitted (place-order, refund,
+  coupon-redeem) requires an `Idempotency-Key` header, reserved via a
+  `create()`-then-catch-P2002 race against a dedicated table — deliberately
+  not an in-memory check-then-write, which would double-charge a customer
+  under multiple server instances.
+
+## Full Multi-Provider BYOP Payments
+
+- A restaurant can hold several simultaneously-`CONNECTED`
+  `PaymentProvider` rows (e.g. Stripe **and** Square **and** Clover at
+  once) — never a platform-wide payment account. Stripe ships as a real
+  adapter (`capture_method: "manual"`, separate authorize/capture/void/
+  refund); Clover, Square, Authorize.net, Adyen, and Fiserv are registered
+  stub adapters (`implemented: false`), visible but unavailable in the
+  dashboard, exactly like Sprint 04/05's DoorDash/Uber Eats/Grubhub import
+  stubs.
+- **Orchestrator failover**: `authorizeOrderPayment` builds a
+  priority-ordered candidate list of `CONNECTED` providers, tries each via
+  the adapter interface, writes one `PaymentAttempt` per try, and returns
+  on first success — the customer never sees which provider was used, and
+  a disconnected/erroring primary transparently fails over to the next.
+- **Webhook handling** is signature-verified per-connected-provider
+  (BYOP means each restaurant's webhook secret differs, so the specific
+  `PaymentProvider` row is identified via `?providerId=`), writes a
+  `WebhookEvent` row first to dedupe retried deliveries (P2002 →
+  `{status: "duplicate"}`), and requires `express.json({ verify })` in
+  `app.ts` to preserve the raw request bytes the signature was computed
+  over.
+- Cash payment methods (`CASH_ON_DELIVERY`/`CASH_AT_PICKUP`) bypass the
+  provider entirely but still produce a `Transaction` row when marked
+  paid, so the accounting trail is uniform regardless of payment rail.
+
+## Checkout, Cart & Order Lifecycle
+
+- **Price-drift protection**: `CartItem.unitPriceCents` freezes the price
+  (base + variant delta + selected modifier deltas) at add-time;
+  `placeOrder` re-validates against the current `MenuItem.priceCents` +
+  `MenuItemVariant.priceDeltaCents` before charging — a documented known
+  limitation is that modifier-*option*-level drift isn't re-checked, only
+  base-price drift.
+- **Checkout quotes are computed fresh on every call, never cached** — a
+  deliberate simplification over a "quote lock with expiry" scheme: there
+  is no stale quote to accidentally honor, since `placeOrder` recomputes
+  the identical function immediately before charging.
+- **Order creation happens in one atomic transaction before any payment
+  provider network call** (Order/OrderItem/Fulfillment/CouponRedemption
+  rows, since `PaymentAttempt.orderId` is a real FK requiring the Order to
+  exist first), but the transaction boundary stops there — the external
+  payment call happens outside it.
+- **Centralized state machine** (`orders/order-state-machine.ts`): one
+  `TRANSITIONS` table is the only place in the codebase permitted to
+  decide whether an `Order.status` change is legal. There is no separate
+  manual "confirm" staff action — `placeOrder` already transitions
+  `PENDING_PAYMENT → CONFIRMED` automatically at payment success (or
+  immediately for cash); staff's first manual action is `startPreparing`.
+- **Cancellation never auto-refunds** — a captured payment stays captured
+  until staff explicitly issues a refund; refunding transitions the order
+  to `REFUNDED` only on a full refund, a partial refund only updates
+  `paymentStatus`.
+- **Guest checkout** uses an anonymous `guestSessionId` in an httpOnly
+  cookie, entirely separate from both staff and customer auth cookies;
+  `GuestCustomer` rows are created only at order-placement time, never at
+  cart-creation time.
+- **Customer auth** is a fully separate identity from staff `User`/`Role`
+  — JWT-based with `kind: "customer"`/`"customer-refresh"` discriminators
+  reusing `JWT_ACCESS_SECRET`, since the approved schema has no
+  `CustomerRefreshToken` table (a documented, deliberate divergence from
+  staff auth's opaque-hashed-token-in-DB pattern).
+
+## Delivery Rules & Smart Routing Engine
+
+- `commerce/delivery-rules/` adds radius/max-distance/min-order
+  configuration, delivery-fee and service-fee rules (flat/per-mile/
+  percentage), delivery zones (radius or polygon) with fallback chains,
+  and kitchen capacity (manual pause + auto-pause at a configured
+  concurrent-order threshold).
+- **`evaluateRouting()`** (`smart-routing.ts`) is a pure, deterministic,
+  rule-based function — no DB access, no AI — implementing the spec's
+  exact check order: restaurant closed → kitchen unavailable →
+  fulfillment-type branch → for delivery: max-distance ceiling → min-order
+  → radius-mode-or-zone/rule-mode resolution with busy-driver fallback
+  chains. A design bug was caught and fixed before shipping: the function
+  originally tried to compute a delivery fee itself (always resolving to
+  0, silently wrong) — fee computation was removed entirely and is now
+  exclusively the caller's (`quote.service.ts`'s) responsibility, keeping
+  eligibility and pricing as separate concerns.
+
+## Fulfillment & Driver Tracking
+
+- `FulfillmentProviderAdapter` interface + registry, same BYO pattern as
+  payments: Uber Direct, DoorDash Drive, and Local Courier are registered
+  stub adapters; pickup and restaurant-driver fulfillment need no external
+  provider connection at all.
+- `DriverAssignment`/`DriverLocationPing` track a driver's current
+  position (denormalized "latest" fields plus an append-only ping
+  history) via a driver-facing location-ping endpoint, authorization-
+  checked so a staff member can only post pings for their own assigned
+  delivery (a 403, not a 404 — the fulfillment visibly exists to other
+  staff, it just isn't this staffer's delivery).
+- A driver's own delivery queue (`GET .../fulfillment/my-assignments`)
+  and accept/decline action (`POST .../assignments/:id/respond`) were
+  added during frontend integration — `respondToAssignment` already
+  existed in the service layer from the original build but had no
+  controller/route exposing it; this closed that gap rather than leaving
+  the driver frontend without a way to list or answer its own offers.
+
+## QR Dine-In Ordering & POS
+
+- `commerce/qr-ordering/`: `Table` rows carry a high-entropy, regenerable
+  `qrToken` — the sole authorization for "which restaurant and table this
+  order is attributed to," resolved server-side from a scanned token,
+  never trusted from a client-supplied table id. A scanned QR bootstraps a
+  `DINE_IN` cart pre-associated with the table before the diner ever sees
+  the menu.
+- `commerce/pos/`: `POSProviderAdapter` interface + registry for Square,
+  Clover, Toast, Lightspeed, and a generic adapter — all stubs this
+  sprint, shown as "coming soon" in the dashboard exactly like the
+  payment/fulfillment stub providers.
+
+## Customer-, Owner-, and Staff-Facing Frontend
+
+- **Customer-facing** (`apps/web/src/app/order/*`, `/account/*`): menu
+  browsing with variant/modifier selection, a cart with fulfillment-type
+  and coupon controls, a checkout page surfacing tax/delivery-fee/
+  service-fee/discount/tip as separate line items, order confirmation,
+  order tracking (curated milestone timeline), customer registration/
+  login, and an account page for addresses and favorites. A QR landing
+  page (`/order/qr/[qrToken]`) resolves a scanned table token and
+  bootstraps the dine-in cart before redirecting to the menu.
+- **Owner-facing** (`apps/web/src/app/dashboard/*`, extended): orders
+  inbox and detail with state-machine-aware action buttons and refund
+  issuance, multi-provider payment connection/priority management,
+  delivery/fee/minimum-order configuration, kitchen capacity pause/resume,
+  a POS "coming soon" list, table/QR management with per-table scan
+  links, and coupon CRUD.
+- **Staff-facing**: a kitchen queue view (active orders across
+  confirmed/preparing/ready/out-for-delivery, one-tap status advances) and
+  a driver view (assigned deliveries, accept/decline, mark picked up/
+  delivered, and a periodic browser-geolocation-based location ping while
+  a delivery is en route).
+- A public menu-browsing endpoint (`GET /api/public/restaurants/:id/menu`)
+  was added during frontend integration — the approved API design listed
+  every cart/checkout/order endpoint the customer frontend needs but not
+  a way to actually browse a restaurant's live orderable menu (with
+  variants, modifier groups, and inventory-derived availability) before
+  adding to a cart; this was a genuine gap in the endpoint list, not a
+  scope addition.
+
+## Known Limitations
+
+- **Modifier-option-level price drift isn't re-validated at checkout** —
+  only base menu-item price drift is; documented in `checkout.service.ts`.
+- **`GET /api/public/checkout/:cartId/fulfillment-options`**, listed in
+  the approved API design as a convenience endpoint, was not built — its
+  functionality is subsumed by the quote endpoint's `eligible`/`reason`
+  fields, which already communicate fulfillment ineligibility with a
+  specific reason.
+- **No live payment credentials, delivery-provider API keys, or POS
+  credentials in this environment** — Stripe's real adapter, and every
+  stub provider, is exercised only against mocks in the test suite; a
+  live authorize → capture → webhook round trip has not been run.
+- **The customer-facing ordering frontend is a separate Next.js surface
+  from the AI-generated static marketing site** (Sprint 06's renderer),
+  not embedded into the statically-rendered Menu page — the static
+  renderer produces SEO-optimized HTML, not an interactive ordering SPA;
+  wiring the generated site's "Order Now" CTA to link out to
+  `/order/:restaurantId` was not done in this sprint.
+- **Owner-facing controller test coverage is uneven by design** — the
+  highest-stakes sequential modules (cart, checkout, orders) all have both
+  service- and controller-level tests; most remaining commerce controllers
+  are thin `requireOwnRestaurantId → service call → instanceof error
+  mapping` wrappers whose correctness is already proven by five other
+  controller test files exercising the identical pattern, so dedicated
+  controller tests were not duplicated for every module.
+- **Loyalty and gift cards are schema-only**, exactly as specified —
+  `GiftCard`/`GiftCardTransaction`/`LoyaltyProgram`/`LoyaltyAccount`/
+  `LoyaltyTransaction` exist and pass migration/validation, with zero UI
+  surfaces or checkout steps referencing them.
+- **DoorDash, Uber Eats, and Grubhub import sources are unaffected** —
+  still stubs, still `501`, untouched this sprint.
+
+## Verification Results
+
+- `pnpm install`, `pnpm --filter api exec prisma generate`, and
+  `pnpm --filter api exec prisma validate` all pass.
+- `pnpm run lint` and `pnpm run typecheck` pass cleanly at the repo root
+  across both `apps/api` and `apps/web`.
+- `pnpm run test` — **663/663 tests passing** across 108 files in
+  `apps/api` (payments orchestration/failover, webhook signature
+  verification and dedup, Smart Routing Engine across all documented
+  branches, delivery/service fee resolution across flat/per-mile/
+  percentage types, kitchen capacity pause thresholds, cart/checkout/
+  order-lifecycle tenant isolation and state-machine enforcement, refund
+  full/partial handling, QR token resolution, POS/payment/fulfillment
+  adapter-registry conformance).
+- `pnpm run build` — both `apps/api` (`tsc`) and `apps/web` (`next build`,
+  Turbopack, 28 routes) compile successfully.
+- Not verified in this environment (requires live Postgres, real payment/
+  delivery/POS provider credentials, and a browser): an end-to-end guest
+  checkout → payment capture → kitchen → driver → delivery round trip
+  against a running server.

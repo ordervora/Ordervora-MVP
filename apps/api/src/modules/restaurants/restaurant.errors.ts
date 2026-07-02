@@ -9,3 +9,9 @@ export class NoRestaurantError extends Error {
     super("No restaurant found for this account");
   }
 }
+
+export class RestaurantNotFoundError extends Error {
+  constructor() {
+    super("Restaurant not found");
+  }
+}

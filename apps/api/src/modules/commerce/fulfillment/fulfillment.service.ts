@@ -92,6 +92,19 @@ export async function getDriverAssignmentByFulfillment(fulfillmentId: string): P
   return prisma.driverAssignment.findUnique({ where: { fulfillmentId } });
 }
 
+/** The driver app's own queue — this restaurant's non-terminal assignments for the calling staff member. */
+export async function listMyDriverAssignments(restaurantId: string, driverId: string) {
+  return prisma.driverAssignment.findMany({
+    where: {
+      driverId,
+      status: { in: BUSY_DRIVER_ASSIGNMENT_STATUSES },
+      fulfillment: { restaurantId, status: { notIn: TERMINAL_FULFILLMENT_STATUSES } },
+    },
+    include: { fulfillment: { include: { order: true } } },
+    orderBy: { assignedAt: "asc" },
+  });
+}
+
 /**
  * Writes an append-only history row (DriverLocationPing) and the
  * denormalized "current position" fields on DriverAssignment in the same

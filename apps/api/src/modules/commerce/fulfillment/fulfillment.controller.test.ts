@@ -10,6 +10,8 @@ vi.mock("./fulfillment.service", () => ({
   recordLocationPing: vi.fn(),
   assignDriver: vi.fn(),
   updateFulfillmentStatus: vi.fn(),
+  listMyDriverAssignments: vi.fn(),
+  respondToAssignment: vi.fn(),
 }));
 
 vi.mock("./provider.service", () => ({
@@ -20,8 +22,15 @@ vi.mock("./provider.service", () => ({
 
 import type { Request, Response } from "express";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
-import { locationPingHandler } from "./fulfillment.controller";
-import { getDriverAssignmentByFulfillment, getFulfillment, recordLocationPing } from "./fulfillment.service";
+import { locationPingHandler, myAssignmentsHandler, respondToAssignmentHandler } from "./fulfillment.controller";
+import { DriverAssignmentNotFoundError } from "./fulfillment.errors";
+import {
+  getDriverAssignmentByFulfillment,
+  getFulfillment,
+  listMyDriverAssignments,
+  recordLocationPing,
+  respondToAssignment,
+} from "./fulfillment.service";
 
 function mockRes() {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), send: vi.fn() };
@@ -67,5 +76,45 @@ describe("locationPingHandler", () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(recordLocationPing).not.toHaveBeenCalled();
+  });
+});
+
+describe("myAssignmentsHandler", () => {
+  it("scopes the driver queue to the calling staff member", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(listMyDriverAssignments).mockResolvedValue([{ id: "da1" }] as never);
+
+    const req = { user: { id: "driver-1" } } as unknown as Request;
+    const res = mockRes();
+
+    await myAssignmentsHandler(req, res);
+
+    expect(listMyDriverAssignments).toHaveBeenCalledWith("r1", "driver-1");
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe("respondToAssignmentHandler", () => {
+  it("maps DriverAssignmentNotFoundError to 404 for another driver's assignment", async () => {
+    vi.mocked(respondToAssignment).mockRejectedValue(new DriverAssignmentNotFoundError());
+
+    const req = { user: { id: "driver-1" }, params: { id: "da1" }, body: { accept: true } } as unknown as Request;
+    const res = mockRes();
+
+    await respondToAssignmentHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it("accepts a valid assignment", async () => {
+    vi.mocked(respondToAssignment).mockResolvedValue({ id: "da1", status: "ACCEPTED" } as never);
+
+    const req = { user: { id: "driver-1" }, params: { id: "da1" }, body: { accept: true } } as unknown as Request;
+    const res = mockRes();
+
+    await respondToAssignmentHandler(req, res);
+
+    expect(respondToAssignment).toHaveBeenCalledWith("driver-1", "da1", true);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });

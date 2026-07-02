@@ -4,7 +4,7 @@ vi.mock("../../../lib/prisma", () => ({
   prisma: {
     fulfillment: { findUnique: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
-    driverAssignment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn() },
+    driverAssignment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
     driverLocationPing: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -20,6 +20,7 @@ import {
   assignDriver,
   countActiveDriverAssignments,
   getFulfillment,
+  listMyDriverAssignments,
   recordLocationPing,
   respondToAssignment,
   updateFulfillmentStatus,
@@ -95,6 +96,25 @@ describe("recordLocationPing", () => {
   it("rejects a location ping for a nonexistent assignment", async () => {
     mockPrisma.driverAssignment.findUnique.mockResolvedValue(null as never);
     await expect(recordLocationPing("missing", 0, 0)).rejects.toBeInstanceOf(DriverAssignmentNotFoundError);
+  });
+});
+
+describe("listMyDriverAssignments", () => {
+  it("scopes to the calling driver's own busy assignments for this restaurant", async () => {
+    mockPrisma.driverAssignment.findMany.mockResolvedValue([{ id: "da1", driverId: "driver-1" }] as never);
+
+    const result = await listMyDriverAssignments("r1", "driver-1");
+
+    expect(result).toHaveLength(1);
+    expect(mockPrisma.driverAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          driverId: "driver-1",
+          status: { in: ["OFFERED", "ACCEPTED", "EN_ROUTE"] },
+          fulfillment: expect.objectContaining({ restaurantId: "r1" }),
+        }),
+      }),
+    );
   });
 });
 

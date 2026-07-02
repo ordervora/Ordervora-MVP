@@ -61,6 +61,12 @@ model Restaurant {
   name        String
   description String?
   address     String?
+  // Geocoded restaurant location — required for the Smart Routing
+  // Engine's delivery-distance calculation (delivery-rules/geometry.ts).
+  // Nullable: a restaurant that hasn't set this yet simply can't offer
+  // distance-based delivery routing until it does.
+  lat         Float?
+  lng         Float?
   phone       String?
   isPublished Boolean  @default(false)
 
@@ -580,6 +586,11 @@ model Cart {
   tableId            String?
   table              Table?           @relation(fields: [tableId], references: [id])
   notes              String?
+  // The currently-applied coupon code, re-validated (never trusted as
+  // still-valid) at both quote and placement time via
+  // validateCouponForRedemption — this field only remembers the
+  // customer's selection between requests.
+  couponCode         String?
   expiresAt          DateTime
 
   items CartItem[]

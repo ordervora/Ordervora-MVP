@@ -8,6 +8,8 @@ import {
   disconnectProviderHandler,
   listProvidersHandler,
   locationPingHandler,
+  myAssignmentsHandler,
+  respondToAssignmentHandler,
   updateFulfillmentStatusHandler,
 } from "./fulfillment.controller";
 
@@ -24,3 +26,10 @@ fulfillmentRouter.delete("/me/fulfillment-providers/:type", requireAuth, staffOr
 fulfillmentRouter.post("/me/fulfillment/:id/assign-driver", requireAuth, staffOrOwner, assignDriverHandler);
 fulfillmentRouter.patch("/me/fulfillment/:id/status", requireAuth, staffOrOwner, updateFulfillmentStatusHandler);
 fulfillmentRouter.post("/me/fulfillment/:id/location-ping", requireAuth, staffOrOwner, locationPingHandler);
+
+// The driver app's own queue — deliberately placed under /me/fulfillment
+// alongside the staff-facing actions above (same tenant/role scope), not
+// under /me/fulfillment-providers (which is BYO-delivery *provider*
+// connection management, an unrelated concern).
+fulfillmentRouter.get("/me/fulfillment/my-assignments", requireAuth, staffOrOwner, myAssignmentsHandler);
+fulfillmentRouter.post("/me/fulfillment/assignments/:id/respond", requireAuth, staffOrOwner, respondToAssignmentHandler);

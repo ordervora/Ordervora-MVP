@@ -13,10 +13,18 @@ import {
   assignDriver,
   getDriverAssignmentByFulfillment,
   getFulfillment,
+  listMyDriverAssignments,
   recordLocationPing,
+  respondToAssignment,
   updateFulfillmentStatus,
 } from "./fulfillment.service";
-import { assignDriverSchema, connectProviderSchema, locationPingSchema, updateFulfillmentStatusSchema } from "./fulfillment.validation";
+import {
+  assignDriverSchema,
+  connectProviderSchema,
+  locationPingSchema,
+  respondToAssignmentSchema,
+  updateFulfillmentStatusSchema,
+} from "./fulfillment.validation";
 import { connectProvider, disconnectProvider, listProviders } from "./provider.service";
 
 function paramId(req: Request): string {
@@ -164,6 +172,35 @@ export async function locationPingHandler(req: Request, res: Response): Promise<
     res.status(200).json({ assignment: updated });
   } catch (err) {
     if (err instanceof FulfillmentNotFoundError || err instanceof DriverAssignmentNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+/** The driver app's own queue — every staffer sees only their own currently-active assignments. */
+export async function myAssignmentsHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const assignments = await listMyDriverAssignments(restaurantId, req.user!.id);
+  res.status(200).json({ assignments });
+}
+
+/** A driver accepting/declining an OFFERED delivery. Tenant isolation is implicit — findOwnDriverAssignment scopes by driverId, so a mismatch is a 404, not a 403 (this driver never had this job). */
+export async function respondToAssignmentHandler(req: Request, res: Response): Promise<void> {
+  const parsed = respondToAssignmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const assignment = await respondToAssignment(req.user!.id, paramId(req), parsed.data.accept);
+    res.status(200).json({ assignment });
+  } catch (err) {
+    if (err instanceof DriverAssignmentNotFoundError) {
       res.status(404).json({ error: err.message });
       return;
     }
