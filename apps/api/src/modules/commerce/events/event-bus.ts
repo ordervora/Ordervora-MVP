@@ -26,9 +26,17 @@ class CommerceEventBus {
 
   on(type: OrderEventType | typeof WILDCARD, handler: CommerceEventHandler): void {
     this.emitter.on(type, (event: CommerceEvent) => {
-      void Promise.resolve(handler(event)).catch((err: unknown) => {
+      try {
+        void Promise.resolve(handler(event)).catch((err: unknown) => {
+          console.error(`[commerce-events] handler for "${type}" failed`, err);
+        });
+      } catch (err) {
+        // A handler that throws synchronously (rather than returning a
+        // rejected promise) must not escape emit() and break sibling
+        // handlers — caught here, not just via the Promise.resolve wrap
+        // above, which only catches async rejections.
         console.error(`[commerce-events] handler for "${type}" failed`, err);
-      });
+      }
     });
   }
 
