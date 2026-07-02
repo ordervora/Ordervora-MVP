@@ -847,3 +847,302 @@ every prior sprint:
   a real website fetch and extraction, a real Google Places API call, a
   live SSRF rejection against an actual private address, and a real
   approve-into-menu round trip for either source.
+
+# Release Notes — Sprint 06: AI Website Builder
+
+## Sprint 06 Summary
+
+Sprint 06 gives a restaurant owner a one-click path from an imported menu
+to a published, real, rendered restaurant website. It implements the full
+approved Sprint 06 specification: a Theme Engine with a curated catalog
+across three style families, deterministic AI-driven theme matching, an
+AI Generator pipeline that produces three complete design variations per
+generation batch, a five-dimension AI Website Score with ranked one-click
+fixes, a constrained draft editor, and — added in a review follow-up once
+the approved spec's own build order was checked line-by-line — the Layout
+Engine and public component library that actually renders `SiteDefinition`
+JSON into real HTML, plus static site generation at publish, a live
+preview system, and Host-based public serving.
+
+This sprint shipped in two passes on the same branch:
+
+1. **First pass**: Theme Engine, AI Generator (Brand Analysis, content
+   generation, theme matching), AI Website Score, constrained editor,
+   publish/rollback/domain/contact-form data-layer workflow.
+2. **Review follow-up**: the reviewer asked whether "no public site
+   renderer" was an approved boundary of the spec or a gap. Re-reading the
+   spec's own "Suggested build order within the sprint" showed the Layout
+   Engine + component library listed as step 2 of *this* sprint's build
+   order, not deferred to a later one — so it was implemented before this
+   sprint was approved for merge.
+
+## Theme Engine
+
+- 8 curated themes across three style families — **Luxury** (`fine-dining`,
+  `elegant-dark`), **Modern** (`modern-bistro`, `street-food`, `coastal`),
+  **Minimal** (`cafe`, `casual-family`, `rustic-minimal`) — each carrying
+  design tokens (color seed, typography pairing, radius, motion, type-scale
+  ratio), component variants (hero style, menu layout), an allowed home-page
+  section order, a personality vector, cuisine affinities, and hard
+  constraints (e.g. a minimum photo count for photo-dependent themes).
+- Theme selection is **deterministic, not LLM-based**: Brand Analysis (LLM)
+  produces a personality vector once; a pure cosine-similarity scoring
+  function over bipolar-centered axes (so opposite ends of a spectrum are
+  genuinely dissimilar, not just "less similar") picks the best-fit theme
+  per style family. Golden tests pin the exact expected theme for fixture
+  profiles (upscale sushi, casual taqueria, French patisserie) and confirm
+  the same inputs always produce the same theme.
+- Every style family always returns a theme, even when every candidate in
+  that family is hard-excluded by a photo-count constraint — a documented
+  fallback picks the family's least photo-dependent theme rather than
+  leaving the Variation Picker with a missing option.
+- Palette derivation (`lib/color.ts`) expands one seed color into a 10-step
+  OKLCH scale per token (primary/secondary/accent/surface/text/success/
+  error), and **guarantees** — not just hopes — that the CTA-button pairing
+  (white text on primary-600) and the body-text pairing (text-900 on
+  surface-50) pass WCAG AA, auto-adjusting lightness if the raw seed would
+  fail. Verified against adversarial seed colors in tests, not just typical
+  ones.
+
+## AI Website Generator
+
+- Pipeline: ingest live restaurant/menu data → Brand Analysis (LLM,
+  structured Brand Profile with per-field confidence) → AI theme selection
+  (×3, deterministic) → shared content core (LLM, generated once) →
+  per-variation tone adaptation (LLM, ×3 only — the expensive stages run
+  once, keeping the 3-variation cost well under 3× a single generation) →
+  assembly into three `SiteDefinition` documents → AI Website Score (×3) →
+  finalize as three `SiteVersion` rows sharing one `generationBatchId`.
+- **Every AI-backed stage has a non-throwing safe-default fallback** —
+  brand analysis falls back to a neutral profile (confidence 0), content
+  generation falls back to templated copy, the brand-consistency judge
+  falls back to a neutral score. The pipeline cannot "fully fail" from an
+  LLM outage; it only fails a batch on a genuine infrastructure error,
+  which by definition would also prevent any fallback from persisting.
+- Low-confidence Brand Profile fields are overridden with safe defaults
+  before theme matching runs, rather than trusting a weak guess.
+- A profanity/claims filter strips unverifiable superlative claims
+  ("best in the world", "award-winning", fabricated health claims) from
+  every LLM-generated copy field before it's stored.
+- Facts (address, phone, hours, whether online ordering/reservations
+  exist) are **never** LLM-generated — they're copied verbatim from
+  structured data into every variation, byte-identical across all three,
+  verified by test.
+- CTA copy (`cta.ts`) is computed by a small deterministic function, not
+  the LLM: online ordering wins if it exists, then reservations, then a
+  plain "View Menu" — with family-appropriate wording (formal for Luxury,
+  energetic for Modern, terse for Minimal).
+- Regeneration replaces only the unselected `VARIATION` rows for a site;
+  an already-selected `DRAFT` is left untouched.
+
+## AI Website Score
+
+- Five dimensions, equally weighted into one overall score: **SEO**
+  (rule-based: title/meta length, cuisine keyword presence, alt-text
+  coverage), **Performance** (a documented heuristic proxy — see Known
+  Limitations), **Accessibility** (rule-based: hero-over-photo contrast,
+  alt-text coverage; body-text/button contrast is a structural guarantee
+  from the Theme Engine, not scored here since it can't actually fail),
+  **Brand Consistency** (hybrid: deterministic font/palette-adherence
+  checks plus an LLM judge comparing copy tone against the stored Brand
+  Profile), **Conversion** (rule-based: primary CTA above the fold,
+  hours/location on the home page, a click-to-call phone number).
+- Every failed check produces a ranked `Suggestion` object
+  (`{dimension, issue, impact, suggestion, autoFixKind?}`); suggestions
+  are pooled across dimensions and sorted high-impact first.
+- **Three working one-click auto-fixes**: `missingAltText` (asset layer —
+  generates deterministic alt text per asset kind + restaurant name),
+  `heroContrast` (definition layer — boosts a hero's scrim opacity until
+  white text clears WCAG AA against the image's measured or assumed
+  luminance), `missingMetaDescription` (definition layer — regenerates an
+  empty meta description from the tagline/cuisine/city). Each fix is
+  tested to actually resolve the specific check that flagged it.
+- Publish re-scores the draft and **warns** (never blocks) if the new
+  score is lower than the currently-live version's score.
+
+## Public Website Renderer (Layout Engine + Component Library)
+
+- **Layout Engine** (`renderer/layout-engine.ts` + `registry.ts`): a
+  section-type → component registry. Unregistered or future/deprecated
+  block types are skipped with a logged warning rather than crashing a
+  page. `testimonials` is deliberately left unregistered — there is no
+  testimonial data source in this data model, and §2's guardrail against
+  fabricating one means the correct behavior for that block type is to
+  never render, which the graceful-degradation path already provides for
+  free.
+- **Public component library** (`renderer/components/`): Hero (3 variants,
+  auto-contrast scrim over a photo when one exists), SignatureDishes,
+  AboutTeaser/AboutStory (with an optional photo band), HoursLocation (with
+  a Google Maps search-query link needing no API key), MenuSection,
+  Gallery (with a lightweight lightbox), CtaBanner, ContactInfo/ContactForm
+  (honeypot-protected, posts to the existing public contact endpoint),
+  SiteHeader/Nav, SiteFooter, MobileActionBar (Call/Directions/primary
+  CTA, hidden at desktop widths). Every interpolated string is
+  HTML-escaped — owner-editable and LLM-generated text is never trusted as
+  markup.
+- **One shared renderer**: `renderPage()` (pure) and `renderAllPages()`
+  (resolves live data, then delegates to `renderPage()`) are the *only*
+  rendering code path — used identically by the on-demand preview route
+  and by static generation at publish, so the two can never drift apart.
+- **The Menu section queries live data at render time** — `MenuCategory`/
+  `MenuItem` rows, not a snapshot baked into the stored `SiteDefinition` —
+  matching the spec's "single source of truth" requirement for the menu
+  page.
+- SEO/OG/JSON-LD (`renderer/seo-head.ts`, `json-ld.ts`): title, meta
+  description, canonical URL, Open Graph + Twitter Card tags, a generated
+  1200×630 SVG share image (a template-based card, not a headless-browser
+  screenshot), and JSON-LD (`Restaurant` with live `hasMenu`/
+  `MenuSection`/`MenuItem`, plus `BreadcrumbList`) on every page.
+- `sitemap.xml` and `robots.txt` are generated per release
+  (`renderer/sitemap.ts`).
+
+## Publish Workflow
+
+- `publishSite` renders every page of the draft via the shared renderer
+  and writes each to a new `releaseStorage` (local-disk object-storage
+  substitute, same swappable-interface pattern as the existing
+  `fileStorage`/`safeFetch` libs), along with `sitemap.xml`, `robots.txt`,
+  and the OG share image for that release.
+- Pre-publish checks: the stored definition must parse against
+  `siteDefinitionSchema` (schema-valid gate), and any photo assets that
+  exist must have finished processing. Contrast and required-field checks
+  are *not* re-checked here since they're already hard guarantees earlier
+  in the pipeline — repeating them would be dead code.
+- Publish re-scores and warns (never blocks) on a score drop versus the
+  live version; the most recent 10 releases are retained, older ones
+  auto-archived.
+- **Rollback** re-materializes the target release's static pages with
+  *current* live menu/profile data (not whatever was live when that
+  release first published), so a one-click rollback never resurrects
+  stale prices.
+- **Menu/profile revalidation**: menu item/category mutations and
+  restaurant-profile updates each trigger a fire-and-forget
+  `revalidatePublishedSite()` call that re-renders and overwrites the
+  currently-published release's static pages — a price change appears on
+  the live site without a republish.
+- **Public serving**: a Host-header-based middleware resolves an incoming
+  request to a `Site` (via the `{slug}.{platform-domain}` pattern or a
+  verified custom `Domain`), serves its pre-rendered static pages, a 503
+  holding page when `UNPUBLISHED`, and `sitemap.xml`/`robots.txt`/the OG
+  image — the closest substitute available in this sandbox for real edge/
+  CDN routing.
+- **Preview**: a signed, expiring, site-scoped JWT (`GET
+  /api/sites/:id/preview-token`) plus a `GET /preview/:token` route that
+  renders on demand from the latest draft (or a specific `?variation=`),
+  always with `noindex`/no-store headers — never a stale static file. The
+  dashboard's variation-preview page embeds this behind a real mobile/
+  tablet/desktop device-toggle iframe, proxied through `next.config.ts`.
+
+## Database Changes
+
+9 new Prisma models, all tenant-scoped through `Site.restaurantId`:
+
+| Model | Purpose |
+|---|---|
+| `Site` | One website per restaurant — slug, status, active theme, published-version pointer, persisted Brand Profile, settings |
+| `SiteVersion` | Every generated/edited/published cut of a site — `SiteDefinition` JSON, status (VARIATION/DRAFT/PUBLISHED/ARCHIVED), style family, generation batch id |
+| `Theme` | The curated theme catalog — tokens, variants, layouts, personality vector, cuisine affinities, constraints |
+| `SiteScore` | One AI Website Score snapshot per `SiteVersion` |
+| `Domain` | Custom/platform domains — verification + TLS status, primary flag |
+| `SiteAsset` | Uploaded images (hero/gallery/logo/OG) — storage key, renditions, alt text |
+| `GenerationJob` | One row per generation batch — stage/status/error tracking |
+| `ContactMessage` | Public contact-form submissions — hashed IP only |
+
+Plus 9 new enums (`SiteStatus`, `SiteVersionStatus`, `StyleFamily`,
+`ScoreSource`, `DomainType`, `DomainVerificationStatus`, `DomainTlsStatus`,
+`AssetKind`, `GenerationStage`, `GenerationStatus`). No live migration was
+run (no live Postgres in this sandbox, same constraint as every prior
+sprint); `prisma validate` passes against the schema as merged.
+
+## API Endpoints
+
+31 endpoints under `/api/sites` (authenticated, tenant-scoped): site core
+(`GET /me`, `POST /`, `PATCH /:id`, `GET /:id/preview-token`), generation
+and variations, versions and draft editing, scoring and suggestion
+auto-fixes, assets, publish/rollback/unpublish and domain management,
+and the contact-message inbox. Public/unauthenticated:
+`POST /public/sites/:id/contact` (rate-limited, honeypot-protected). New
+non-API routes added in the renderer follow-up: `GET /preview/:token` and
+a Host-header site-resolution middleware mounted ahead of `/api`.
+
+## Frontend Pages
+
+Seven pages under `/dashboard/website`: the Website Hub, the Variation
+Picker (with a full per-variation preview page — now a real device-toggle
+iframe, not only a structured data view), a constrained draft Editor, the
+Score Panel (with re-score and one-click auto-fix), Publish & Domains
+(releases list, rollback, a DNS verification wizard), and the contact-form
+Messages inbox.
+
+## Tests Added
+
+**366 tests across 58 files** (up from 64/12 after Sprint 05) — golden
+theme-matching tests against fixture brand profiles, color/contrast math
+including adversarial seed colors, `SiteDefinition`/Brand Profile schema
+validation, the full generator orchestrator (mocked LLM, verified
+non-throwing on failure), all five scorers against known-defect fixtures,
+auto-fix-resolves-its-own-triggering-check tests, the entire renderer
+module (HTML-escaping/XSS, Layout Engine graceful degradation, JSON-LD
+validity, sitemap/robots content, static-file writes on publish,
+preview-token validation, live-menu-data rendering vs. a stale snapshot,
+custom-domain Host-header routing, the menu/profile revalidation hooks),
+and tenant-isolation checks throughout.
+
+## Known Limitations
+
+- **No live LLM, database, or network egress in this sandbox** — every AI
+  call, DNS lookup, and rendering path is unit-tested via mocks or direct
+  fixture invocation, not exercised against live infrastructure end-to-end.
+  A full generate → publish → serve round trip against a real domain has
+  not been run.
+- **Performance score is a documented heuristic proxy, not real
+  Lighthouse** — there's no live hosting in this sandbox to audit against.
+  `performance-score.ts` states this explicitly; swapping in a real
+  Lighthouse runner later requires no change to its callers.
+- **No real image processing** — no WebP/AVIF renditions, no LQIP
+  placeholders, no EXIF/GPS stripping. Site assets are stored through the
+  existing local-disk `fileStorage`, sharing a directory with Import
+  Engine uploads rather than a dedicated site-asset path.
+- **No real ACME/TLS issuance** — custom-domain DNS ownership verification
+  is real (an actual CNAME lookup against the expected edge target) and
+  tested; TLS status remains `PENDING` indefinitely since there's no ACME
+  account or edge server here to issue a certificate.
+- **The OG share image is a generated SVG template**, not a
+  headless-browser screenshot — valid as an `og:image` on most platforms
+  that render link previews, but not pixel-identical to what a real page
+  screenshot would produce.
+- **No live email delivery** for contact-form notifications — submissions
+  are fully persisted and visible in the dashboard inbox; emailing the
+  owner would need a configured email provider this environment doesn't
+  have.
+- **Social links are not rendered** — the `Restaurant` model has no
+  social-profile fields yet; `SiteFooter` omits that section entirely
+  rather than rendering empty links.
+- **No structured hours model** — `SiteFacts.hours` exists in the schema
+  but nothing currently populates it, so an "open now" indicator (from the
+  original spec's Contact page description) isn't shown.
+- **DoorDash, Uber Eats, and Grubhub import sources are unaffected** —
+  still stubs, still `501`, untouched this sprint (carried over from
+  Sprint 04/05).
+
+## Verification Results
+
+- `pnpm install`, `pnpm --filter api exec prisma generate`, and
+  `pnpm --filter api exec prisma validate` all pass on `main` after the
+  merge.
+- `pnpm run lint` and `pnpm run typecheck` pass cleanly at the repo root.
+- `pnpm run test` — **366/366 tests passing** across 58 files in
+  `apps/api`.
+- `pnpm run build` — both `apps/api` (`tsc`) and `apps/web` (`next build`,
+  Turbopack) compile successfully, including every new
+  `/dashboard/website/*` route.
+- Manually rendered a fixture `SiteDefinition` through the real
+  `renderPage()` pipeline (not mocks) and confirmed genuine output: correct
+  SEO tags, valid JSON-LD reflecting live menu data, a complete OKLCH
+  color-token stylesheet, and working navigation/hero/footer/mobile-
+  action-bar markup with real `tel:`/Google Maps links.
+- Not verified in this environment (requires live Postgres, a real
+  `ANTHROPIC_API_KEY`, a resolvable custom domain, and live hosting): an
+  end-to-end generate → select → publish → serve round trip against a
+  real browser, a real Lighthouse audit, and real ACME certificate
+  issuance.
