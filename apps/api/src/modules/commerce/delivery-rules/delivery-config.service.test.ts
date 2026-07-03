@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
-    deliveryConfig: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    $queryRaw: vi.fn(),
+    deliveryConfig: { update: vi.fn() },
   },
 }));
 
@@ -16,32 +17,27 @@ beforeEach(() => {
 });
 
 describe("getConfig", () => {
-  it("lazily creates a default config (pickup on, delivery/dine-in off) on first access", async () => {
-    mockPrisma.deliveryConfig.findFirst.mockResolvedValue(null as never);
-    mockPrisma.deliveryConfig.create.mockResolvedValue({ id: "dc1", isPickupEnabled: true } as never);
+  it("lazily creates a default config (pickup on, delivery/dine-in off) on first access, via a single atomic raw INSERT ... ON CONFLICT", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: "dc1", isPickupEnabled: true }] as never);
 
     const config = await getConfig("r1");
 
-    expect(mockPrisma.deliveryConfig.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ restaurantId: "r1", isPickupEnabled: true, isDeliveryEnabled: false }),
-      }),
-    );
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(config.isPickupEnabled).toBe(true);
   });
 
-  it("returns the existing row without creating a duplicate", async () => {
-    mockPrisma.deliveryConfig.findFirst.mockResolvedValue({ id: "dc1" } as never);
+  it("returns the existing row unchanged rather than resetting it to defaults (the ON CONFLICT branch is a same-value no-op write)", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: "dc1", isDeliveryEnabled: true }] as never);
 
-    await getConfig("r1");
+    const config = await getConfig("r1");
 
-    expect(mockPrisma.deliveryConfig.create).not.toHaveBeenCalled();
+    expect(config.isDeliveryEnabled).toBe(true);
   });
 });
 
 describe("updateConfig", () => {
   it("ensures the row exists before updating", async () => {
-    mockPrisma.deliveryConfig.findFirst.mockResolvedValue({ id: "dc1" } as never);
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: "dc1" }] as never);
     mockPrisma.deliveryConfig.update.mockResolvedValue({ id: "dc1", isDeliveryEnabled: true } as never);
 
     const result = await updateConfig("r1", { isDeliveryEnabled: true });
