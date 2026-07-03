@@ -1,61 +1,53 @@
-# Render Blueprint — one-click, zero-manual-configuration deployment.
+# Render Blueprint — deploys apps/api only, on Render's free plan.
 #
-# Deploy: render.com -> New -> Blueprint -> select this repo/branch -> Apply.
-# Render provisions the database and both services, wires every environment
-# variable automatically (cross-referenced from the database and from each
-# other — no value needs to be copy-pasted by hand), runs migrations plus a
-# one-time idempotent demo seed before each service starts, and health-checks
-# both. The only unavoidable manual step is Render's own cost-confirmation
-# tap for the paid Postgres instance, which the dashboard/mobile web UI asks
-# for before provisioning.
+# Why this shape (see docs/runbooks/render-deploy.md for the full story):
+# the database lives on Supabase (already provisioned, free, no card
+# required — see that doc), and apps/web is deployed separately to Vercel
+# (also free, no card, and it's the natural home for a Next.js app). An
+# earlier version of this file bundled a Render-hosted Postgres database
+# and a second paid "starter" web service into one Blueprint — Render
+# will not finish provisioning any paid resource without a payment method
+# on file, which is exactly the wall that blocked deployment before. This
+# version requests nothing but free-tier resources, so no card is needed
+# at any point.
 #
-# See docs/runbooks/render-deploy.md for the full walkthrough and the one
-# follow-up step that genuinely cannot be automated (seeding order-history
-# demo data, which requires the API to already be live and reachable over
-# real HTTP).
-
-databases:
-  - name: ordervora-db
-    plan: basic-256mb
-    databaseName: ordervora
-    user: ordervora
-    postgresMajorVersion: 16
+# Deploy: render.com -> New -> Blueprint -> select this repo -> pick THIS
+# branch explicitly from the branch dropdown (do not accept whatever
+# branch the picker defaults to) -> Apply. When prompted, paste in the two
+# secret values below (DATABASE_URL, FRONTEND_URL) — these are the only
+# manual values, and they're marked `sync: false` deliberately so they're
+# never committed to this public repo.
 
 services:
   - type: web
     name: ordervora-api
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     healthCheckPath: /health
     # Runs after the image is built, before the new instance starts serving
     # traffic. `prisma migrate deploy` applies any pending migrations;
-    # `seed-if-empty.js` populates the Sprint 08 beta demo data exactly once
-    # (it no-ops on every deploy after the first) — see that script for why
-    # `seed-beta.ts` itself isn't safe to chain here unconditionally.
+    # `seed-if-empty.js` populates the Sprint 08 beta demo data exactly
+    # once (it no-ops on every deploy after the first).
     preDeployCommand: "./node_modules/.bin/prisma migrate deploy && node dist/scripts/seed-if-empty.js"
-    # fromService only ever exposes a bare host (no scheme) — FRONTEND_URL
-    # must be a full origin (it's used for CORS), so the scheme is prefixed
-    # here, at container start, immediately before exec'ing into the
-    # existing start.sh (which itself execs node, preserving PID-1 signal
-    # handling for graceful shutdown).
-    dockerCommand: >-
-      sh -c 'export FRONTEND_URL="https://$FRONTEND_HOST" && exec ./scripts/start.sh'
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: "4000"
+      # Paste the Supabase connection string here when Render prompts for
+      # it (see docs/runbooks/render-deploy.md for the exact value).
+      # sync: false means Render asks for this once and never stores it
+      # in git — required since this repo is public.
       - key: DATABASE_URL
-        fromDatabase:
-          name: ordervora-db
-          property: connectionString
-      - key: FRONTEND_HOST
-        fromService:
-          name: ordervora-web
-          type: web
-          property: host
+        sync: false
+      # Paste the Vercel web app's URL here (e.g. https://ordervora-web.vercel.app).
+      # Also sync: false — not a secret, but its real value isn't known
+      # until the Vercel deployment exists, so it can't be a literal in
+      # this file either.
+      - key: FRONTEND_URL
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -65,36 +57,10 @@ services:
       - key: JWT_REFRESH_TTL
         value: 30d
       # generateValue produces a base64 value, but this app validates
-      # COMMERCE_ENCRYPTION_KEY against a 64-char-hex regex at startup — so
-      # this must be a literal pre-generated hex value, not generateValue.
-      # Freshly generated for this file (openssl rand -hex 32); rotate it
-      # yourself later via docs/runbooks/secret-rotation.md if you want to.
+      # COMMERCE_ENCRYPTION_KEY against a 64-char-hex regex at startup, so
+      # generateValue can't be used here. It's also a real secret, so — like
+      # DATABASE_URL/FRONTEND_URL above — it must not be a literal in this
+      # public repo either: sync: false, paste the value Render prompts you
+      # for (see docs/runbooks/render-deploy.md for a ready-to-use value).
       - key: COMMERCE_ENCRYPTION_KEY
-        value: 0df68dd7201db72ff95415a9699b4ceb550f68514d5e1adc9bcb1563770c1d00
-
-  - type: web
-    name: ordervora-web
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./apps/web/Dockerfile
-    dockerContext: .
-    healthCheckPath: /
-    # Same bare-host-from-fromService limitation as above, but this one also
-    # needs to reach next.config.ts at `next build` time (see the Dockerfile
-    # comment) — API_HOST/API_URL_SCHEME are consumed there as build args
-    # (Render auto-forwards a Docker service's envVars as `--build-arg`s of
-    # the same name), and API_URL is additionally reconstructed here at
-    # container start for the one server-side module (lib/server-api.ts)
-    # that reads it at runtime instead of at build time.
-    dockerCommand: >-
-      sh -c 'export API_URL="https://$API_HOST" && exec ./apps/web/scripts/start.sh'
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: API_HOST
-        fromService:
-          name: ordervora-api
-          type: web
-          property: host
-      - key: API_URL_SCHEME
-        value: https
+        sync: false

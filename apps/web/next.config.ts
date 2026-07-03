@@ -7,12 +7,18 @@ const nextConfig: NextConfig = {
   // Production Hardening Phase 4 — emits .next/standalone, a self-contained
   // server.js + pruned node_modules for the container runtime stage
   // (apps/web/Dockerfile), so the final image doesn't need `next start` or
-  // the full dependency tree. outputFileTracingRoot must point at the
-  // pnpm workspace root: this is a monorepo, so apps/web's own dependencies
-  // are hoisted/symlinked into the root node_modules, not copied into
-  // apps/web/node_modules — without this, trace-based copying would miss
-  // them and standalone/server.js would fail to start.
-  output: "standalone",
+  // the full dependency tree. Skipped when building on Vercel (which sets
+  // its own VERCEL env var): Vercel has its own serverless output pipeline
+  // and doesn't run apps/web/Dockerfile at all, and "standalone" output is
+  // unnecessary there — it doesn't need to be conditional for correctness
+  // anywhere else, but leaving it on has caused build/tracing issues on
+  // Vercel in the past for other Next.js monorepos.
+  //
+  // outputFileTracingRoot must still point at the pnpm workspace root in
+  // both cases: this is a monorepo, so apps/web's own dependencies are
+  // hoisted/symlinked into the root node_modules, not copied into
+  // apps/web/node_modules — Vercel's own tracing needs this too.
+  output: process.env.VERCEL ? undefined : "standalone",
   outputFileTracingRoot: path.join(__dirname, "../../"),
   async rewrites() {
     return [
