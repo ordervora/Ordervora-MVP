@@ -21,10 +21,18 @@ RUN pnpm fetch
 # root, since apps/web's own dependencies are hoisted there, not into
 # apps/web/node_modules.
 FROM fetch AS build
+# API_HOST/API_URL_SCHEME let a host-only value (e.g. Render's fromService,
+# which exposes a bare host with no scheme) be assembled into the full URL
+# next.config.ts bakes into the standalone build's rewrite manifest at
+# `next build` time — process.env.API_URL alone is not enough here because
+# a plain runtime env var (docker-compose's approach) has no effect on
+# next.config.ts, which only ever reads it once, during this build.
+ARG API_URL_SCHEME=http
+ARG API_HOST=localhost:4000
 COPY pnpm-workspace.yaml package.json ./
 COPY apps/web ./apps/web
 RUN pnpm install --offline --frozen-lockfile --filter web...
-RUN pnpm --filter web run build
+RUN API_URL="${API_URL_SCHEME}://${API_HOST}" pnpm --filter web run build
 
 # ---- runtime --------------------------------------------------------------
 # next build's standalone output does not include public/ or .next/static

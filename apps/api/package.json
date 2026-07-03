@@ -18,7 +18,8 @@
     "storage:migrate-to-s3": "tsx scripts/migrate-storage-to-s3.ts",
     "seed:beta": "tsx prisma/seed-beta.ts",
     "seed:beta:orders": "tsx scripts/seed-beta-orders.ts",
-    "seed:beta:delivery-order": "tsx scripts/demo-place-delivery-order.ts"
+    "seed:beta:delivery-order": "tsx scripts/demo-place-delivery-order.ts",
+    "seed:if-empty": "node dist/scripts/seed-if-empty.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

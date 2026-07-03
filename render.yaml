@@ -1,0 +1,100 @@
+# Render Blueprint — one-click, zero-manual-configuration deployment.
+#
+# Deploy: render.com -> New -> Blueprint -> select this repo/branch -> Apply.
+# Render provisions the database and both services, wires every environment
+# variable automatically (cross-referenced from the database and from each
+# other — no value needs to be copy-pasted by hand), runs migrations plus a
+# one-time idempotent demo seed before each service starts, and health-checks
+# both. The only unavoidable manual step is Render's own cost-confirmation
+# tap for the paid Postgres instance, which the dashboard/mobile web UI asks
+# for before provisioning.
+#
+# See docs/runbooks/render-deploy.md for the full walkthrough and the one
+# follow-up step that genuinely cannot be automated (seeding order-history
+# demo data, which requires the API to already be live and reachable over
+# real HTTP).
+
+databases:
+  - name: ordervora-db
+    plan: basic-256mb
+    databaseName: ordervora
+    user: ordervora
+    postgresMajorVersion: 16
+
+services:
+  - type: web
+    name: ordervora-api
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    # Runs after the image is built, before the new instance starts serving
+    # traffic. `prisma migrate deploy` applies any pending migrations;
+    # `seed-if-empty.js` populates the Sprint 08 beta demo data exactly once
+    # (it no-ops on every deploy after the first) — see that script for why
+    # `seed-beta.ts` itself isn't safe to chain here unconditionally.
+    preDeployCommand: "./node_modules/.bin/prisma migrate deploy && node dist/scripts/seed-if-empty.js"
+    # fromService only ever exposes a bare host (no scheme) — FRONTEND_URL
+    # must be a full origin (it's used for CORS), so the scheme is prefixed
+    # here, at container start, immediately before exec'ing into the
+    # existing start.sh (which itself execs node, preserving PID-1 signal
+    # handling for graceful shutdown).
+    dockerCommand: >-
+      sh -c 'export FRONTEND_URL="https://$FRONTEND_HOST" && exec ./scripts/start.sh'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ordervora-db
+          property: connectionString
+      - key: FRONTEND_HOST
+        fromService:
+          name: ordervora-web
+          type: web
+          property: host
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 15m
+      - key: JWT_REFRESH_TTL
+        value: 30d
+      # generateValue produces a base64 value, but this app validates
+      # COMMERCE_ENCRYPTION_KEY against a 64-char-hex regex at startup — so
+      # this must be a literal pre-generated hex value, not generateValue.
+      # Freshly generated for this file (openssl rand -hex 32); rotate it
+      # yourself later via docs/runbooks/secret-rotation.md if you want to.
+      - key: COMMERCE_ENCRYPTION_KEY
+        value: 0df68dd7201db72ff95415a9699b4ceb550f68514d5e1adc9bcb1563770c1d00
+
+  - type: web
+    name: ordervora-web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    # Same bare-host-from-fromService limitation as above, but this one also
+    # needs to reach next.config.ts at `next build` time (see the Dockerfile
+    # comment) — API_HOST/API_URL_SCHEME are consumed there as build args
+    # (Render auto-forwards a Docker service's envVars as `--build-arg`s of
+    # the same name), and API_URL is additionally reconstructed here at
+    # container start for the one server-side module (lib/server-api.ts)
+    # that reads it at runtime instead of at build time.
+    dockerCommand: >-
+      sh -c 'export API_URL="https://$API_HOST" && exec ./apps/web/scripts/start.sh'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_HOST
+        fromService:
+          name: ordervora-api
+          type: web
+          property: host
+      - key: API_URL_SCHEME
+        value: https

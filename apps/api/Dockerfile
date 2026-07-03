@@ -72,6 +72,7 @@ COPY --from=prod-deps /repo/node_modules ./node_modules
 COPY --from=prod-deps /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
+COPY --from=build /repo/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
 COPY apps/api/scripts/start.sh ./apps/api/scripts/start.sh
 
