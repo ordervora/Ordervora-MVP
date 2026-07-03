@@ -51,12 +51,37 @@ Coolify is self-hosted (you'd need to rent and manage your own server).
 - Everything above is committed and pushed to
   `claude/sprint-07-commerce-engine`.
 
+## Honest answer on the credit-card question
+
+No platform — Render, Koyeb, or anyone else — can be **guaranteed** to
+never ask for a card. Whether a free signup gets asked for one is decided
+by that platform's own fraud/anti-abuse scoring on your specific account
+(account age, email, IP, etc.) — something no config file controls and
+nobody outside that platform can inspect or predict, including me. What I
+*can* guarantee: `render.yaml` now requests nothing but free-tier
+resources, so the specific wall you hit before (paid Postgres + paid
+"starter" plans) cannot recur — if Render still asks for a card after
+this fix, it's their account-level anti-fraud check, not this project.
+
+Because of that, the project is now deliberately **not locked to Render**:
+migrations and the beta seed run inside the container's own startup
+script (`apps/api/scripts/start.sh`), not via a Render-only hook — so the
+exact same Docker image works identically on Render, Koyeb, Fly.io, or
+plain `docker run`, no code changes needed to switch. Order of operations:
+
+1. **Try Render first** (below) — already fixed, most likely to just work.
+2. **If Render asks for a card anyway**, skip straight to the **Koyeb**
+   fallback (further down) — no more back-and-forth with me needed, it's
+   already fully prepared.
+3. **If Koyeb also asks for a card**, the honest floor is Render's paid
+   **Starter** plan (~$7/month) — cheapest reliable option, zero further
+   code changes since the project already deploys to Render as-is, and it
+   removes the free tier's cold-start too.
+
 ## Step 1 — Deploy the API to Render (~5 minutes)
 
 1. dashboard.render.com → **New** → **Blueprint**.
-2. Select this repository, and — this is the step that failed silently
-   before — **explicitly pick the branch `claude/sprint-07-commerce-engine`**
-   from the branch dropdown. Do not leave it on whatever it shows first.
+2. Select this repository (it now reads `main` correctly by default).
 3. Render reads `render.yaml` and shows one free web service,
    `ordervora-api`. Tap **Apply**. Because everything in the file is free,
    Render should not ask for a payment method this time.
@@ -98,6 +123,34 @@ If the Vercel URL Vercel actually assigns doesn't match
 Render's `ordervora-api` service → Environment → update `FRONTEND_URL` to
 the real URL and save (Render redeploys automatically, no rebuild needed
 by hand).
+
+## Fallback — deploy the API to Koyeb instead (if Render asks for a card)
+
+Koyeb has a genuine free tier (1 service, no card required for most
+signups) with one advantage over Render's: no cold start, the container
+stays running. No project changes are needed — the same Dockerfile and
+env vars apply.
+
+1. app.koyeb.com → sign up → **Create Web Service** → **GitHub** → select
+   this repository.
+2. Under the service's build settings, set:
+   - **Work directory**: `apps/api`
+   - **Dockerfile**: `Dockerfile` (relative to that work directory)
+3. Set **Port** to `4000` and **Health check path** to `/health`.
+4. Add the same environment variables as the Render setup above:
+   `NODE_ENV=production`, `DATABASE_URL`, `FRONTEND_URL`,
+   `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (any random values — generate
+   your own, e.g. via a password generator, since Koyeb has no
+   `generateValue` equivalent), `JWT_ACCESS_TTL=15m`, `JWT_REFRESH_TTL=30d`,
+   `COMMERCE_ENCRYPTION_KEY`.
+5. Deploy. Koyeb assigns a `*.koyeb.app` URL — use it the same way as
+   Render's URL in Step 2 above (`API_URL` on Vercel, `FRONTEND_URL` back
+   on this service).
+
+(Koyeb has no equivalent of Render's `preDeployCommand` — this isn't a
+problem here specifically because migrations and the seed already moved
+into `apps/api/scripts/start.sh`'s own startup sequence, which is why this
+fallback needed no separate handling for that.)
 
 ## One-time follow-up (optional, not required to have a working app)
 

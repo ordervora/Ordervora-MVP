@@ -26,11 +26,10 @@ services:
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    # Runs after the image is built, before the new instance starts serving
-    # traffic. `prisma migrate deploy` applies any pending migrations;
-    # `seed-if-empty.js` populates the Sprint 08 beta demo data exactly
-    # once (it no-ops on every deploy after the first).
-    preDeployCommand: "./node_modules/.bin/prisma migrate deploy && node dist/scripts/seed-if-empty.js"
+    # No preDeployCommand: migrations + the idempotent beta seed now run
+    # inside apps/api/scripts/start.sh itself (the container's own
+    # entrypoint), not via a Render-specific hook — so this exact image
+    # deploys identically on any Docker host, not just Render.
     envVars:
       - key: NODE_ENV
         value: production
