@@ -24,12 +24,22 @@ function cartExpiry(): Date {
   return new Date(Date.now() + CART_TTL_MINUTES * 60_000);
 }
 
-/** Finds the caller's ACTIVE cart for this restaurant, or creates one. */
+/**
+ * Finds the caller's ACTIVE cart for this restaurant, or creates one.
+ * Always returns `items` (matching getCartWithItems's shape below) —
+ * the frontend's Cart type declares `items` as required and reads
+ * `cart.items.length` immediately on the menu page (order/[restaurantId]/page.tsx),
+ * so a response missing it (the bare Prisma `Cart` row has no `items` key
+ * at all without an explicit include) crashed that page on load for both
+ * a brand-new cart and a returning customer's existing one — discovered
+ * while building the Sprint 08 beta demo, not a change in behavior for
+ * any caller that already expected this shape.
+ */
 export async function getOrCreateActiveCart(
   restaurantId: string,
   identity: CartIdentity,
   fulfillmentType: FulfillmentType = "PICKUP",
-): Promise<Cart> {
+): Promise<Cart & { items: CartItem[] }> {
   const existing = await prisma.cart.findFirst({
     where: {
       restaurantId,
@@ -37,6 +47,7 @@ export async function getOrCreateActiveCart(
       ...(identity.customerId ? { customerId: identity.customerId } : { guestSessionId: identity.guestSessionId }),
     },
     orderBy: { createdAt: "desc" },
+    include: { items: true },
   });
   if (existing) return existing;
 
@@ -48,6 +59,7 @@ export async function getOrCreateActiveCart(
       fulfillmentType,
       expiresAt: cartExpiry(),
     },
+    include: { items: true },
   });
 }
 

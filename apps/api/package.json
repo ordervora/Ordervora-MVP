@@ -15,7 +15,10 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "test": "vitest run",
-    "storage:migrate-to-s3": "tsx scripts/migrate-storage-to-s3.ts"
+    "storage:migrate-to-s3": "tsx scripts/migrate-storage-to-s3.ts",
+    "seed:beta": "tsx prisma/seed-beta.ts",
+    "seed:beta:orders": "tsx scripts/seed-beta-orders.ts",
+    "seed:beta:delivery-order": "tsx scripts/demo-place-delivery-order.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

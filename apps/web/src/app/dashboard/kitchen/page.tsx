@@ -2,14 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { DashboardNav } from "@/components/dashboard-nav";
-import { listOwnOrders, markOutForDelivery, markReady, startPreparing, type OwnerOrder } from "@/lib/owner-commerce-api";
+import { completeOrder, listOwnOrders, markOutForDelivery, markReady, startPreparing, type OwnerOrder } from "@/lib/owner-commerce-api";
 
 const QUEUE_STATUSES = ["CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY"];
 
-const NEXT_ACTION: Record<string, { label: string; action: (id: string) => Promise<unknown> } | undefined> = {
-  CONFIRMED: { label: "Start preparing", action: startPreparing },
-  PREPARING: { label: "Mark ready", action: markReady },
-  READY: { label: "Mark out for delivery", action: markOutForDelivery },
+// Mirrors dashboard/orders/[id]/page.tsx's (correct) NEXT_ACTIONS — the
+// order state machine (order-state-machine.ts) only allows
+// READY -> COMPLETED (never READY -> OUT_FOR_DELIVERY), so a fixed
+// per-status action here was a dead end: every order that reached READY
+// showed a "Mark out for delivery" button that could never succeed,
+// regardless of fulfillment type. PREPARING now offers both real next
+// steps (mark-ready for pickup/dine-in, mark-out-for-delivery for
+// delivery, matching the state machine's PREPARING -> READY |
+// OUT_FOR_DELIVERY), and READY/OUT_FOR_DELIVERY both offer "Complete".
+const NEXT_ACTIONS: Record<string, { label: string; action: (id: string) => Promise<unknown> }[]> = {
+  CONFIRMED: [{ label: "Start preparing", action: startPreparing }],
+  PREPARING: [
+    { label: "Mark ready", action: markReady },
+    { label: "Mark out for delivery", action: markOutForDelivery },
+  ],
+  READY: [{ label: "Complete", action: completeOrder }],
+  OUT_FOR_DELIVERY: [{ label: "Complete", action: completeOrder }],
 };
 
 /** Minimal staff-facing kitchen queue (Sprint 07 §22) — the same order data as /dashboard/orders, filtered to active kitchen work, with one-tap status advances and dine-in table labels. */
@@ -44,11 +57,9 @@ export default function KitchenQueuePage() {
     };
   }, []);
 
-  async function handleAdvance(order: OwnerOrder) {
-    const next = NEXT_ACTION[order.status];
-    if (!next) return;
+  async function handleAdvance(order: OwnerOrder, action: (id: string) => Promise<unknown>) {
     try {
-      await next.action(order.id);
+      await action(order.id);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
@@ -70,7 +81,7 @@ export default function KitchenQueuePage() {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {orders.map((order) => {
-            const next = NEXT_ACTION[order.status];
+            const actions = NEXT_ACTIONS[order.status] ?? [];
             return (
               <div key={order.id} className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
                 <div className="flex items-center justify-between">
@@ -82,15 +93,18 @@ export default function KitchenQueuePage() {
                   </span>
                 </div>
                 <span className="text-xs text-zinc-500">{order.fulfillmentType} · {order.source}</span>
-                {next && (
-                  <button
-                    type="button"
-                    onClick={() => handleAdvance(order)}
-                    className="self-start rounded-full bg-foreground px-4 py-2 text-sm text-background"
-                  >
-                    {next.label}
-                  </button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {actions.map((next) => (
+                    <button
+                      key={next.label}
+                      type="button"
+                      onClick={() => handleAdvance(order, next.action)}
+                      className="self-start rounded-full bg-foreground px-4 py-2 text-sm text-background"
+                    >
+                      {next.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             );
           })}
