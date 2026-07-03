@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getOptionalEnv } from "../../config/env";
 import { brandProfileSchema, type BrandPersonality, type BrandProfile, type IngestData } from "./types";
 
 const MODEL = "claude-sonnet-5";
@@ -90,7 +91,7 @@ function applyConfidenceThresholds(profile: BrandProfile): BrandProfile {
  */
 export async function analyzeBrand(input: IngestData): Promise<BrandProfile> {
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1024,

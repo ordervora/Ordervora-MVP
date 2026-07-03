@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getOptionalEnv } from "../../config/env";
 import { sanitizeClaims } from "./claims-filter";
 import { contentCoreSchema, toneAdaptedCopySchema, type BrandProfile, type ContentCore, type IngestData, type StyleFamilyValue, type ToneAdaptedCopy } from "./types";
 
@@ -57,7 +58,7 @@ voice/wording. ${CONTENT_SHAPE}`;
 }
 
 async function callAndParseText(prompt: string): Promise<string | null> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
   const message = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,

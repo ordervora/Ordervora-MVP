@@ -1,4 +1,5 @@
 import type { Cart, CartItem, FulfillmentType } from "@prisma/client";
+import { getNumberEnv } from "../../../config/env";
 import { prisma } from "../../../lib/prisma";
 import { isItemOrderable } from "../menu-commerce/inventory.service";
 import { listModifierGroupsForItem } from "../menu-commerce/modifiers.service";
@@ -12,7 +13,7 @@ import {
 } from "./cart.errors";
 import type { AddCartItemInput, SetFulfillmentInput } from "./cart.validation";
 
-const CART_TTL_MINUTES = Number(process.env.CART_TTL_MINUTES ?? 120);
+const CART_TTL_MINUTES = getNumberEnv("CART_TTL_MINUTES", 120);
 
 export interface CartIdentity {
   customerId?: string;

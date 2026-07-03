@@ -1,14 +1,7 @@
 import { NotificationChannel } from "@prisma/client";
 import nodemailer from "nodemailer";
+import { requireEnv } from "../../../../config/env";
 import type { NotificationProviderAdapter, SendNotificationInput, SendNotificationResult } from "../types";
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
 
 /**
  * Real implementation — SMTP transport via nodemailer. Transactional

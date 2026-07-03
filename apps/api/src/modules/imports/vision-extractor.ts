@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Base64ImageSource, MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import { getOptionalEnv } from "../../config/env";
 import { extractedMenuDataSchema, type ExtractedMenuData } from "./types";
 
 const MODEL = "claude-sonnet-5";
@@ -46,7 +47,7 @@ function toBase64ImageBlock(image: Buffer, mediaType: Base64ImageSource["media_t
  * or text), so they never drift out of sync on validation behavior.
  */
 async function callAndParse(content: MessageParam["content"]): Promise<ExtractedMenuData> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
 
   const message = await client.messages.create({
     model: MODEL,

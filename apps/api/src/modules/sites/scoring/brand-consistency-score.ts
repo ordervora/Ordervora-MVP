@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getOptionalEnv } from "../../../config/env";
 import { z } from "zod";
 import type { BrandProfile, DimensionScore, SiteDefinition, Suggestion, ThemeCatalogEntry } from "../types";
 
@@ -34,7 +35,7 @@ ${RESPONSE_SHAPE}`;
 /** LLM judge half of the hybrid score — never throws; a neutral score on failure keeps the pipeline moving. */
 async function judgeBrandConsistency(definition: SiteDefinition, brandProfile: BrandProfile): Promise<{ alignmentScore: number; issue?: string }> {
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 512,

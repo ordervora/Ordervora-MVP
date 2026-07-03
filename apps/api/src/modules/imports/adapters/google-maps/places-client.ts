@@ -1,3 +1,5 @@
+import { getStringEnv } from "../../../../config/env";
+
 export interface PlaceDetails {
   name?: string;
   address?: string;
@@ -22,7 +24,7 @@ interface PlaceDetailsResponse {
 export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: {
-      "X-Goog-Api-Key": process.env.GOOGLE_MAPS_API_KEY ?? "",
+      "X-Goog-Api-Key": getStringEnv("GOOGLE_MAPS_API_KEY", ""),
       "X-Goog-FieldMask": FIELD_MASK,
     },
   });
@@ -43,7 +45,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
 
 export async function getPlacePhoto(photoName: string, maxWidthPx = 1024): Promise<Buffer> {
   const response = await fetch(
-    `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=${maxWidthPx}&key=${process.env.GOOGLE_MAPS_API_KEY ?? ""}`,
+    `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=${maxWidthPx}&key=${getStringEnv("GOOGLE_MAPS_API_KEY", "")}`,
   );
 
   if (!response.ok) {

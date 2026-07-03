@@ -1,6 +1,7 @@
+import { getNumberEnv } from "../../../config/env";
 import { processOutboxBatch } from "./outbox-worker";
 
-const POLL_INTERVAL_MS = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 5_000);
+const POLL_INTERVAL_MS = getNumberEnv("OUTBOX_POLL_INTERVAL_MS", 5_000);
 
 /**
  * Process-local interval poll draining the OutboxEvent table (Sprint 07.7

@@ -1,10 +1,11 @@
 import { resolveCname } from "node:dns/promises";
 import type { Domain } from "@prisma/client";
+import { getStringEnv } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { DomainAlreadyClaimedError, DomainNotFoundError } from "./site.errors";
 import { getOwnSiteById } from "./site.service";
 
-const PLATFORM_DOMAIN = process.env.SITE_PLATFORM_DOMAIN ?? "sites.ordervora.example";
+const PLATFORM_DOMAIN = getStringEnv("SITE_PLATFORM_DOMAIN", "sites.ordervora.example");
 const EXPECTED_CNAME_TARGET = `edge.${PLATFORM_DOMAIN}`;
 
 /**

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Customer } from "@prisma/client";
+import { getStringEnv } from "../../../config/env";
 import { hashPassword, verifyPassword } from "../../../lib/password";
 import { prisma } from "../../../lib/prisma";
 import { generateCustomerRefreshToken, hashCustomerRefreshToken, signCustomerAccessToken } from "./customer-jwt";
@@ -126,7 +127,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
   const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
   await prisma.customerPasswordResetToken.create({ data: { customerId: customer.id, tokenHash, expiresAt } });
 
-  const resetLink = `${process.env.FRONTEND_URL ?? ""}/reset-password?token=${token}`;
+  const resetLink = `${getStringEnv("FRONTEND_URL", "")}/reset-password?token=${token}`;
   await sendPasswordResetEmail(customer.id, customer.email, resetLink);
 }
 

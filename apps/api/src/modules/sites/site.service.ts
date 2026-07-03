@@ -1,4 +1,5 @@
 import type { Prisma, Site, SiteVersion } from "@prisma/client";
+import { getStringEnv } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { releaseStorage } from "../../lib/release-storage";
 import { getAssetSummary } from "./asset-summary";
@@ -17,7 +18,7 @@ import {
 import { THEME_CATALOG } from "./theme-catalog";
 import { brandProfileSchema, siteDefinitionSchema, type AssetSummary, type SiteDefinition } from "./types";
 
-const PLATFORM_DOMAIN = process.env.SITE_PLATFORM_DOMAIN ?? "sites.ordervora.example";
+const PLATFORM_DOMAIN = getStringEnv("SITE_PLATFORM_DOMAIN", "sites.ordervora.example");
 
 /** §20 — a verified, primary custom domain wins; otherwise the platform subdomain. */
 export async function resolveSiteUrl(site: Site): Promise<string> {

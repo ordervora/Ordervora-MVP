@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
+import { getStringEnv } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { releaseStorage } from "../../lib/release-storage";
 import { verifyPreviewToken } from "./preview-token";
@@ -7,7 +8,7 @@ import { renderSitePage } from "./renderer/render-site";
 import { resolveSiteUrl } from "./site.service";
 import { siteDefinitionSchema } from "./types";
 
-const PLATFORM_DOMAIN = process.env.SITE_PLATFORM_DOMAIN ?? "sites.ordervora.example";
+const PLATFORM_DOMAIN = getStringEnv("SITE_PLATFORM_DOMAIN", "sites.ordervora.example");
 
 function sendHtml(res: Response, html: string, noindex: boolean): void {
   res.set("Content-Type", "text/html; charset=utf-8");

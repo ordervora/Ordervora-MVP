@@ -1,30 +1,31 @@
 import { createHash, randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { Role } from "@prisma/client";
+import { getEnv } from "../config/env";
 
 export interface AccessTokenPayload {
   sub: string;
   role: Role;
 }
 
-const ACCESS_SECRET = requireEnv("JWT_ACCESS_SECRET");
-const REFRESH_TTL = requireEnv("JWT_REFRESH_TTL");
-const ACCESS_TTL = requireEnv("JWT_ACCESS_TTL");
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
+/**
+ * Reads lazily from the centralized, validated config (Production
+ * Hardening Phase 3) on every call rather than eagerly at module-load
+ * time — this is a deliberate relaxation from the previous eager
+ * top-level `requireEnv()` calls, which meant importing this module at
+ * all required every JWT env var to already be set (several test files
+ * across this codebase set these vars specifically to satisfy that
+ * constraint). getEnv() is memoized, so this costs nothing beyond the
+ * first call.
+ */
 
 export function signAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign(payload, ACCESS_SECRET, { expiresIn: ACCESS_TTL as jwt.SignOptions["expiresIn"] });
+  const env = getEnv();
+  return jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.JWT_ACCESS_TTL as jwt.SignOptions["expiresIn"] });
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, ACCESS_SECRET) as AccessTokenPayload;
+  return jwt.verify(token, getEnv().JWT_ACCESS_SECRET) as AccessTokenPayload;
 }
 
 export function generateRefreshToken(): { token: string; tokenHash: string; expiresAt: Date } {
@@ -32,7 +33,7 @@ export function generateRefreshToken(): { token: string; tokenHash: string; expi
   return {
     token,
     tokenHash: hashToken(token),
-    expiresAt: new Date(Date.now() + parseDurationMs(REFRESH_TTL)),
+    expiresAt: new Date(Date.now() + parseDurationMs(getEnv().JWT_REFRESH_TTL)),
   };
 }
 

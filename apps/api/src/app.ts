@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
+import { getEnv, getStringEnv } from "./config/env";
 import { authRouter } from "./modules/auth/auth.routes";
 import { publicCartRouter } from "./modules/commerce/cart/cart.routes";
 import { checkoutRouter } from "./modules/commerce/checkout/checkout.routes";
@@ -27,7 +28,7 @@ export function createApp() {
 
   app.use(
     cors({
-      origin: process.env.FRONTEND_URL,
+      origin: getEnv().FRONTEND_URL,
       credentials: true,
     }),
   );
@@ -48,7 +49,7 @@ export function createApp() {
   // Serves uploaded images (site assets, import files) by basename — see
   // renderer/asset-url.ts. Public/unauthenticated by design: these are
   // meant to be embedded in public site pages.
-  app.use("/assets", express.static(path.resolve(process.env.IMPORT_UPLOAD_DIR ?? "uploads")));
+  app.use("/assets", express.static(path.resolve(getStringEnv("IMPORT_UPLOAD_DIR", "uploads"))));
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({

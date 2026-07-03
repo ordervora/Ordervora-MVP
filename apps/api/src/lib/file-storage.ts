@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getStringEnv } from "../config/env";
 
 export interface FileStorage {
   save(buffer: Buffer, originalName: string): Promise<{ path: string }>;
@@ -12,7 +13,7 @@ export interface FileStorage {
  * without changing any caller — they only depend on the FileStorage interface.
  */
 class LocalDiskFileStorage implements FileStorage {
-  private readonly baseDir = path.resolve(process.env.IMPORT_UPLOAD_DIR ?? "uploads");
+  private readonly baseDir = path.resolve(getStringEnv("IMPORT_UPLOAD_DIR", "uploads"));
 
   async save(buffer: Buffer, originalName: string): Promise<{ path: string }> {
     await mkdir(this.baseDir, { recursive: true });

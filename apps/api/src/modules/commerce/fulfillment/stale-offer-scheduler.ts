@@ -1,6 +1,7 @@
+import { getNumberEnv } from "../../../config/env";
 import { expireStaleOffers } from "./fulfillment.service";
 
-const SWEEP_INTERVAL_MS = Number(process.env.DRIVER_OFFER_SWEEP_INTERVAL_MS ?? 60_000);
+const SWEEP_INTERVAL_MS = getNumberEnv("DRIVER_OFFER_SWEEP_INTERVAL_MS", 60_000);
 
 /**
  * Process-local interval sweep for stale driver offers (Sprint 07.6 C-11).

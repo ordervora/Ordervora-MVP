@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getStringEnv } from "../config/env";
 
 export interface ReleaseStorage {
   savePage(siteId: string, versionId: string, slug: string, html: string): Promise<void>;
@@ -26,7 +27,7 @@ class LocalDiskReleaseStorage implements ReleaseStorage {
   // Read lazily (not cached at construction) so it reflects the current
   // env at call time — this module is a singleton created once at import.
   private get baseDir(): string {
-    return path.resolve(process.env.SITE_RELEASE_DIR ?? "uploads/site-releases");
+    return path.resolve(getStringEnv("SITE_RELEASE_DIR", "uploads/site-releases"));
   }
 
   private versionDir(siteId: string, versionId: string): string {

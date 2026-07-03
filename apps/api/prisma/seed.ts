@@ -1,19 +1,12 @@
 import "dotenv/config";
 import { Role, type Prisma } from "@prisma/client";
+import { getStringEnv, requireEnv } from "../src/config/env";
 import { prisma } from "../src/lib/prisma";
 import { hashPassword } from "../src/lib/password";
 import { THEME_CATALOG } from "../src/modules/sites/theme-catalog";
 
 function toJson<T>(value: T): Prisma.InputJsonValue {
   return value as unknown as Prisma.InputJsonValue;
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
 }
 
 async function seedThemeCatalog() {
@@ -49,7 +42,7 @@ async function seedThemeCatalog() {
 async function main() {
   const email = requireEnv("ADMIN_EMAIL");
   const password = requireEnv("ADMIN_PASSWORD");
-  const name = process.env.ADMIN_NAME ?? "Platform Admin";
+  const name = getStringEnv("ADMIN_NAME", "Platform Admin");
 
   const passwordHash = await hashPassword(password);
 

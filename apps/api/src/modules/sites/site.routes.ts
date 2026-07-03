@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
 import multer from "multer";
+import { getNumberEnv } from "../../config/env";
 import { contactFormRateLimiter, siteGenerationRateLimiter } from "../../middleware/rate-limit";
 import { requireAuth } from "../../middleware/require-auth";
 import { requireRole } from "../../middleware/require-role";
@@ -35,7 +36,7 @@ import {
   update as updateSiteHandler,
 } from "./site.controller";
 
-const MAX_ASSET_SIZE_BYTES = Number(process.env.SITE_MAX_ASSET_SIZE_BYTES ?? 8 * 1024 * 1024);
+const MAX_ASSET_SIZE_BYTES = getNumberEnv("SITE_MAX_ASSET_SIZE_BYTES", 8 * 1024 * 1024);
 const ALLOWED_ASSET_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 const assetUpload = multer({

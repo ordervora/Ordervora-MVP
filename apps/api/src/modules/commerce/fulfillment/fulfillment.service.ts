@@ -1,5 +1,6 @@
 import type { DriverAssignment, Fulfillment, FulfillmentDetailStatus } from "@prisma/client";
 import { DriverAssignmentStatus, Role } from "@prisma/client";
+import { getNumberEnv } from "../../../config/env";
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
 import { sendDriverAssignmentOfferNotification, sendDriverReassignedAwayNotification } from "../notifications/notifications.service";
@@ -26,7 +27,7 @@ const BUSY_DRIVER_ASSIGNMENT_STATUSES: DriverAssignmentStatus[] = [
 ];
 
 /** How long an OFFERED assignment waits for a driver response before expireStaleOffers reclaims it (Sprint 07.6 C-11). */
-const OFFER_TIMEOUT_MS = Number(process.env.DRIVER_OFFER_TIMEOUT_MS ?? 3 * 60_000);
+const OFFER_TIMEOUT_MS = getNumberEnv("DRIVER_OFFER_TIMEOUT_MS", 3 * 60_000);
 
 export async function getFulfillment(restaurantId: string, fulfillmentId: string): Promise<Fulfillment> {
   const fulfillment = await prisma.fulfillment.findUnique({ where: { id: fulfillmentId } });

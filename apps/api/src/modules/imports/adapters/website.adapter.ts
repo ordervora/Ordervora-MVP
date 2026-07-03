@@ -1,5 +1,6 @@
 import { ImportSourceType } from "@prisma/client";
 import type { Base64ImageSource } from "@anthropic-ai/sdk/resources/messages";
+import { getNumberEnv } from "../../../config/env";
 import { safeFetch } from "../../../lib/safe-fetch";
 import { mergeExtractedMenuData } from "../merge-extracted-data";
 import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../types";
@@ -24,7 +25,7 @@ function guessMediaType(url: string): Base64ImageSource["media_type"] | undefine
 }
 
 function maxWebsiteImages(): number {
-  return Number(process.env.IMPORT_WEBSITE_MAX_IMAGES ?? 5);
+  return getNumberEnv("IMPORT_WEBSITE_MAX_IMAGES", 5);
 }
 
 export class WebsiteImportAdapter implements ImportAdapter {

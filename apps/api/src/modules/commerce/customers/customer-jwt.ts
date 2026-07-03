@@ -1,15 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
+import { getStringEnv, requireEnv } from "../../../config/env";
 
-const ACCESS_TTL = process.env.JWT_ACCESS_TTL ?? "15m";
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
- * Deliberately not imported from lib/jwt.ts: that module's top-level
- * requireEnv() calls for staff-only env vars (JWT_REFRESH_TTL,
- * JWT_ACCESS_TTL) would otherwise become a load-time requirement for
- * every customer-auth caller too, just to reuse this one pure hash
- * function. Identical implementation (createHash("sha256")...digest("hex")).
+ * Deliberately uses config/env.ts's narrow, single-key `requireEnv`/
+ * `getStringEnv` helpers, not `getEnv()`'s full core schema: this file
+ * only ever needed JWT_ACCESS_SECRET/JWT_ACCESS_TTL, and requiring the
+ * rest of the app's core config (DATABASE_URL, COMMERCE_ENCRYPTION_KEY,
+ * etc.) just to sign a customer token would be a broader requirement than
+ * this file actually has — the same reasoning that originally kept this
+ * file from importing lib/jwt.ts directly, preserved through the Phase 3
+ * config centralization rather than discarded by it.
  */
 export function hashCustomerRefreshToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -20,14 +23,6 @@ interface CustomerAccessPayload {
   kind: "customer";
 }
 
-function requireSecret(): string {
-  const secret = process.env.JWT_ACCESS_SECRET;
-  if (!secret) {
-    throw new Error("Missing required environment variable: JWT_ACCESS_SECRET");
-  }
-  return secret;
-}
-
 /**
  * Separate end-diner identity, sharing JWT_ACCESS_SECRET with staff auth
  * (no new secret to manage) but a distinct `kind` discriminator — mirrors
@@ -36,11 +31,13 @@ function requireSecret(): string {
  */
 export function signCustomerAccessToken(customerId: string): string {
   const payload: CustomerAccessPayload = { sub: customerId, kind: "customer" };
-  return jwt.sign(payload, requireSecret(), { expiresIn: ACCESS_TTL as jwt.SignOptions["expiresIn"] });
+  return jwt.sign(payload, requireEnv("JWT_ACCESS_SECRET"), {
+    expiresIn: getStringEnv("JWT_ACCESS_TTL", "15m") as jwt.SignOptions["expiresIn"],
+  });
 }
 
 export function verifyCustomerAccessToken(token: string): string {
-  const decoded = jwt.verify(token, requireSecret()) as Partial<CustomerAccessPayload>;
+  const decoded = jwt.verify(token, requireEnv("JWT_ACCESS_SECRET")) as Partial<CustomerAccessPayload>;
   if (decoded.kind !== "customer" || typeof decoded.sub !== "string") {
     throw new Error("Not a valid customer access token");
   }
