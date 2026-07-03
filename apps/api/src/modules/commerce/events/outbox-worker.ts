@@ -1,8 +1,11 @@
 import type { OutboxEvent, Prisma } from "@prisma/client";
+import { errorTracker } from "../../../lib/error-tracker";
+import { createLogger } from "../../../lib/logger";
 import { prisma } from "../../../lib/prisma";
 import { commerceEventBus } from "./event-bus";
 
 const BATCH_SIZE = 50;
+const logger = createLogger("outbox-worker");
 
 /**
  * Drains a batch of unprocessed OutboxEvent rows, dispatching each to the
@@ -62,7 +65,8 @@ async function dispatchOne(tx: Prisma.TransactionClient, row: OutboxEvent): Prom
     return true;
   } catch (err) {
     // Left unprocessed — picked up again on the next poll (at-least-once).
-    console.error("outbox-worker: failed to dispatch event", row.id, err);
+    logger.error({ err, outboxEventId: row.id }, "outbox-worker: failed to dispatch event");
+    errorTracker.captureException(err, { outboxEventId: row.id });
     return false;
   }
 }

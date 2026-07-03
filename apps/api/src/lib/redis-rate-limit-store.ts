@@ -1,5 +1,8 @@
 import type { IncrementResponse, Options, Store } from "express-rate-limit";
+import { createLogger } from "./logger";
 import { redis } from "./redis";
+
+const logger = createLogger("redis-rate-limit-store");
 
 /** Returned by every method on any failure path (Redis unconfigured or
  * unreachable) — a fresh single hit that's never close to a real limit,
@@ -76,7 +79,7 @@ export class RedisRateLimitStore implements Store {
 
       return { totalHits, resetTime: new Date(Date.now() + pttl) };
     } catch (err) {
-      console.error(`RedisRateLimitStore(${this.prefix}): increment failed, failing open`, err);
+      logger.error({ err, prefix: this.prefix }, "RedisRateLimitStore: increment failed, failing open");
       return FAIL_OPEN_RESPONSE;
     }
   }
@@ -86,7 +89,7 @@ export class RedisRateLimitStore implements Store {
     try {
       await redis.decr(this.key(key));
     } catch (err) {
-      console.error(`RedisRateLimitStore(${this.prefix}): decrement failed`, err);
+      logger.error({ err, prefix: this.prefix }, "RedisRateLimitStore: decrement failed");
     }
   }
 
@@ -95,7 +98,7 @@ export class RedisRateLimitStore implements Store {
     try {
       await redis.del(this.key(key));
     } catch (err) {
-      console.error(`RedisRateLimitStore(${this.prefix}): resetKey failed`, err);
+      logger.error({ err, prefix: this.prefix }, "RedisRateLimitStore: resetKey failed");
     }
   }
 }

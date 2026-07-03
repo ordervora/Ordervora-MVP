@@ -1,6 +1,8 @@
 import type { DriverAssignment, Fulfillment, FulfillmentDetailStatus } from "@prisma/client";
 import { DriverAssignmentStatus, Role } from "@prisma/client";
 import { getNumberEnv } from "../../../config/env";
+import { errorTracker } from "../../../lib/error-tracker";
+import { createLogger } from "../../../lib/logger";
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
 import { sendDriverAssignmentOfferNotification, sendDriverReassignedAwayNotification } from "../notifications/notifications.service";
@@ -10,6 +12,8 @@ import {
   DriverNotOnStaffError,
   FulfillmentNotFoundError,
 } from "./fulfillment.errors";
+
+const logger = createLogger("fulfillment-service");
 
 /** Non-terminal Fulfillment statuses — used to scope "currently active" driver-assignment counts. */
 const TERMINAL_FULFILLMENT_STATUSES: FulfillmentDetailStatus[] = [
@@ -116,7 +120,8 @@ export async function assignDriver(
       const orderNumber = await orderNumberForFulfillment(fulfillment.id);
       await sendDriverAssignmentOfferNotification(fulfillment.orderId, restaurantId, driver.phone, orderNumber);
     } catch (err) {
-      console.error("assignDriver: driver offer notification failed", err);
+      logger.error({ err }, "assignDriver: driver offer notification failed");
+      errorTracker.captureException(err);
     }
   }
 
@@ -128,7 +133,8 @@ export async function assignDriver(
         await sendDriverReassignedAwayNotification(fulfillment.orderId, restaurantId, previousDriver.phone, orderNumber);
       }
     } catch (err) {
-      console.error("assignDriver: driver reassignment notification failed", err);
+      logger.error({ err }, "assignDriver: driver reassignment notification failed");
+      errorTracker.captureException(err);
     }
   }
 
@@ -282,7 +288,8 @@ export async function expireStaleOffers(): Promise<{ expiredCount: number }> {
       });
       expiredCount += 1;
     } catch (err) {
-      console.error("expireStaleOffers: failed to record expiry event", assignment.id, err);
+      logger.error({ err, assignmentId: assignment.id }, "expireStaleOffers: failed to record expiry event");
+      errorTracker.captureException(err, { assignmentId: assignment.id });
     }
   }
 

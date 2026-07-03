@@ -1,6 +1,9 @@
+import { createLogger } from "../../../lib/logger";
 import type { SectionBlock } from "../types";
 import { getSectionRenderer } from "./registry";
 import type { RenderContext } from "./render-context";
+
+const logger = createLogger("layout-engine");
 
 /**
  * §15 Layout Engine core: renders an ordered list of section blocks.
@@ -14,7 +17,7 @@ export function renderSections(sections: SectionBlock[], ctx: RenderContext): st
     .map((section) => {
       const renderer = getSectionRenderer(section.type);
       if (!renderer) {
-        console.warn(`[layout-engine] No renderer registered for section type "${section.type}" — skipped`);
+        logger.warn({ sectionType: section.type }, `No renderer registered for section type "${section.type}" — skipped`);
         return "";
       }
       return renderer(section, ctx);

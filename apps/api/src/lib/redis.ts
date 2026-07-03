@@ -1,5 +1,8 @@
 import Redis from "ioredis";
 import { getOptionalEnv } from "../config/env";
+import { createLogger } from "./logger";
+
+const logger = createLogger("redis");
 
 /**
  * Single shared client (Production Hardening Phase 5), mirroring
@@ -34,6 +37,6 @@ if (redis) {
   // (fail-open) by whatever called the client, so this listener exists
   // purely to prevent that default and log for observability instead.
   redis.on("error", (err: Error) => {
-    console.error("Redis client error (rate limiting fails open):", err.message);
+    logger.error({ err }, "Redis client error (rate limiting fails open)");
   });
 }

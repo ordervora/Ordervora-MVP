@@ -218,6 +218,13 @@ const KNOWN_ENV_KEYS = [
   "OBJECT_STORAGE_ACCESS_KEY_ID",
   "OBJECT_STORAGE_SECRET_ACCESS_KEY",
   "OBJECT_STORAGE_PUBLIC_URL_BASE",
+  // Production Hardening Phase 9 — deliberately outside the core schema:
+  // both are optional. LOG_LEVEL unset defaults to "info" (lib/logger.ts);
+  // SENTRY_DSN unset means error tracking no-ops (lib/error-tracker.ts) —
+  // logging already captures every error either way, so an unconfigured
+  // Sentry is a reduced-observability default, never a boot requirement.
+  "LOG_LEVEL",
+  "SENTRY_DSN",
 ] as const;
 
 /**

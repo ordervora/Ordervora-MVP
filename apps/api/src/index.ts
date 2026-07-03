@@ -1,10 +1,36 @@
 import "dotenv/config";
 import { assertStartupEnv, getEnv, getSafeEnvSummary } from "./config/env";
 import { createApp } from "./app";
+import { errorTracker } from "./lib/error-tracker";
+import { createLogger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { redis } from "./lib/redis";
 import { startOutboxWorker } from "./modules/commerce/events/outbox-scheduler";
 import { startStaleOfferScheduler } from "./modules/commerce/fulfillment/stale-offer-scheduler";
+
+const logger = createLogger("index");
+
+// Production Hardening Phase 9 — a process-level uncaughtException/
+// unhandledRejection is exactly the case bestEffort()'s in-process
+// try/catch cannot protect against ("an in-process try/catch cannot
+// protect against the process itself dying," Sprint 07.6/07.7 C-2/C-15/
+// H-12): by definition, nothing further up the call stack caught it.
+// Logging + reporting it here is the last chance to make it visible
+// before Node's default behavior (crash) takes over — intentionally NOT
+// caught-and-continued: swallowing an uncaught exception and carrying on
+// risks running with corrupted in-process state, which is worse than a
+// clean crash-and-restart under an orchestrator's restart policy.
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "uncaughtException — process will now exit");
+  errorTracker.captureException(err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "unhandledRejection — process will now exit");
+  errorTracker.captureException(reason);
+  process.exit(1);
+});
 
 // Strict startup validation (Production Hardening Phase 3) — fails fast
 // with a single aggregated error listing every missing/invalid
@@ -19,13 +45,13 @@ assertStartupEnv();
 
 // Safe to log: getSafeEnvSummary() reports only which keys are present,
 // never their values — "no secret values can appear in logs" (Phase 3).
-console.log("Environment configuration loaded:", getSafeEnvSummary());
+logger.info({ env: getSafeEnvSummary() }, "Environment configuration loaded");
 
 const { PORT: port, NODE_ENV: environment } = getEnv();
 const app = createApp();
 
 const server = app.listen(port, () => {
-  console.log(`API server listening on port ${port} (environment: ${environment})`);
+  logger.info({ port, environment }, "API server listening");
 });
 
 const staleOfferTimer = startStaleOfferScheduler();
@@ -44,18 +70,18 @@ let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal} received, shutting down gracefully`);
+  logger.info({ signal }, "Signal received, shutting down gracefully");
 
   clearInterval(staleOfferTimer);
   clearInterval(outboxTimer);
 
   server.close((err) => {
     if (err) {
-      console.error("Error while closing HTTP server", err);
+      logger.error({ err }, "Error while closing HTTP server");
     }
     Promise.allSettled([
       prisma.$disconnect().catch((disconnectErr) => {
-        console.error("Error while disconnecting Prisma", disconnectErr);
+        logger.error({ err: disconnectErr }, "Error while disconnecting Prisma");
       }),
       // Best-effort — Redis is an optional accelerator (Production
       // Hardening Phase 5), never a shutdown blocker. `redis` is `null`
@@ -63,7 +89,7 @@ function shutdown(signal: string) {
       // reject (e.g. already disconnected), which must not stop the rest
       // of shutdown either.
       redis?.quit().catch((quitErr) => {
-        console.error("Error while disconnecting Redis", quitErr);
+        logger.error({ err: quitErr }, "Error while disconnecting Redis");
       }),
     ]).finally(() => {
       process.exit(err ? 1 : 0);
@@ -74,7 +100,7 @@ function shutdown(signal: string) {
   // server.close()'s callback from ever firing, force-exit rather than
   // hanging forever and blocking the orchestrator's rollout.
   setTimeout(() => {
-    console.error("Graceful shutdown timed out, forcing exit");
+    logger.error("Graceful shutdown timed out, forcing exit");
     process.exit(1);
   }, 10_000).unref();
 }

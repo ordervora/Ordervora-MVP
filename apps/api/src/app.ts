@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -5,9 +6,13 @@ import express, { type NextFunction, type Request, type Response } from "express
 import helmet from "helmet";
 import multer from "multer";
 import { getEnv, getOptionalEnv, getStringEnv } from "./config/env";
+import { errorTracker } from "./lib/error-tracker";
 import { fileStorage } from "./lib/file-storage";
+import { createLogger, runWithRequestContext } from "./lib/logger";
+import { getMetrics, getMetricsContentType, httpMetricsMiddleware } from "./lib/metrics";
 import { isObjectStorageConfigured } from "./lib/object-storage-client";
 import { prisma } from "./lib/prisma";
+import { getWorkerHealthSnapshot } from "./lib/worker-health";
 import { authRouter } from "./modules/auth/auth.routes";
 import { publicCartRouter } from "./modules/commerce/cart/cart.routes";
 import { checkoutRouter } from "./modules/commerce/checkout/checkout.routes";
@@ -36,6 +41,28 @@ const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".pdf": "application/pdf",
 };
+
+const logger = createLogger("app");
+
+/**
+ * Production Hardening Phase 9 — request-correlation middleware. Mounted
+ * first (before helmet/cors/body-parsing), so every request — including
+ * ones that fail helmet/CORS checks or never reach a route — gets a
+ * request ID. Accepts an inbound `X-Request-Id` (a load balancer or
+ * upstream proxy's own correlation ID, if present) rather than always
+ * minting a fresh one, so a trace can be followed across service
+ * boundaries; generates a fresh UUID otherwise. Propagated via
+ * `runWithRequestContext` (lib/logger.ts's `AsyncLocalStorage`), so every
+ * log line for the lifetime of this request — including ones from deep
+ * inside a service call or a `bestEffort()` failure — is automatically
+ * tagged with it, and echoed back on the response for the client's own
+ * correlation.
+ */
+function requestCorrelationMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const requestId = req.header("X-Request-Id") ?? randomUUID();
+  res.setHeader("X-Request-Id", requestId);
+  runWithRequestContext({ requestId }, () => next());
+}
 
 /**
  * Production Hardening Phase 7 — explicit public-asset serving strategy
@@ -81,6 +108,12 @@ function registerAssetsRoute(app: express.Express): void {
 
 export function createApp() {
   const app = express();
+
+  // Mounted first (Production Hardening Phase 9): every request, including
+  // one that fails a later check (helmet, CORS, a 404), gets a request ID
+  // and a metrics observation.
+  app.use(requestCorrelationMiddleware);
+  app.use(httpMetricsMiddleware);
 
   app.use(
     helmet({
@@ -145,12 +178,31 @@ export function createApp() {
   // Liveness — reports the process is up; does not touch the database.
   // Used by container orchestration to decide whether to restart a stuck
   // instance, not whether to route it traffic (see /ready below).
+  // Production Hardening Phase 9 (master spec item 6): also reports each
+  // background worker's last-successful-poll timestamp (lib/worker-health.ts),
+  // so a wedged outbox worker or stale-offer sweep is externally
+  // observable here rather than only discoverable by reading logs after
+  // the fact. Deliberately on /health, not /ready: a worker being stuck
+  // doesn't mean this instance can't serve HTTP traffic, so it must not
+  // affect load-balancer routing decisions the way /ready's DB check does.
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({
       status: "ok",
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
+      workers: getWorkerHealthSnapshot(),
     });
+  });
+
+  // Prometheus-style scrape target (Production Hardening Phase 9). No
+  // auth: consistent with this app's other unauthenticated operational
+  // endpoints (/health, /ready) — restricting scrape access, if desired,
+  // is a network/ingress-level concern (see docs/runbooks/monitoring-logging.md),
+  // not an application-level one, since a scraper is infrastructure, not
+  // an end user.
+  app.get("/metrics", async (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", getMetricsContentType());
+    res.send(await getMetrics());
   });
 
   // Readiness (Production Hardening Phase 4) — verifies live DB
@@ -210,7 +262,8 @@ export function createApp() {
       res.status(400).json({ error: err.message });
       return;
     }
-    console.error(err);
+    logger.error({ err }, "Unhandled error reached the top-level Express error handler");
+    errorTracker.captureException(err);
     res.status(500).json({ error: "Internal server error" });
   });
 

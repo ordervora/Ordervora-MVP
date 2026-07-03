@@ -1,6 +1,7 @@
 import type { Payment, PaymentAttempt, PaymentMethodType, RefundReason } from "@prisma/client";
 import { ProviderConnectionStatus } from "@prisma/client";
 import { decryptSecret } from "../../../lib/encryption";
+import { paymentProviderResultsTotal } from "../../../lib/metrics";
 import { prisma } from "../../../lib/prisma";
 import {
   NoAvailableProviderError,
@@ -96,6 +97,14 @@ export async function authorizeOrderPayment(input: AuthorizeOrderPaymentInput): 
       },
       credentials,
     );
+
+    // Production Hardening Phase 9 — the BYOP failover orchestrator's
+    // health at a glance: a provider whose failure rate climbs shows up
+    // here before it shows up as a support ticket.
+    paymentProviderResultsTotal.inc({
+      provider: candidate.providerType,
+      result: result.success ? "success" : result.requiresAction ? "requires_action" : "failure",
+    });
 
     const attempt = await prisma.paymentAttempt.update({
       where: { id: pendingAttempt.id },

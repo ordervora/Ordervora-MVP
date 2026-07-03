@@ -1,10 +1,13 @@
 import { EventEmitter } from "node:events";
 import type { OrderEventType } from "@prisma/client";
+import { errorTracker } from "../../../lib/error-tracker";
+import { createLogger } from "../../../lib/logger";
 import type { CommerceEvent } from "./event-types";
 
 export type CommerceEventHandler = (event: CommerceEvent) => void | Promise<void>;
 
 const WILDCARD = "*";
+const logger = createLogger("commerce-event-bus");
 
 /**
  * Lightweight in-process event emitter — deliberately not a message broker
@@ -39,14 +42,16 @@ class CommerceEventBus {
     this.emitter.on(type, (event: CommerceEvent) => {
       try {
         void Promise.resolve(handler(event)).catch((err: unknown) => {
-          console.error(`[commerce-events] handler for "${type}" failed`, err);
+          logger.error({ err, eventType: type }, `[commerce-events] handler for "${type}" failed`);
+          errorTracker.captureException(err, { eventType: type });
         });
       } catch (err) {
         // A handler that throws synchronously (rather than returning a
         // rejected promise) must not escape emit() and break sibling
         // handlers — caught here, not just via the Promise.resolve wrap
         // above, which only catches async rejections.
-        console.error(`[commerce-events] handler for "${type}" failed`, err);
+        logger.error({ err, eventType: type }, `[commerce-events] handler for "${type}" failed`);
+        errorTracker.captureException(err, { eventType: type });
       }
     });
   }
@@ -67,5 +72,5 @@ export const commerceEventBus = new CommerceEventBus();
  * subscriber.
  */
 commerceEventBus.on(WILDCARD, (event) => {
-  console.debug(`[commerce-events] ${event.type}`, { orderId: event.orderId, restaurantId: event.restaurantId });
+  logger.debug({ orderId: event.orderId, restaurantId: event.restaurantId }, `[commerce-events] ${event.type}`);
 });

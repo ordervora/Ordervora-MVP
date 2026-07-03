@@ -33,6 +33,7 @@ vi.mock("./registry", () => ({
   },
 }));
 
+import { __resetMetricsForTests, getMetrics } from "../../../lib/metrics";
 import { prisma } from "../../../lib/prisma";
 import {
   NoAvailableProviderError,
@@ -48,6 +49,7 @@ const mockPrisma = vi.mocked(prisma, { deep: true });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetMetricsForTests();
   // Every test's happy-path attempt-row lifecycle: create the PENDING
   // reservation, then update it with the provider's result.
   mockPrisma.paymentAttempt.create.mockResolvedValue({ id: "attempt-1" } as never);
@@ -102,6 +104,50 @@ describe("authorizeOrderPayment", () => {
     expect(result.payment.id).toBe("payment-1");
     expect(mockPrisma.paymentProvider.findMany).not.toHaveBeenCalled();
     expect(mockAuthorize).toHaveBeenCalledTimes(1);
+  });
+
+  it("(Production Hardening Phase 9) records a payment_provider_results_total success observation labeled by provider", async () => {
+    mockPrisma.paymentMethod.findUnique.mockResolvedValue({
+      isEnabled: true,
+      provider: provider(),
+    } as never);
+    mockAuthorize.mockResolvedValue({ success: true, providerPaymentIntentId: "pi_123" });
+    mockPrisma.payment.upsert.mockResolvedValue({ id: "payment-1", status: "AUTHORIZED" } as never);
+
+    await authorizeOrderPayment({
+      orderId: "o1",
+      restaurantId: "r1",
+      methodType: "VISA",
+      methodToken: "pm_123",
+      amountCents: 1000,
+      currency: "usd",
+    });
+
+    const output = await getMetrics();
+    expect(output).toContain('payment_provider_results_total{provider="STRIPE",result="success"} 1');
+  });
+
+  it("(Production Hardening Phase 9) records a failure observation, distinct from success, when the provider declines", async () => {
+    mockPrisma.paymentMethod.findUnique.mockResolvedValue({
+      isEnabled: true,
+      provider: provider(),
+    } as never);
+    mockPrisma.paymentProvider.findMany.mockResolvedValue([]);
+    mockAuthorize.mockResolvedValue({ success: false, failureCode: "card_declined", failureMessage: "Card declined" });
+
+    await expect(
+      authorizeOrderPayment({
+        orderId: "o1",
+        restaurantId: "r1",
+        methodType: "VISA",
+        methodToken: "pm_123",
+        amountCents: 1000,
+        currency: "usd",
+      }),
+    ).rejects.toBeInstanceOf(NoAvailableProviderError);
+
+    const output = await getMetrics();
+    expect(output).toContain('payment_provider_results_total{provider="STRIPE",result="failure"} 1');
   });
 
   it("reserves a PENDING attempt row before calling the provider, then updates it with the result", async () => {

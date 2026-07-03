@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { mockLoggerWarn } = vi.hoisted(() => ({ mockLoggerWarn: vi.fn() }));
+vi.mock("../../../lib/logger", () => ({ createLogger: () => ({ warn: mockLoggerWarn }) }));
+
 import { renderSections } from "./layout-engine";
 import type { RenderContext } from "./render-context";
 import type { SectionBlock } from "../types";
@@ -46,9 +50,9 @@ describe("renderSections", () => {
   });
 
   it("logs a warning when skipping an unregistered section type", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockLoggerWarn.mockClear();
     renderSections([{ type: "testimonials", props: {} }], ctx());
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("testimonials"));
+    expect(mockLoggerWarn).toHaveBeenCalledWith({ sectionType: "testimonials" }, expect.stringContaining("testimonials"));
   });
 
   it("omits empty renders (e.g. gallery with zero images) from the output entirely", () => {
