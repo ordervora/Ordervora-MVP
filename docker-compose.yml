@@ -1,16 +1,15 @@
-# Production Hardening Phase 4 — local production simulation.
+# Local production simulation (Production Hardening Phase 4, extended in
+# Phase 5 with Redis).
 #
-# Brings up the full stack (Postgres + api + web) built from the same
-# Dockerfiles the real deployment target uses, wired together the same
-# way a real rolling deploy would gate traffic: api only becomes
+# Brings up the full stack (Postgres + Redis + api + web) built from the
+# same Dockerfiles the real deployment target uses, wired together the
+# same way a real rolling deploy would gate traffic: api only becomes
 # "healthy" once its own HEALTHCHECK (GET /health) passes, and web only
 # starts once api is healthy.
 #
-# Deliberately does NOT include Redis (Phase 5) or a MinIO/S3-compatible
-# object-storage service (Phase 7) yet, even though the master spec's
-# Phase 4 section describes the eventual full-stack compose file
-# including both — those services don't exist in this codebase yet, and
-# this phase was explicitly scoped not to introduce them.
+# Deliberately does NOT include a MinIO/S3-compatible object-storage
+# service (Phase 7) yet — that service doesn't exist in this codebase yet,
+# and this phase was explicitly scoped not to introduce it.
 #
 # Usage: docker compose up --build
 # Then:  curl http://localhost:4000/health
@@ -39,6 +38,27 @@ services:
     # builds (api/web) below, not on the upstream Postgres image.
     read_only: false
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # Rate-limit counters are disposable — losing them on a restart just
+    # resets everyone's window (harmless), so persistence is deliberately
+    # off rather than provisioning a volume for it. That also means the
+    # image's own data directory never needs to be writable — read_only:
+    # true + a tmpfs is enough for whatever transient files redis-server
+    # itself expects at that path.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    tmpfs:
+      - /data
+    read_only: true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: .
@@ -48,10 +68,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "4000"
       DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/ordervora?schema=public"
+      REDIS_URL: "redis://redis:6379"
       FRONTEND_URL: "http://localhost:3000"
       # Local-simulation-only values, generated with `openssl rand -hex 32`
       # specifically for this file — not the .env.example placeholder

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { assertStartupEnv, getEnv, getSafeEnvSummary } from "./config/env";
 import { createApp } from "./app";
 import { prisma } from "./lib/prisma";
+import { redis } from "./lib/redis";
 import { startOutboxWorker } from "./modules/commerce/events/outbox-scheduler";
 import { startStaleOfferScheduler } from "./modules/commerce/fulfillment/stale-offer-scheduler";
 
@@ -52,14 +53,21 @@ function shutdown(signal: string) {
     if (err) {
       console.error("Error while closing HTTP server", err);
     }
-    prisma
-      .$disconnect()
-      .catch((disconnectErr) => {
+    Promise.allSettled([
+      prisma.$disconnect().catch((disconnectErr) => {
         console.error("Error while disconnecting Prisma", disconnectErr);
-      })
-      .finally(() => {
-        process.exit(err ? 1 : 0);
-      });
+      }),
+      // Best-effort — Redis is an optional accelerator (Production
+      // Hardening Phase 5), never a shutdown blocker. `redis` is `null`
+      // when REDIS_URL isn't configured; `.quit()` itself can still
+      // reject (e.g. already disconnected), which must not stop the rest
+      // of shutdown either.
+      redis?.quit().catch((quitErr) => {
+        console.error("Error while disconnecting Redis", quitErr);
+      }),
+    ]).finally(() => {
+      process.exit(err ? 1 : 0);
+    });
   });
 
   // Belt-and-suspenders: if a slow/leaked connection prevents

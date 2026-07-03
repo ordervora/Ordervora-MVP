@@ -1,11 +1,20 @@
 import rateLimit from "express-rate-limit";
+import { RedisRateLimitStore } from "../lib/redis-rate-limit-store";
 
+// Production Hardening Phase 5 — every limiter below gets a Redis-backed
+// store instead of express-rate-limit's default in-memory Map, so a
+// limit is enforced across every instance sharing one Redis, not
+// per-instance (PR-4). Purely additive: no limit's threshold changes.
+// Each store fails open (see redis-rate-limit-store.ts) if REDIS_URL is
+// unset or Redis is unreachable — a rate-limiter outage degrades to
+// "not enforced," never to blocking legitimate traffic.
 export const authRateLimiter = rateLimit({
   windowMs: 60_000,
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("auth"),
 });
 
 export const importRateLimiter = rateLimit({
@@ -14,6 +23,7 @@ export const importRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("import"),
 });
 
 // Generation is the most expensive operation in the app (multiple LLM
@@ -24,6 +34,7 @@ export const siteGenerationRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("site-generation"),
 });
 
 // Public, unauthenticated contact form — keyed by IP, tighter limit to
@@ -34,6 +45,7 @@ export const contactFormRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("contact-form"),
 });
 
 // Commerce & Fulfillment Engine (Sprint 07) — customer (end-diner)
@@ -44,6 +56,7 @@ export const customerAuthRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("customer-auth"),
 });
 
 // Order placement — the highest-value abuse target in the commerce
@@ -54,6 +67,7 @@ export const checkoutRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("checkout"),
 });
 
 // Public, unauthenticated table-QR resolution — keyed by IP.
@@ -63,6 +77,7 @@ export const publicCommerceRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("public-commerce"),
 });
 
 // Payment provider webhooks (Sprint 07.7 H-13) — no caller identity exists
@@ -75,6 +90,7 @@ export const webhookRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("webhook"),
 });
 
 // Defense-in-depth for the authenticated staff-facing commerce surface
@@ -87,4 +103,5 @@ export const staffActionRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
+  store: new RedisRateLimitStore("staff-action"),
 });
