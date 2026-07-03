@@ -7,6 +7,7 @@ vi.mock("../../../lib/prisma", () => ({
     driverAssignment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
     driverLocationPing: { create: vi.fn() },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   },
 }));
 
@@ -221,26 +222,15 @@ describe("assignDriver", () => {
   });
 });
 
-describe("expireStaleOffers", () => {
+describe("expireStaleOffers (Production Hardening Phase 6 — atomic claim-and-expire)", () => {
   it("transitions only stale OFFERED assignments and alerts staff via an OrderEvent", async () => {
-    mockPrisma.driverAssignment.findMany.mockResolvedValue([
-      {
-        id: "da1",
-        fulfillmentId: "f1",
-        driverId: "driver-1",
-        status: "OFFERED",
-        fulfillment: { orderId: "order-1", restaurantId: "r1" },
-      },
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { id: "da1", fulfillmentId: "f1", driverId: "driver-1", orderId: "order-1", restaurantId: "r1" },
     ] as never);
-    mockPrisma.driverAssignment.update.mockResolvedValue({ id: "da1", status: "EXPIRED" } as never);
 
     const result = await expireStaleOffers();
 
     expect(result.expiredCount).toBe(1);
-    expect(mockPrisma.driverAssignment.update).toHaveBeenCalledWith({
-      where: { id: "da1" },
-      data: { status: "EXPIRED" },
-    });
     expect(writeOrderEvent).toHaveBeenCalledWith(
       expect.objectContaining({ orderId: "order-1", restaurantId: "r1", type: "DRIVER_OFFER_EXPIRED" }),
     );
@@ -250,24 +240,39 @@ describe("expireStaleOffers", () => {
   });
 
   it("is a no-op when nothing is stale", async () => {
-    mockPrisma.driverAssignment.findMany.mockResolvedValue([] as never);
+    mockPrisma.$queryRaw.mockResolvedValue([] as never);
 
     const result = await expireStaleOffers();
 
     expect(result.expiredCount).toBe(0);
-    expect(mockPrisma.driverAssignment.update).not.toHaveBeenCalled();
+    expect(writeOrderEvent).not.toHaveBeenCalled();
   });
 
-  it("only queries OFFERED assignments past their offerExpiresAt (ACCEPTED/EN_ROUTE untouched regardless of age)", async () => {
-    mockPrisma.driverAssignment.findMany.mockResolvedValue([] as never);
+  it("claims via a single UPDATE ... FOR UPDATE SKIP LOCKED statement scoped to stale OFFERED rows", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([] as never);
 
     await expireStaleOffers();
 
-    expect(mockPrisma.driverAssignment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ status: "OFFERED", offerExpiresAt: expect.objectContaining({ lt: expect.any(Date) }) }),
-      }),
-    );
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const [sqlParts] = mockPrisma.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+    const sql = sqlParts.join("");
+    expect(sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(sql).toContain("status = 'OFFERED'");
+    expect(sql).toContain('"offerExpiresAt" < now()');
+    expect(sql).toContain("SET status = 'EXPIRED'");
+  });
+
+  it("continues expiring remaining rows when recording one row's event fails", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { id: "da1", fulfillmentId: "f1", driverId: "driver-1", orderId: "order-1", restaurantId: "r1" },
+      { id: "da2", fulfillmentId: "f2", driverId: "driver-2", orderId: "order-2", restaurantId: "r1" },
+    ] as never);
+    vi.mocked(writeOrderEvent).mockRejectedValueOnce(new Error("db blip")).mockResolvedValueOnce(undefined as never);
+
+    const result = await expireStaleOffers();
+
+    expect(result.expiredCount).toBe(1);
+    expect(writeOrderEvent).toHaveBeenCalledTimes(2);
   });
 });
 

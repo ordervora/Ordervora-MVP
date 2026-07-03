@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockTx = {
+  $queryRaw: vi.fn(),
+  outboxEvent: { update: vi.fn() },
+};
+
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
-    outboxEvent: { findMany: vi.fn(), update: vi.fn() },
+    $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockTx)),
   },
 }));
 
@@ -13,8 +18,6 @@ vi.mock("./event-bus", () => ({
 import { prisma } from "../../../lib/prisma";
 import { commerceEventBus } from "./event-bus";
 import { processOutboxBatch } from "./outbox-worker";
-
-const mockPrisma = vi.mocked(prisma, { deep: true });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,54 +37,58 @@ function row(overrides: Record<string, unknown> = {}) {
   } as never;
 }
 
-describe("processOutboxBatch (Sprint 07.7 H-11)", () => {
+describe("processOutboxBatch (Sprint 07.7 H-11, Production Hardening Phase 6)", () => {
   it("dispatches unprocessed rows to commerceEventBus.emit and marks them processedAt", async () => {
-    mockPrisma.outboxEvent.findMany.mockResolvedValue([row()]);
+    mockTx.$queryRaw.mockResolvedValue([row()]);
 
     const result = await processOutboxBatch();
 
     expect(commerceEventBus.emit).toHaveBeenCalledWith(
       expect.objectContaining({ type: "ORDER_CREATED", restaurantId: "r1", orderId: "o1" }),
     );
-    expect(mockPrisma.outboxEvent.update).toHaveBeenCalledWith(
+    expect(mockTx.outboxEvent.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "outbox-1" }, data: expect.objectContaining({ processedAt: expect.any(Date) }) }),
     );
     expect(result.processedCount).toBe(1);
   });
 
-  it("only selects rows where processedAt is null, ordered oldest first", async () => {
-    mockPrisma.outboxEvent.findMany.mockResolvedValue([]);
+  it("claims rows via a FOR UPDATE SKIP LOCKED raw query inside a transaction (Phase 6)", async () => {
+    mockTx.$queryRaw.mockResolvedValue([]);
 
     await processOutboxBatch();
 
-    expect(mockPrisma.outboxEvent.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { processedAt: null }, orderBy: { createdAt: "asc" } }),
-    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockTx.$queryRaw).toHaveBeenCalledTimes(1);
+    const [sqlParts] = mockTx.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+    const sql = sqlParts.join("");
+    expect(sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(sql).toContain('"processedAt" IS NULL');
+    expect(sql).toContain('ORDER BY "createdAt" ASC');
   });
 
   it("processes multiple rows in the order returned by the query", async () => {
-    mockPrisma.outboxEvent.findMany.mockResolvedValue([row({ id: "outbox-1" }), row({ id: "outbox-2" })]);
+    mockTx.$queryRaw.mockResolvedValue([row({ id: "outbox-1" }), row({ id: "outbox-2" })]);
 
     await processOutboxBatch();
 
-    expect(mockPrisma.outboxEvent.update).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { id: "outbox-1" } }));
-    expect(mockPrisma.outboxEvent.update).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { id: "outbox-2" } }));
+    expect(mockTx.outboxEvent.update).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { id: "outbox-1" } }));
+    expect(mockTx.outboxEvent.update).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { id: "outbox-2" } }));
   });
 
   it("leaves a row unprocessed for retry when dispatch throws, rather than marking it processed", async () => {
-    mockPrisma.outboxEvent.findMany.mockResolvedValue([row()]);
+    mockTx.$queryRaw.mockResolvedValue([row()]);
     vi.mocked(commerceEventBus.emit).mockImplementationOnce(() => {
       throw new Error("subscriber exploded");
     });
 
     const result = await processOutboxBatch();
 
-    expect(mockPrisma.outboxEvent.update).not.toHaveBeenCalled();
+    expect(mockTx.outboxEvent.update).not.toHaveBeenCalled();
     expect(result.processedCount).toBe(0);
   });
 
   it("does not reprocess rows already marked processed (never fetched, since the query excludes them)", async () => {
-    mockPrisma.outboxEvent.findMany.mockResolvedValue([]);
+    mockTx.$queryRaw.mockResolvedValue([]);
 
     const result = await processOutboxBatch();
 

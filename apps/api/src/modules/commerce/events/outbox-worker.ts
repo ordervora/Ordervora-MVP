@@ -1,4 +1,4 @@
-import type { OutboxEvent } from "@prisma/client";
+import type { OutboxEvent, Prisma } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { commerceEventBus } from "./event-bus";
 
@@ -14,28 +14,43 @@ const BATCH_SIZE = 50;
  * Delivery is at-least-once, not exactly-once: a crash between dispatch and
  * marking processedAt would redeliver on the next poll. Any real subscriber
  * built on top of this must be idempotent, consistent with this codebase's
- * existing idempotency-key discipline elsewhere. This is also a
- * single-instance-only design — no multi-instance claim coordination (e.g.
- * SELECT ... FOR UPDATE SKIP LOCKED) — matching the current single-process
- * deployment model; revisit before horizontal scaling.
+ * existing idempotency-key discipline elsewhere.
+ *
+ * Multi-instance-safe as of Production Hardening Phase 6: the claiming
+ * SELECT below uses `FOR UPDATE SKIP LOCKED` inside a transaction, so
+ * concurrently-polling instances each lock a disjoint set of rows instead
+ * of racing over the same ones — a second instance's identical query
+ * simply skips whatever this one already has locked and claims the next
+ * available rows instead. The lock is held for the entire transaction,
+ * spanning the dispatch loop below, not just the SELECT itself: releasing
+ * it early (e.g. by committing right after the SELECT, in a separate
+ * transaction from the dispatch+update) would let a second instance
+ * re-claim and double-dispatch the same row while this one is still
+ * processing it. This is safe to hold open across the loop specifically
+ * because commerceEventBus.emit() is synchronous and fire-and-forget
+ * (event-bus.ts) — the transaction is never left open across real I/O.
  */
 export async function processOutboxBatch(): Promise<{ processedCount: number }> {
-  const rows = await prisma.outboxEvent.findMany({
-    where: { processedAt: null },
-    orderBy: { createdAt: "asc" },
-    take: BATCH_SIZE,
-  });
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<OutboxEvent[]>`
+      SELECT * FROM "OutboxEvent"
+      WHERE "processedAt" IS NULL
+      ORDER BY "createdAt" ASC
+      LIMIT ${BATCH_SIZE}
+      FOR UPDATE SKIP LOCKED
+    `;
 
-  let processedCount = 0;
-  for (const row of rows) {
-    if (await dispatchOne(row)) {
-      processedCount++;
+    let processedCount = 0;
+    for (const row of rows) {
+      if (await dispatchOne(tx, row)) {
+        processedCount++;
+      }
     }
-  }
-  return { processedCount };
+    return { processedCount };
+  });
 }
 
-async function dispatchOne(row: OutboxEvent): Promise<boolean> {
+async function dispatchOne(tx: Prisma.TransactionClient, row: OutboxEvent): Promise<boolean> {
   try {
     commerceEventBus.emit({
       type: row.type,
@@ -43,7 +58,7 @@ async function dispatchOne(row: OutboxEvent): Promise<boolean> {
       orderId: row.orderId ?? undefined,
       payload: row.payload as Record<string, unknown> | undefined,
     });
-    await prisma.outboxEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } });
+    await tx.outboxEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } });
     return true;
   } catch (err) {
     // Left unprocessed — picked up again on the next poll (at-least-once).

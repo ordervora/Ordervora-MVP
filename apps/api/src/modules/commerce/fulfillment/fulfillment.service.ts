@@ -226,41 +226,63 @@ export async function countActiveDriverAssignments(restaurantId: string): Promis
   });
 }
 
+interface ExpiredAssignmentRow {
+  id: string;
+  fulfillmentId: string;
+  driverId: string;
+  orderId: string;
+  restaurantId: string;
+}
+
 /**
  * Transitions every OFFERED assignment whose offer has timed out to
  * EXPIRED, and alerts staff via an OrderEvent that the fulfillment needs
  * manual reassignment (Sprint 07.6 C-11). Intended to run on an interval —
  * see stale-offer-scheduler.ts. Never throws for an individual row failure;
  * one bad row does not stop the sweep from processing the rest.
+ *
+ * Multi-instance-safe as of Production Hardening Phase 6: claiming and
+ * expiring happen in one atomic `UPDATE ... FROM ... RETURNING` statement,
+ * whose subquery uses `FOR UPDATE SKIP LOCKED` so concurrently-running
+ * sweeps each claim a disjoint set of rows. Unlike outbox-worker.ts's
+ * claim-then-dispatch shape, no separate held transaction is needed here:
+ * the claim *is* the state transition (OFFERED -> EXPIRED) — by the time
+ * this statement returns, the returned rows are already durably EXPIRED
+ * and cannot be re-claimed by a concurrent sweep, whether or not the
+ * per-row event-recording loop below succeeds for all of them.
  */
 export async function expireStaleOffers(): Promise<{ expiredCount: number }> {
-  const stale = await prisma.driverAssignment.findMany({
-    where: { status: DriverAssignmentStatus.OFFERED, offerExpiresAt: { lt: new Date() } },
-    include: { fulfillment: true },
-  });
+  const expired = await prisma.$queryRaw<ExpiredAssignmentRow[]>`
+    UPDATE "DriverAssignment" AS da
+    SET status = 'EXPIRED', "updatedAt" = now()
+    FROM "Fulfillment" AS f
+    WHERE da.id IN (
+      SELECT id FROM "DriverAssignment"
+      WHERE status = 'OFFERED' AND "offerExpiresAt" < now()
+      FOR UPDATE SKIP LOCKED
+    )
+    AND f.id = da."fulfillmentId"
+    RETURNING da.id, da."fulfillmentId", da."driverId", f."orderId", f."restaurantId"
+  `;
 
   let expiredCount = 0;
-  for (const assignment of stale) {
+  for (const assignment of expired) {
     try {
-      await prisma.driverAssignment.update({
-        where: { id: assignment.id },
-        data: { status: DriverAssignmentStatus.EXPIRED },
-      });
       await writeOrderEvent({
-        orderId: assignment.fulfillment.orderId,
-        restaurantId: assignment.fulfillment.restaurantId,
+        orderId: assignment.orderId,
+        restaurantId: assignment.restaurantId,
         type: "DRIVER_OFFER_EXPIRED",
         payload: { fulfillmentId: assignment.fulfillmentId, driverId: assignment.driverId },
       });
       emitOrderEvent({
-        orderId: assignment.fulfillment.orderId,
-        restaurantId: assignment.fulfillment.restaurantId,
+        orderId: assignment.orderId,
+        restaurantId: assignment.restaurantId,
         type: "DRIVER_OFFER_EXPIRED",
         payload: { fulfillmentId: assignment.fulfillmentId, driverId: assignment.driverId },
       });
       expiredCount += 1;
     } catch (err) {
-      console.error("expireStaleOffers: failed to expire assignment", assignment.id, err);
+      console.error("expireStaleOffers: failed to record expiry event", assignment.id, err);
     }
   }
 
