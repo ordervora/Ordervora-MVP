@@ -1,0 +1,105 @@
+# Production Hardening Phase 4 — local production simulation.
+#
+# Brings up the full stack (Postgres + api + web) built from the same
+# Dockerfiles the real deployment target uses, wired together the same
+# way a real rolling deploy would gate traffic: api only becomes
+# "healthy" once its own HEALTHCHECK (GET /health) passes, and web only
+# starts once api is healthy.
+#
+# Deliberately does NOT include Redis (Phase 5) or a MinIO/S3-compatible
+# object-storage service (Phase 7) yet, even though the master spec's
+# Phase 4 section describes the eventual full-stack compose file
+# including both — those services don't exist in this codebase yet, and
+# this phase was explicitly scoped not to introduce them.
+#
+# Usage: docker compose up --build
+# Then:  curl http://localhost:4000/health
+#        curl http://localhost:4000/ready
+#        open http://localhost:3000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ordervora
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ordervora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Postgres's own image needs a writable data directory; immutability
+    # for this stack is enforced on the two images this project actually
+    # builds (api/web) below, not on the upstream Postgres image.
+    read_only: false
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    init: true # PID 1 = tini, reaps zombies + forwards signals correctly
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/ordervora?schema=public"
+      FRONTEND_URL: "http://localhost:3000"
+      # Local-simulation-only values, generated with `openssl rand -hex 32`
+      # specifically for this file — not the .env.example placeholder
+      # strings (which NODE_ENV=production would reject, see
+      # config/env.ts), and not used by any real deployment. Overridden by
+      # a real secrets-manager-injected value in an actual production
+      # environment (docs/runbooks/secret-rotation.md).
+      JWT_ACCESS_SECRET: "6c7fc0a7da10f16bc4b5092f4edb3a52d5091b54a072b27b5f379cda8d53acd3"
+      JWT_ACCESS_TTL: "15m"
+      JWT_REFRESH_TTL: "30d"
+      COMMERCE_ENCRYPTION_KEY: "71bc608aa54dafc189443a116655fcbaeb13f1954d00fb314fa9dcce67bb0873"
+    ports:
+      - "4000:4000"
+    volumes:
+      # Import/site-release uploads (lib/file-storage.ts, lib/release-storage.ts)
+      # still write to local disk today (Phase 7 moves this to object
+      # storage) — a container filesystem is otherwise ephemeral, so this
+      # volume is what keeps uploaded files alive across container restarts
+      # in this local simulation.
+      - api-uploads:/app/apps/api/uploads
+    tmpfs:
+      - /tmp
+    read_only: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get({host:'127.0.0.1',port:4000,path:'/health',timeout:3000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    init: true
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_URL: "http://api:4000"
+    ports:
+      - "3000:3000"
+    tmpfs:
+      - /tmp
+    read_only: true
+
+volumes:
+  postgres-data:
+  api-uploads:

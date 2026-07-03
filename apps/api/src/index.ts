@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { assertStartupEnv, getEnv, getSafeEnvSummary } from "./config/env";
 import { createApp } from "./app";
+import { prisma } from "./lib/prisma";
 import { startOutboxWorker } from "./modules/commerce/events/outbox-scheduler";
 import { startStaleOfferScheduler } from "./modules/commerce/fulfillment/stale-offer-scheduler";
 
@@ -22,9 +23,53 @@ console.log("Environment configuration loaded:", getSafeEnvSummary());
 const { PORT: port, NODE_ENV: environment } = getEnv();
 const app = createApp();
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`API server listening on port ${port} (environment: ${environment})`);
 });
 
-startStaleOfferScheduler();
-startOutboxWorker();
+const staleOfferTimer = startStaleOfferScheduler();
+const outboxTimer = startOutboxWorker();
+
+// Graceful shutdown (Production Hardening Phase 4) — required for a
+// zero-downtime rolling deploy: when an orchestrator sends SIGTERM to an
+// outgoing instance, stop taking new background-job work immediately, let
+// server.close() drain any in-flight HTTP requests to completion (it
+// stops accepting new connections but does not cut off existing ones),
+// then release the database pool before exiting. A hard exit here (or no
+// handler at all, Node's default for SIGTERM) would drop in-flight
+// requests and leave connections in the Prisma pool dangling.
+let shuttingDown = false;
+
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down gracefully`);
+
+  clearInterval(staleOfferTimer);
+  clearInterval(outboxTimer);
+
+  server.close((err) => {
+    if (err) {
+      console.error("Error while closing HTTP server", err);
+    }
+    prisma
+      .$disconnect()
+      .catch((disconnectErr) => {
+        console.error("Error while disconnecting Prisma", disconnectErr);
+      })
+      .finally(() => {
+        process.exit(err ? 1 : 0);
+      });
+  });
+
+  // Belt-and-suspenders: if a slow/leaked connection prevents
+  // server.close()'s callback from ever firing, force-exit rather than
+  // hanging forever and blocking the orchestrator's rollout.
+  setTimeout(() => {
+    console.error("Graceful shutdown timed out, forcing exit");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

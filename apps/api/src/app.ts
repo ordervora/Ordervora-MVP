@@ -2,8 +2,10 @@ import path from "node:path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import helmet from "helmet";
 import multer from "multer";
 import { getEnv, getStringEnv } from "./config/env";
+import { prisma } from "./lib/prisma";
 import { authRouter } from "./modules/auth/auth.routes";
 import { publicCartRouter } from "./modules/commerce/cart/cart.routes";
 import { checkoutRouter } from "./modules/commerce/checkout/checkout.routes";
@@ -26,6 +28,37 @@ import { publicSiteRouter, siteRouter } from "./modules/sites/site.routes";
 export function createApp() {
   const app = express();
 
+  app.use(
+    helmet({
+      // Published restaurant sites (renderer/render-page.ts) embed an
+      // inline <style> block (theme-css.ts) and two inline
+      // <script type="application/ld+json"> tags (seo-head.ts) — both are
+      // escaped/validated at generation time (html-escape.ts, safeJsonLd),
+      // not attacker-controllable raw HTML, but CSP's script-src/style-src
+      // apply to inline tags regardless of content type. A nonce-based
+      // policy isn't viable here without breaking the renderer's documented
+      // "same definition + theme version -> identical output" determinism
+      // (publishSite writes static HTML once; a nonce is per-request
+      // random), so 'unsafe-inline' is used for both instead of disabling
+      // CSP outright — default-src/object-src/frame-ancestors stay strict.
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          frameAncestors: ["'self'"],
+        },
+      },
+      // Not needed for this app's same-origin asset-proxy architecture
+      // (apps/web rewrites every /api, /assets, /preview call server-side —
+      // the browser never makes a cross-origin request to apps/api
+      // directly), and risks breaking the dashboard's preview iframe.
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.use(
     cors({
       origin: getEnv().FRONTEND_URL,
@@ -51,12 +84,29 @@ export function createApp() {
   // meant to be embedded in public site pages.
   app.use("/assets", express.static(path.resolve(getStringEnv("IMPORT_UPLOAD_DIR", "uploads"))));
 
+  // Liveness — reports the process is up; does not touch the database.
+  // Used by container orchestration to decide whether to restart a stuck
+  // instance, not whether to route it traffic (see /ready below).
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({
       status: "ok",
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Readiness (Production Hardening Phase 4) — verifies live DB
+  // connectivity before a load balancer/orchestrator sends traffic to a
+  // new instance. Distinct from /health: a process can be alive (healthy)
+  // while its database connection is down (not ready) during startup or a
+  // transient outage.
+  app.get("/ready", async (_req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.status(200).json({ status: "ready" });
+    } catch {
+      res.status(503).json({ status: "not ready" });
+    }
   });
 
   // §20 edge routing substitute — resolves Host header to a published site
