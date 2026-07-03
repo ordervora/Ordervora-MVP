@@ -225,6 +225,20 @@ const KNOWN_ENV_KEYS = [
   // Sentry is a reduced-observability default, never a boot requirement.
   "LOG_LEVEL",
   "SENTRY_DSN",
+  // Production Hardening Phase 11 — deliberately outside the core schema:
+  // every rate limiter already has a sensible hardcoded default
+  // (middleware/rate-limit.ts); these only matter if an operator wants to
+  // override one based on real load-test/production data (master spec
+  // Phase 11 work item 5), never required to boot.
+  "RATE_LIMIT_AUTH_PER_MINUTE",
+  "RATE_LIMIT_IMPORT_PER_MINUTE",
+  "RATE_LIMIT_SITE_GENERATION_PER_MINUTE",
+  "RATE_LIMIT_CONTACT_FORM_PER_MINUTE",
+  "RATE_LIMIT_CUSTOMER_AUTH_PER_MINUTE",
+  "RATE_LIMIT_CHECKOUT_PER_MINUTE",
+  "RATE_LIMIT_PUBLIC_COMMERCE_PER_MINUTE",
+  "RATE_LIMIT_WEBHOOK_PER_MINUTE",
+  "RATE_LIMIT_STAFF_ACTION_PER_MINUTE",
 ] as const;
 
 /**
