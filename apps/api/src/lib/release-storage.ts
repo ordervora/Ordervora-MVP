@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getStringEnv } from "../config/env";
+import { getObjectStorageBucket, getS3Client, isObjectStorageConfigured } from "./object-storage-client";
 
 export interface ReleaseStorage {
   savePage(siteId: string, versionId: string, slug: string, html: string): Promise<void>;
@@ -63,4 +65,83 @@ class LocalDiskReleaseStorage implements ReleaseStorage {
   }
 }
 
-export const releaseStorage: ReleaseStorage = new LocalDiskReleaseStorage();
+/**
+ * Production Hardening Phase 7 — durable object storage for published-
+ * site releases, replacing local disk. Unlike SiteAsset's `storageKey`
+ * (lib/file-storage.ts), nothing outside this module ever needs a public
+ * URL for a release object: every read already goes through the API's
+ * own render routes (public-render.routes.ts reads the page/asset
+ * *content* here and writes it directly into the HTTP response), so
+ * there's no direct-CDN-vs-proxy decision to make for this half of Phase
+ * 7 — it's already always "proxied through the API," before and after
+ * this phase. Keys are prefixed `site-releases/`, mirroring
+ * SITE_RELEASE_DIR's local-disk naming intent.
+ */
+class S3ReleaseStorage implements ReleaseStorage {
+  private key(siteId: string, versionId: string, filename: string): string {
+    return `site-releases/${siteId}/${versionId}/${filename}`;
+  }
+
+  async savePage(siteId: string, versionId: string, slug: string, html: string): Promise<void> {
+    await this.putText(this.key(siteId, versionId, slugToFilename(slug)), html);
+  }
+
+  async readPage(siteId: string, versionId: string, slug: string): Promise<string | null> {
+    return this.getText(this.key(siteId, versionId, slugToFilename(slug)));
+  }
+
+  async saveAsset(siteId: string, versionId: string, filename: string, content: string): Promise<void> {
+    await this.putText(this.key(siteId, versionId, filename), content);
+  }
+
+  async readAsset(siteId: string, versionId: string, filename: string): Promise<string | null> {
+    return this.getText(this.key(siteId, versionId, filename));
+  }
+
+  private async putText(key: string, content: string): Promise<void> {
+    await getS3Client().send(
+      new PutObjectCommand({
+        Bucket: getObjectStorageBucket(),
+        Key: key,
+        Body: content,
+        ContentType: key.endsWith(".html") ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
+      }),
+    );
+  }
+
+  private async getText(key: string): Promise<string | null> {
+    try {
+      const result = await getS3Client().send(new GetObjectCommand({ Bucket: getObjectStorageBucket(), Key: key }));
+      const text = await result.Body?.transformToString("utf-8");
+      return text ?? null;
+    } catch (err) {
+      // Mirrors LocalDiskReleaseStorage's readFile-throws-ENOENT-return-null
+      // contract: a missing release object (not yet published, or an
+      // unknown slug) is a normal "null", not an error — anything else
+      // (a real connectivity/permission failure) still propagates.
+      if (isNotFoundError(err)) {
+        return null;
+      }
+      throw err;
+    }
+  }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    ("name" in err ? (err as { name?: string }).name === "NoSuchKey" || (err as { name?: string }).name === "NotFound" : false)
+  );
+}
+
+/**
+ * Env-driven factory (Production Hardening Phase 7): OBJECT_STORAGE_BUCKET
+ * unset means local disk, identical to every environment before this
+ * phase. See docs/runbooks/object-storage.md.
+ */
+function createReleaseStorage(): ReleaseStorage {
+  return isObjectStorageConfigured() ? new S3ReleaseStorage() : new LocalDiskReleaseStorage();
+}
+
+export const releaseStorage: ReleaseStorage = createReleaseStorage();

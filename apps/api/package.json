@@ -14,13 +14,15 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
-    "test": "vitest run"
+    "test": "vitest run",
+    "storage:migrate-to-s3": "tsx scripts/migrate-storage-to-s3.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.0",
+    "@aws-sdk/client-s3": "^3.1079.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "argon2": "^0.44.0",
@@ -39,6 +41,7 @@
     "pdf-to-img": "^6.2.0",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
+    "sharp": "^0.35.3",
     "stripe": "^22.3.0",
     "zod": "^4.4.3"
   },

@@ -1,5 +1,6 @@
 import type { AssetKind, SiteAsset } from "@prisma/client";
 import { fileStorage } from "../../lib/file-storage";
+import { generateImageRenditions, IMAGE_RENDITION_NAMES, type AssetRenditions } from "../../lib/image-processing";
 import { prisma } from "../../lib/prisma";
 import { getOwnSiteById } from "./site.service";
 import { AssetNotFoundError } from "./site.errors";
@@ -16,12 +17,16 @@ export interface UploadedAssetFile {
  * substitutes a server-side multipart upload through the same swappable
  * `fileStorage` abstraction the Import Engine already uses (Sprint 04) —
  * functionally equivalent for the owner's UX, and swapping in presigned
- * URLs later only touches this function, not its callers. Real image
- * processing (WebP/AVIF renditions, LQIP placeholders, EXIF/GPS stripping)
- * is NOT implemented — `renditions` stays null until a future pipeline
- * exists; see Known Limitations. Because that's genuinely unprocessed,
- * every asset created here correctly reports as "unprocessed" to the
- * Performance score and pre-publish check, rather than faking readiness.
+ * URLs later only touches this function, not its callers.
+ *
+ * Production Hardening Phase 8: the original is always saved as before;
+ * `generateImageRenditions` (fail-open by contract) additionally produces
+ * thumbnail/card/full WebP variants, each saved through the same
+ * `fileStorage`, with their keys recorded in `renditions`. When resizing
+ * fails (corrupt bytes, unsupported format) `renditions` stays null,
+ * exactly as it always has — the Performance score and pre-publish check
+ * correctly keep reporting that asset as unprocessed rather than faking
+ * readiness.
  */
 export async function uploadAsset(
   restaurantId: string,
@@ -31,8 +36,21 @@ export async function uploadAsset(
 ): Promise<SiteAsset> {
   const site = await getOwnSiteById(restaurantId, siteId);
   const saved = await fileStorage.save(file.buffer, file.originalName);
+
+  const generated = await generateImageRenditions(file.buffer, file.mimeType);
+  let renditions: AssetRenditions | undefined;
+  if (generated) {
+    const savedVariants = await Promise.all(
+      IMAGE_RENDITION_NAMES.map(async (name) => {
+        const savedVariant = await fileStorage.save(generated[name], `${name}.webp`);
+        return [name, savedVariant.path] as const;
+      }),
+    );
+    renditions = Object.fromEntries(savedVariants) as AssetRenditions;
+  }
+
   const sortOrder = await prisma.siteAsset.count({ where: { siteId: site.id, kind } });
-  return prisma.siteAsset.create({ data: { siteId: site.id, kind, storageKey: saved.path, sortOrder } });
+  return prisma.siteAsset.create({ data: { siteId: site.id, kind, storageKey: saved.path, renditions, sortOrder } });
 }
 
 export async function listAssets(restaurantId: string, siteId: string): Promise<SiteAsset[]> {

@@ -4,7 +4,9 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import multer from "multer";
-import { getEnv, getStringEnv } from "./config/env";
+import { getEnv, getOptionalEnv, getStringEnv } from "./config/env";
+import { fileStorage } from "./lib/file-storage";
+import { isObjectStorageConfigured } from "./lib/object-storage-client";
 import { prisma } from "./lib/prisma";
 import { authRouter } from "./modules/auth/auth.routes";
 import { publicCartRouter } from "./modules/commerce/cart/cart.routes";
@@ -24,6 +26,58 @@ import { menuRouter } from "./modules/menu/menu.routes";
 import { adminRestaurantRouter, restaurantRouter } from "./modules/restaurants/restaurant.routes";
 import { previewRouter, siteEdgeMiddleware } from "./modules/sites/public-render.routes";
 import { publicSiteRouter, siteRouter } from "./modules/sites/site.routes";
+
+const EXTENSION_CONTENT_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+};
+
+/**
+ * Production Hardening Phase 7 — explicit public-asset serving strategy
+ * (master spec Phase 7 item 6), one of three mutually exclusive paths
+ * depending on configuration:
+ *
+ * 1. Local disk (OBJECT_STORAGE_BUCKET unset, the pre-Phase-7 default):
+ *    unchanged `express.static` serving by basename.
+ * 2. Direct-from-CDN (OBJECT_STORAGE_PUBLIC_URL_BASE set): the
+ *    *recommended* path once real object storage is configured — nothing
+ *    is mounted here at all, since renderer/asset-url.ts already points
+ *    callers straight at the CDN/bucket domain, bypassing this API
+ *    entirely for asset bytes.
+ * 3. Proxied through the API (object storage configured, no public URL
+ *    base yet — e.g. a private bucket with no CDN in front): a thin
+ *    dynamic route reading the object's bytes via the same `fileStorage`
+ *    interface every other caller uses, so this still isn't a second,
+ *    storage-backend-specific code path.
+ */
+function registerAssetsRoute(app: express.Express): void {
+  if (!isObjectStorageConfigured()) {
+    app.use("/assets", express.static(path.resolve(getStringEnv("IMPORT_UPLOAD_DIR", "uploads"))));
+    return;
+  }
+
+  if (getOptionalEnv("OBJECT_STORAGE_PUBLIC_URL_BASE")) {
+    return;
+  }
+
+  app.use("/assets", async (req: Request, res: Response) => {
+    const key = decodeURIComponent(req.path.replace(/^\/+/, ""));
+    try {
+      const buffer = await fileStorage.read(key);
+      const contentType = EXTENSION_CONTENT_TYPES[path.extname(key).toLowerCase()] ?? "application/octet-stream";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(buffer);
+    } catch {
+      res.status(404).end();
+    }
+  });
+}
 
 export function createApp() {
   const app = express();
@@ -79,10 +133,14 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
-  // Serves uploaded images (site assets, import files) by basename — see
-  // renderer/asset-url.ts. Public/unauthenticated by design: these are
-  // meant to be embedded in public site pages.
-  app.use("/assets", express.static(path.resolve(getStringEnv("IMPORT_UPLOAD_DIR", "uploads"))));
+  // Serves uploaded images (site assets, import files) — see
+  // renderer/asset-url.ts, which decides the actual URL shape returned to
+  // callers and must stay in sync with whichever of these three paths is
+  // active. Public/unauthenticated by design: these are meant to be
+  // embedded in public site pages. Production Hardening Phase 7 made this
+  // conditional on object-storage configuration (see
+  // docs/runbooks/object-storage.md for the full design rationale):
+  registerAssetsRoute(app);
 
   // Liveness — reports the process is up; does not touch the database.
   // Used by container orchestration to decide whether to restart a stuck

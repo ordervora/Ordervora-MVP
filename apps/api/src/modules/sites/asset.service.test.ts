@@ -9,14 +9,20 @@ vi.mock("../../lib/prisma", () => ({
 }));
 
 vi.mock("../../lib/file-storage", () => ({ fileStorage: { save: vi.fn(), read: vi.fn() } }));
+vi.mock("../../lib/image-processing", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/image-processing")>();
+  return { ...actual, generateImageRenditions: vi.fn() };
+});
 
 import { fileStorage } from "../../lib/file-storage";
+import { generateImageRenditions } from "../../lib/image-processing";
 import { prisma } from "../../lib/prisma";
 import { autoFillMissingAltText, deleteAsset, listAssets, updateAsset, uploadAsset } from "./asset.service";
 import { AssetNotFoundError, SiteNotFoundError } from "./site.errors";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 const mockFileStorage = vi.mocked(fileStorage, { deep: true });
+const mockGenerateImageRenditions = vi.mocked(generateImageRenditions);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -40,6 +46,50 @@ describe("uploadAsset", () => {
 
     expect(mockPrisma.siteAsset.create).toHaveBeenCalledWith({
       data: { siteId: "site-1", kind: "GALLERY", storageKey: "/uploads/sites/abc.png", sortOrder: 2 },
+    });
+  });
+
+  it("(Production Hardening Phase 8) saves each generated responsive variant via fileStorage and records their keys as renditions", async () => {
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1" } as never);
+    mockFileStorage.save
+      .mockResolvedValueOnce({ path: "/uploads/sites/original.png" })
+      .mockResolvedValueOnce({ path: "/uploads/sites/thumb.webp" })
+      .mockResolvedValueOnce({ path: "/uploads/sites/card.webp" })
+      .mockResolvedValueOnce({ path: "/uploads/sites/full.webp" });
+    mockGenerateImageRenditions.mockResolvedValue({
+      thumbnail: Buffer.from("thumb"),
+      card: Buffer.from("card"),
+      full: Buffer.from("full"),
+    });
+    mockPrisma.siteAsset.count.mockResolvedValue(0);
+    mockPrisma.siteAsset.create.mockResolvedValue({ id: "asset-1" } as never);
+
+    await uploadAsset("restaurant-1", "site-1", "GALLERY", { buffer: Buffer.from("x"), mimeType: "image/png", originalName: "a.png" });
+
+    expect(mockFileStorage.save).toHaveBeenCalledTimes(4);
+    expect(mockPrisma.siteAsset.create).toHaveBeenCalledWith({
+      data: {
+        siteId: "site-1",
+        kind: "GALLERY",
+        storageKey: "/uploads/sites/original.png",
+        renditions: { thumbnail: "/uploads/sites/thumb.webp", card: "/uploads/sites/card.webp", full: "/uploads/sites/full.webp" },
+        sortOrder: 0,
+      },
+    });
+  });
+
+  it("(Production Hardening Phase 8, fail-open) still creates the asset from the original file alone when rendition generation fails", async () => {
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1" } as never);
+    mockFileStorage.save.mockResolvedValue({ path: "/uploads/sites/original.png" });
+    mockGenerateImageRenditions.mockResolvedValue(null);
+    mockPrisma.siteAsset.count.mockResolvedValue(0);
+    mockPrisma.siteAsset.create.mockResolvedValue({ id: "asset-1" } as never);
+
+    await uploadAsset("restaurant-1", "site-1", "GALLERY", { buffer: Buffer.from("corrupt"), mimeType: "image/png", originalName: "a.png" });
+
+    expect(mockFileStorage.save).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.siteAsset.create).toHaveBeenCalledWith({
+      data: { siteId: "site-1", kind: "GALLERY", storageKey: "/uploads/sites/original.png", sortOrder: 0 },
     });
   });
 });

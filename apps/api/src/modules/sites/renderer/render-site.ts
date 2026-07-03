@@ -1,3 +1,4 @@
+import { resolveAssetRenditionKey } from "../../../lib/image-processing";
 import { prisma } from "../../../lib/prisma";
 import { listCategories } from "../../menu/menu.service";
 import { THEME_CATALOG } from "../theme-catalog";
@@ -26,11 +27,15 @@ export async function resolveRenderAssets(siteId: string): Promise<RenderAssets>
   const gallery = assets.filter((asset) => asset.kind === "GALLERY");
   const logo = assets.find((asset) => asset.kind === "LOGO");
 
+  // Production Hardening Phase 8: prefer the responsive WebP variant sized
+  // for how each kind is actually displayed, falling back to the
+  // full-resolution original when no rendition was generated (resizing
+  // failed open, or the asset predates this phase).
   return {
-    heroUrl: hero ? assetUrl(hero.storageKey) : undefined,
+    heroUrl: hero ? assetUrl(resolveAssetRenditionKey(hero, "full")) : undefined,
     heroAlt: hero?.altText ?? undefined,
-    galleryImages: gallery.map((asset) => ({ url: assetUrl(asset.storageKey), alt: asset.altText ?? "" })),
-    logoUrl: logo ? assetUrl(logo.storageKey) : undefined,
+    galleryImages: gallery.map((asset) => ({ url: assetUrl(resolveAssetRenditionKey(asset, "card")), alt: asset.altText ?? "" })),
+    logoUrl: logo ? assetUrl(resolveAssetRenditionKey(logo, "card")) : undefined,
   };
 }
 

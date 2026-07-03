@@ -208,6 +208,16 @@ const KNOWN_ENV_KEYS = [
   // lib/redis.ts and lib/redis-rate-limit-store.ts for the fail-open
   // contract this implies.
   "REDIS_URL",
+  // Production Hardening Phase 7 — deliberately outside the core schema:
+  // object storage is optional. OBJECT_STORAGE_BUCKET unset means
+  // fileStorage/releaseStorage both stay on local disk, identical to
+  // pre-Phase-7 behavior; see docs/runbooks/object-storage.md.
+  "OBJECT_STORAGE_BUCKET",
+  "OBJECT_STORAGE_REGION",
+  "OBJECT_STORAGE_ENDPOINT",
+  "OBJECT_STORAGE_ACCESS_KEY_ID",
+  "OBJECT_STORAGE_SECRET_ACCESS_KEY",
+  "OBJECT_STORAGE_PUBLIC_URL_BASE",
 ] as const;
 
 /**

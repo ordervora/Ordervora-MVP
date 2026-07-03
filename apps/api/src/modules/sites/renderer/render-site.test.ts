@@ -79,6 +79,31 @@ describe("resolveRenderAssets", () => {
     const assets = await resolveRenderAssets("site-1");
     expect(assets).toEqual({ heroUrl: undefined, heroAlt: undefined, galleryImages: [], logoUrl: undefined });
   });
+
+  it("(Production Hardening Phase 8) prefers the responsive rendition over the full-resolution original when present", async () => {
+    mockPrisma.siteAsset.findMany.mockResolvedValue([
+      {
+        kind: "HERO",
+        storageKey: "/uploads/hero-original.png",
+        altText: "Hero",
+        renditions: { thumbnail: "uploads/hero-thumb.webp", card: "uploads/hero-card.webp", full: "uploads/hero-full.webp" },
+      },
+      {
+        kind: "GALLERY",
+        storageKey: "/uploads/g1-original.png",
+        altText: "G1",
+        renditions: { thumbnail: "uploads/g1-thumb.webp", card: "uploads/g1-card.webp", full: "uploads/g1-full.webp" },
+      },
+      { kind: "LOGO", storageKey: "/uploads/logo-original.png", altText: null, renditions: null },
+    ] as never);
+
+    const assets = await resolveRenderAssets("site-1");
+
+    expect(assets.heroUrl).toBe("/assets/hero-full.webp");
+    expect(assets.galleryImages).toEqual([{ url: "/assets/g1-card.webp", alt: "G1" }]);
+    // renditions: null (never processed / resize failed open) falls back to the original.
+    expect(assets.logoUrl).toBe("/assets/logo-original.png");
+  });
 });
 
 describe("renderSitePage", () => {
