@@ -18,6 +18,7 @@ ARG NODE_VERSION=22.22.2
 # application source changes, and only invalidates when a dependency
 # actually changes.
 FROM node:${NODE_VERSION}-alpine AS fetch
+ENV CI=true
 RUN corepack enable
 WORKDIR /repo
 COPY pnpm-lock.yaml ./
