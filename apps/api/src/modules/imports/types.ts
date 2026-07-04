@@ -28,6 +28,12 @@ export const extractedMenuDataSchema = z.object({
           name: z.string().min(1),
           description: z.string().optional(),
           priceCents: z.number().int().nonnegative(),
+          // 0-1. AI-extracted items (vision/text) carry the model's own
+          // confidence when available; deterministic sources (CSV) set
+          // this from how cleanly a row parsed. Absent means "not scored"
+          // (e.g. older jobs, or a source that doesn't score at all) —
+          // the review UI treats missing the same as fully confident.
+          confidence: z.number().min(0).max(1).optional(),
         }),
       ),
     }),
@@ -41,6 +47,21 @@ export const extractedMenuDataSchema = z.object({
       name: z.string().optional(),
       address: z.string().optional(),
       phone: z.string().optional(),
+      website: z.string().optional(),
+      // Weekday-ordered display strings (e.g. "Monday: 9:00 AM - 9:00 PM"),
+      // matching the shape Google's Places API already returns them in —
+      // stored as-is rather than parsed into structured open/close times,
+      // since this only ever feeds a human review screen, not scheduling.
+      hours: z.array(z.string()).optional(),
+      logoUrl: z.string().optional(),
+      socialLinks: z
+        .array(
+          z.object({
+            platform: z.string(),
+            url: z.string(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });

@@ -46,4 +46,46 @@ describe("mergeExtractedMenuData", () => {
 
     expect(result.categories).toEqual([]);
   });
+
+  it("fills the new profile fields (website/hours/logoUrl) from the first result that has each one (Sprint 10)", () => {
+    const result = mergeExtractedMenuData([
+      { categories: [], businessProfile: { website: "https://joes.example" } },
+      { categories: [], businessProfile: { website: "https://ignored.example", hours: ["Monday: 9-9"] } },
+      { categories: [], businessProfile: { logoUrl: "https://cdn.example/logo.jpg" } },
+    ]);
+
+    expect(result.businessProfile).toEqual({
+      website: "https://joes.example",
+      hours: ["Monday: 9-9"],
+      logoUrl: "https://cdn.example/logo.jpg",
+    });
+  });
+
+  it("dedupes socialLinks by platform, keeping the first URL seen per platform", () => {
+    const result = mergeExtractedMenuData([
+      { categories: [], businessProfile: { socialLinks: [{ platform: "instagram", url: "https://instagram.com/joes" }] } },
+      {
+        categories: [],
+        businessProfile: {
+          socialLinks: [
+            { platform: "instagram", url: "https://instagram.com/ignored" },
+            { platform: "facebook", url: "https://facebook.com/joes" },
+          ],
+        },
+      },
+    ]);
+
+    expect(result.businessProfile?.socialLinks).toEqual([
+      { platform: "instagram", url: "https://instagram.com/joes" },
+      { platform: "facebook", url: "https://facebook.com/joes" },
+    ]);
+  });
+
+  it("preserves per-item confidence scores through the merge", () => {
+    const result = mergeExtractedMenuData([
+      { categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1000, confidence: 0.92 }] }] },
+    ]);
+
+    expect(result.categories[0]!.items[0]!.confidence).toBe(0.92);
+  });
 });

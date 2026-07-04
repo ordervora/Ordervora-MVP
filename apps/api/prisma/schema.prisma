@@ -151,6 +151,7 @@ model MenuItem {
 enum ImportSourceType {
   PDF
   IMAGE
+  CSV
   WEBSITE
   GOOGLE_MAPS
   DOORDASH
@@ -176,6 +177,10 @@ model ImportJob {
   sourceType     ImportSourceType
   status         ImportStatus     @default(PENDING)
   sourceFilePath String?
+  // Persisted alongside sourceFilePath so a file-based job can be rerun
+  // later without re-deriving the MIME type from the storage key's
+  // extension (adapters like ImageImportAdapter validate against it).
+  sourceMimeType String?
   sourceUrl      String?
   extractedData  Json?
   errorMessage   String?

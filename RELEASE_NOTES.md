@@ -1393,3 +1393,131 @@ separate provider families: payments, fulfillment, POS, and notifications.
   delivery/POS provider credentials, and a browser): an end-to-end guest
   checkout → payment capture → kitchen → driver → delivery round trip
   against a running server.
+
+# Release Notes — Sprint 10: Universal Import Engine
+
+## Sprint 10 Summary
+
+Sprint 10 broadens the Import Engine built in Sprints 04–05 (PDF, Image,
+Website, Google Maps) into a genuinely universal restaurant-migration
+tool, while deliberately keeping DoorDash/Uber Eats/Grubhub as stubs —
+scraping those platforms' consumer sites carries real Terms-of-Service
+risk with no official partner API, and that trade-off wasn't reopened
+this sprint. Everything added here is either the owner's own first-party
+data (CSV/spreadsheet upload) or an extension of sources that already had
+explicit permission to be fetched (Website, Google Maps).
+
+## Features Completed
+
+- **CSV/spreadsheet import** (`CSV` source, real, `apps/api/src/modules/
+  imports/adapters/csv.adapter.ts`): parses a `.csv`/`.xlsx` file (via
+  `xlsx`) with a header-alias column mapper
+  (`adapters/spreadsheet/column-mapper.ts`) that recognizes plain
+  spreadsheet exports as well as common Square/Toast/Clover menu-export
+  header conventions — no manual "which POS" selection, no AI call, no
+  network access. A row with a missing/unparseable price is still
+  imported (priced at 0) but flagged with a low confidence score rather
+  than silently dropped.
+- **Per-item confidence scores**: `ExtractedMenuData` items now carry an
+  optional `confidence` (0–1); the CSV adapter sets it deterministically,
+  and the review screen renders a green/yellow/red badge per item.
+- **Website menu-link crawl + social-link discovery**
+  (`adapters/website/find-menu-link.ts`,
+  `adapters/website/find-social-links.ts`): the Website adapter now
+  follows exactly one bounded extra hop to a discovered "Menu" nav link
+  (not general recursive crawling) and surfaces any on-page social-media
+  links into `businessProfile.socialLinks` — free to compute since the
+  page's HTML is already fetched and parsed for menu extraction. The
+  adapter's core is now exported as `extractWebsiteData()`, reused
+  directly by the Google Maps adapter (see below).
+- **Richer Google Maps import**: the Places API field mask now requests
+  `websiteUri`/`regularOpeningHours`; the listing's first photo is
+  persisted (via the existing `fileStorage`/`assetUrl` pattern) as a
+  `businessProfile.logoUrl` instead of being run through menu extraction;
+  and when the listing has a website, the adapter automatically calls
+  `extractWebsiteData()` on it and merges the result — surfacing menu
+  items, additional social links, and richer profile data from the same
+  single Google Maps URL a user pastes in.
+- **Import job rerun**: `POST /api/imports/:id/rerun` re-reads a job's
+  already-stored file (or reuses its `sourceUrl`) and re-enqueues
+  extraction — lets an owner retry a `FAILED` job, or simply refresh a
+  Website/Google Maps import against a source that's changed, without
+  re-uploading or re-pasting anything. Requires a new `sourceMimeType`
+  column on `ImportJob` (persisted at creation time) so a re-read file
+  buffer still carries the MIME type adapters like `ImageImportAdapter`
+  validate against.
+- **Bulk-edit review screen** (`apps/web/.../import/[id]/review-editor.tsx`):
+  reviewers can now inline-edit an item's name/price, multi-select items
+  via checkboxes, bulk-move the selection to a different category, and
+  bulk-delete bad rows — all client-side, persisted via a new
+  `PATCH /api/imports/:id` endpoint before Approve commits the edited
+  data into the live menu. The businessProfile preview (name/address/
+  phone/website/hours/logo/social links) is now shown above the
+  categories so a reviewer sees everything a single Approve click will
+  apply, not just the menu items.
+- **Import history rerun button**: the import list page can now rerun a
+  `FAILED`, `APPROVED`, or `REJECTED` job directly from the history list.
+
+## Architecture Decisions
+
+- **One shared CSV/XLSX adapter, not one per POS.** A single alias-based
+  column mapper recognizes multiple POS export conventions automatically;
+  adding a new POS's header spelling is a one-line addition to an alias
+  list, not a new adapter file — matching the registry's "adding a source
+  is one file" design without multiplying near-duplicate adapters.
+- **Menu-link crawl is capped at exactly one extra hop**, not general
+  crawling — the same cost/complexity trade-off Sprint 05 made explicit
+  for image processing, now applied to page-following.
+- **Social-link discovery has zero extra network cost** — it reads the
+  same fetched HTML the adapter already parses for text/image extraction.
+- **`extractWebsiteData()` is the single reuse point** between the
+  Website and Google Maps adapters, so a discovered listing website gets
+  identical treatment (text/image extraction, menu-link crawl, social
+  links) to a directly-submitted Website import — one code path, two
+  callers, per the merge-function precedent set in Sprint 05.
+- **Bulk edits persist through the existing `extractedData` column** via
+  a new `PATCH`, re-validated with the same `extractedMenuDataSchema`
+  Approve already uses — no parallel "draft" storage was introduced.
+
+## Known Limitations
+
+- **DoorDash, Uber Eats, and Grubhub remain untouched stubs** — still
+  `501`, by deliberate scope decision this sprint (ToS risk, no partner
+  API), not an oversight.
+- **CSV price parsing assumes a dollar-amount cell** (`"12.99"`,
+  `"$12.99"`) — a spreadsheet that stores prices as raw cents would be
+  misparsed; documented in `column-mapper.ts`, not auto-detected.
+- **Google Maps' "logo" is a best-effort stand-in** — Places API has no
+  dedicated logo field; the listing's first photo is used, which may be
+  a food photo or storefront shot rather than an actual logo.
+- **The website menu-link crawl only looks for one link candidate on the
+  original page** — a menu buried two clicks deep, or linked only from a
+  page the crawl didn't follow, still won't be found.
+- **No live Anthropic/Google Maps API key exercised in this environment**
+  for the AI-dependent sources (Website text/image extraction, Google
+  Maps) — the CSV adapter has no such dependency and was verified fully
+  end-to-end (upload → parse → review → bulk-edit → approve → live menu)
+  against a real local Postgres instance in this sandbox.
+
+## Verification Results
+
+- `pnpm run lint`, `pnpm run typecheck`, and `pnpm run build` all pass at
+  the repo root across `apps/api` and `apps/web`.
+- `pnpm run test` — all suites pass except one pre-existing, unrelated
+  flake (`app.test.ts`'s X-Request-Id integration test, which times out
+  only under full-suite parallel load and passes cleanly in isolation;
+  confirmed not a regression from this sprint's changes).
+- `pnpm --filter api exec prisma validate` passes; the new migration
+  (`sprint10_import_csv_source`) was applied against a real local
+  Postgres instance started in this sandbox.
+- **Full live smoke test against a running API + Postgres + web dev
+  server**: registered an owner, created a restaurant, uploaded a real
+  CSV file end-to-end through `POST /api/imports`, confirmed the
+  extracted categories/items/confidence scores, edited the data via
+  `PATCH`, approved it and confirmed the edited (not original) items
+  landed in the live menu via `GET /api/menu/categories`, and exercised
+  `POST /api/imports/:id/rerun` to confirm it re-extracts from the
+  original stored file. The rendered `/dashboard/import` and
+  `/dashboard/import/:id` pages were fetched with an authenticated
+  session and inspected directly, confirming the CSV source option, the
+  confidence badges, and the bulk-edit controls all render as designed.

@@ -21,3 +21,9 @@ export class UnsupportedFileError extends Error {
     super("Unsupported file type or size");
   }
 }
+
+export class ImportJobNotRerunnableError extends Error {
+  constructor() {
+    super("This import job has no stored file or URL to rerun");
+  }
+}

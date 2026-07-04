@@ -10,9 +10,10 @@ describe("importAdapterRegistry", () => {
     }
   });
 
-  it("marks PDF, IMAGE, WEBSITE, and GOOGLE_MAPS as implemented", () => {
+  it("marks PDF, IMAGE, CSV, WEBSITE, and GOOGLE_MAPS as implemented", () => {
     expect(importAdapterRegistry.get(ImportSourceType.PDF)?.implemented).toBe(true);
     expect(importAdapterRegistry.get(ImportSourceType.IMAGE)?.implemented).toBe(true);
+    expect(importAdapterRegistry.get(ImportSourceType.CSV)?.implemented).toBe(true);
     expect(importAdapterRegistry.get(ImportSourceType.WEBSITE)?.implemented).toBe(true);
     expect(importAdapterRegistry.get(ImportSourceType.GOOGLE_MAPS)?.implemented).toBe(true);
   });
@@ -35,6 +36,7 @@ describe("importAdapterRegistry", () => {
   it("reports the correct inputKind per source", () => {
     expect(importAdapterRegistry.get(ImportSourceType.PDF)?.inputKind).toBe("file");
     expect(importAdapterRegistry.get(ImportSourceType.IMAGE)?.inputKind).toBe("file");
+    expect(importAdapterRegistry.get(ImportSourceType.CSV)?.inputKind).toBe("file");
     expect(importAdapterRegistry.get(ImportSourceType.WEBSITE)?.inputKind).toBe("url");
     expect(importAdapterRegistry.get(ImportSourceType.GOOGLE_MAPS)?.inputKind).toBe("url");
     expect(importAdapterRegistry.get(ImportSourceType.DOORDASH)?.inputKind).toBe("url");

@@ -52,6 +52,7 @@ export interface MenuItemInput {
 export type ImportSourceType =
   | "PDF"
   | "IMAGE"
+  | "CSV"
   | "WEBSITE"
   | "GOOGLE_MAPS"
   | "DOORDASH"
@@ -60,16 +61,25 @@ export type ImportSourceType =
 
 export type ImportStatus = "PENDING" | "PROCESSING" | "AWAITING_REVIEW" | "APPROVED" | "REJECTED" | "FAILED";
 
+export interface SocialLink {
+  platform: string;
+  url: string;
+}
+
 export interface BusinessProfile {
   name?: string;
   address?: string;
   phone?: string;
+  website?: string;
+  hours?: string[];
+  logoUrl?: string;
+  socialLinks?: SocialLink[];
 }
 
 export interface ExtractedMenuData {
   categories: {
     name: string;
-    items: { name: string; description?: string; priceCents: number }[];
+    items: { name: string; description?: string; priceCents: number; confidence?: number }[];
   }[];
   businessProfile?: BusinessProfile;
 }
@@ -193,6 +203,17 @@ export function approveImportJob(id: string) {
 
 export function rejectImportJob(id: string) {
   return apiFetch<{ job: ImportJob }>(`/api/imports/${id}/reject`, { method: "POST" });
+}
+
+export function rerunImportJob(id: string) {
+  return apiFetch<{ job: ImportJob }>(`/api/imports/${id}/rerun`, { method: "POST" });
+}
+
+export function updateImportJobData(id: string, data: ExtractedMenuData) {
+  return apiFetch<{ job: ImportJob }>(`/api/imports/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 // ---------------------------------------------------------------------------

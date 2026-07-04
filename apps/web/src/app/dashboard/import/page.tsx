@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DashboardNav } from "@/components/dashboard-nav";
 import type { ImportJob } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
+import { RerunButton } from "./rerun-button";
 import { UploadForm } from "./upload-form";
 
 export default async function ImportPage() {
@@ -26,14 +27,19 @@ export default async function ImportPage() {
                 <span>
                   {job.sourceType} — <span className="font-mono">{job.status}</span>
                 </span>
-                {job.status === "AWAITING_REVIEW" && (
-                  <Link href={`/dashboard/import/${job.id}`} className="font-medium text-zinc-950 dark:text-zinc-50">
-                    Review
-                  </Link>
-                )}
-                {job.status === "FAILED" && job.errorMessage && (
-                  <span className="text-xs text-red-600">{job.errorMessage}</span>
-                )}
+                <span className="flex items-center gap-3">
+                  {job.status === "AWAITING_REVIEW" && (
+                    <Link href={`/dashboard/import/${job.id}`} className="font-medium text-zinc-950 dark:text-zinc-50">
+                      Review
+                    </Link>
+                  )}
+                  {job.status === "FAILED" && job.errorMessage && (
+                    <span className="text-xs text-red-600">{job.errorMessage}</span>
+                  )}
+                  {(job.status === "FAILED" || job.status === "APPROVED" || job.status === "REJECTED") && (
+                    <RerunButton jobId={job.id} />
+                  )}
+                </span>
               </li>
             ))}
           </ul>

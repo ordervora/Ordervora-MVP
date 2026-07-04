@@ -112,4 +112,69 @@ describe("WebsiteImportAdapter", () => {
       adapter.extract({ kind: "file", buffer: Buffer.from(""), mimeType: "application/pdf" }),
     ).rejects.toThrow();
   });
+
+  describe("menu-link crawl + social links (Sprint 10)", () => {
+    it("follows a discovered 'Menu' nav link as one bounded extra hop and merges its extraction", async () => {
+      mockSafeFetch
+        .mockResolvedValueOnce({
+          buffer: Buffer.from(htmlPage('<nav><a href="/menu">Menu</a></nav><p>Welcome to Joe\'s</p>')),
+          contentType: "text/html",
+          finalUrl: "https://example.com/",
+        })
+        .mockResolvedValueOnce({
+          buffer: Buffer.from(htmlPage("<p>Burger $12</p>")),
+          contentType: "text/html",
+          finalUrl: "https://example.com/menu",
+        });
+      mockExtractText
+        .mockResolvedValueOnce({ categories: [{ name: "From Home Page", items: [] }] })
+        .mockResolvedValueOnce({ categories: [{ name: "From Menu Page", items: [] }] });
+
+      const result = await adapter.extract({ kind: "url", url: "https://example.com/" });
+
+      expect(mockSafeFetch).toHaveBeenCalledWith("https://example.com/menu");
+      expect(result.categories.map((c) => c.name)).toEqual(["From Home Page", "From Menu Page"]);
+    });
+
+    it("does not follow any extra link when no menu-like link is found on the page", async () => {
+      mockSafeFetch.mockResolvedValueOnce({
+        buffer: Buffer.from(htmlPage('<a href="/about">About</a><p>Burger $12</p>')),
+        contentType: "text/html",
+        finalUrl: "https://example.com/",
+      });
+      mockExtractText.mockResolvedValue({ categories: [{ name: "From Text", items: [] }] });
+
+      await adapter.extract({ kind: "url", url: "https://example.com/" });
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("still returns the original page's result when following the discovered menu link fails", async () => {
+      mockSafeFetch
+        .mockResolvedValueOnce({
+          buffer: Buffer.from(htmlPage('<a href="/menu">Menu</a><p>Burger $12</p>')),
+          contentType: "text/html",
+          finalUrl: "https://example.com/",
+        })
+        .mockRejectedValueOnce(new Error("fetch failed"));
+      mockExtractText.mockResolvedValue({ categories: [{ name: "From Text", items: [] }] });
+
+      const result = await adapter.extract({ kind: "url", url: "https://example.com/" });
+
+      expect(result.categories).toEqual([{ name: "From Text", items: [] }]);
+    });
+
+    it("surfaces social links found on the page into businessProfile.socialLinks", async () => {
+      mockSafeFetch.mockResolvedValueOnce({
+        buffer: Buffer.from(htmlPage('<a href="https://instagram.com/joesdiner">IG</a><p>Burger $12</p>')),
+        contentType: "text/html",
+        finalUrl: "https://example.com/",
+      });
+      mockExtractText.mockResolvedValue({ categories: [] });
+
+      const result = await adapter.extract({ kind: "url", url: "https://example.com/" });
+
+      expect(result.businessProfile?.socialLinks).toEqual([{ platform: "instagram", url: "https://instagram.com/joesdiner" }]);
+    });
+  });
 });

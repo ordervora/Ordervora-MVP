@@ -12,11 +12,23 @@ export function mergeExtractedMenuData(results: ExtractedMenuData[]): ExtractedM
   const categories = results.flatMap((result) => result.categories);
 
   const businessProfile: NonNullable<ExtractedMenuData["businessProfile"]> = {};
+  const socialLinksByPlatform = new Map<string, string>();
   for (const result of results) {
     if (!result.businessProfile) continue;
     businessProfile.name ??= result.businessProfile.name;
     businessProfile.address ??= result.businessProfile.address;
     businessProfile.phone ??= result.businessProfile.phone;
+    businessProfile.website ??= result.businessProfile.website;
+    businessProfile.hours ??= result.businessProfile.hours;
+    businessProfile.logoUrl ??= result.businessProfile.logoUrl;
+    for (const link of result.businessProfile.socialLinks ?? []) {
+      if (!socialLinksByPlatform.has(link.platform)) {
+        socialLinksByPlatform.set(link.platform, link.url);
+      }
+    }
+  }
+  if (socialLinksByPlatform.size > 0) {
+    businessProfile.socialLinks = [...socialLinksByPlatform].map(([platform, url]) => ({ platform, url }));
   }
 
   const hasProfile = Object.values(businessProfile).some((value) => value !== undefined);

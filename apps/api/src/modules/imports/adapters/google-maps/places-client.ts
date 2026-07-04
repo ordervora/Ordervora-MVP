@@ -4,15 +4,22 @@ export interface PlaceDetails {
   name?: string;
   address?: string;
   phone?: string;
+  website?: string;
+  // Weekday-ordered display strings straight from Places API
+  // (e.g. "Monday: 9:00 AM - 9:00 PM") — kept as-is, not parsed into
+  // structured open/close times, since this only feeds a review screen.
+  hours?: string[];
   photoNames: string[];
 }
 
-const FIELD_MASK = "displayName,formattedAddress,internationalPhoneNumber,photos";
+const FIELD_MASK = "displayName,formattedAddress,internationalPhoneNumber,websiteUri,regularOpeningHours,photos";
 
 interface PlaceDetailsResponse {
   displayName?: { text?: string };
   formattedAddress?: string;
   internationalPhoneNumber?: string;
+  websiteUri?: string;
+  regularOpeningHours?: { weekdayDescriptions?: string[] };
   photos?: { name: string }[];
 }
 
@@ -39,6 +46,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     name: data.displayName?.text,
     address: data.formattedAddress,
     phone: data.internationalPhoneNumber,
+    website: data.websiteUri,
+    hours: data.regularOpeningHours?.weekdayDescriptions,
     photoNames: (data.photos ?? []).map((photo) => photo.name),
   };
 }

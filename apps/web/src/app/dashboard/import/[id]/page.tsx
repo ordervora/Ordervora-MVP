@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { DashboardNav } from "@/components/dashboard-nav";
 import type { ImportJob } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
-import { ReviewActions } from "./review-actions";
+import { BusinessProfilePreview } from "./business-profile-preview";
+import { ReviewEditor } from "./review-editor";
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -37,34 +38,25 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
             </p>
           )}
 
-          {job.extractedData?.businessProfile && (
-            <div className="flex flex-col gap-1 rounded border border-black/[.08] p-3 text-sm dark:border-white/[.145]">
-              <h2 className="font-medium text-black dark:text-zinc-50">
-                Restaurant profile update (applied on approve)
-              </h2>
-              {job.extractedData.businessProfile.name && <p>Name: {job.extractedData.businessProfile.name}</p>}
-              {job.extractedData.businessProfile.address && (
-                <p>Address: {job.extractedData.businessProfile.address}</p>
-              )}
-              {job.extractedData.businessProfile.phone && <p>Phone: {job.extractedData.businessProfile.phone}</p>}
-            </div>
+          {job.extractedData?.businessProfile && <BusinessProfilePreview profile={job.extractedData.businessProfile} />}
+
+          {job.status === "AWAITING_REVIEW" ? (
+            <ReviewEditor job={job} />
+          ) : (
+            job.extractedData?.categories.map((category) => (
+              <div key={category.name} className="flex flex-col gap-1">
+                <h2 className="font-medium text-black dark:text-zinc-50">{category.name}</h2>
+                <ul className="flex flex-col gap-1 pl-4 text-sm text-zinc-700 dark:text-zinc-300">
+                  {category.items.map((item) => (
+                    <li key={item.name}>
+                      {item.name} — ${formatPrice(item.priceCents)}
+                      {item.description && <span className="text-zinc-500"> · {item.description}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
           )}
-
-          {job.extractedData?.categories.map((category) => (
-            <div key={category.name} className="flex flex-col gap-1">
-              <h2 className="font-medium text-black dark:text-zinc-50">{category.name}</h2>
-              <ul className="flex flex-col gap-1 pl-4 text-sm text-zinc-700 dark:text-zinc-300">
-                {category.items.map((item) => (
-                  <li key={item.name}>
-                    {item.name} — ${formatPrice(item.priceCents)}
-                    {item.description && <span className="text-zinc-500"> · {item.description}</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-
-          {job.status === "AWAITING_REVIEW" && <ReviewActions jobId={job.id} />}
         </div>
       </div>
     </div>

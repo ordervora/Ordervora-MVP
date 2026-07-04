@@ -4,9 +4,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createImportJob, type ImportSourceType } from "@/lib/api";
 
-const SOURCES: { value: ImportSourceType; label: string; enabled: boolean; inputKind: "file" | "url" }[] = [
-  { value: "PDF", label: "PDF", enabled: true, inputKind: "file" },
-  { value: "IMAGE", label: "Image", enabled: true, inputKind: "file" },
+const SOURCES: { value: ImportSourceType; label: string; enabled: boolean; inputKind: "file" | "url"; accept?: string }[] = [
+  { value: "PDF", label: "PDF", enabled: true, inputKind: "file", accept: "application/pdf" },
+  { value: "IMAGE", label: "Image", enabled: true, inputKind: "file", accept: "image/png,image/jpeg,image/webp,image/gif" },
+  {
+    value: "CSV",
+    label: "CSV / Spreadsheet",
+    enabled: true,
+    inputKind: "file",
+    accept: ".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  },
   { value: "WEBSITE", label: "Website URL", enabled: true, inputKind: "url" },
   { value: "GOOGLE_MAPS", label: "Google Maps", enabled: true, inputKind: "url" },
   { value: "DOORDASH", label: "DoorDash", enabled: false, inputKind: "url" },
@@ -86,7 +93,7 @@ export function UploadForm() {
           File
           <input
             type="file"
-            accept="application/pdf,image/png,image/jpeg,image/webp,image/gif"
+            accept={selected.accept}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
           />

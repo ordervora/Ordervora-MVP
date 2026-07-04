@@ -2,8 +2,9 @@ import type { Request, Response } from "express";
 import { NoRestaurantError } from "../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../restaurants/restaurant.service";
 import { importAdapterRegistry } from "./adapters/registry";
-import { ImportJobNotFoundError, ImportJobNotReadyError } from "./import.errors";
-import { approveJob, createImportJob, getJob, listJobs, rejectJob } from "./import.service";
+import { ImportJobNotFoundError, ImportJobNotReadyError, ImportJobNotRerunnableError } from "./import.errors";
+import { approveJob, createImportJob, getJob, listJobs, rejectJob, rerunJob, updateJobData } from "./import.service";
+import { extractedMenuDataSchema } from "./types";
 import { createImportSchema } from "./import.validation";
 
 function paramId(req: Request): string {
@@ -81,6 +82,33 @@ export async function getOne(req: Request, res: Response): Promise<void> {
   }
 }
 
+/** Lets the reviewer persist edits (bulk category move, delete, fix a name/price) before approving. */
+export async function updateData(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const parsed = extractedMenuDataSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const job = await updateJobData(restaurantId, paramId(req), parsed.data);
+    res.status(200).json({ job });
+  } catch (err) {
+    if (err instanceof ImportJobNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ImportJobNotReadyError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
 export async function approve(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
   if (!restaurantId) return;
@@ -111,6 +139,26 @@ export async function reject(req: Request, res: Response): Promise<void> {
   } catch (err) {
     if (err instanceof ImportJobNotFoundError) {
       res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function rerun(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  try {
+    const job = await rerunJob(restaurantId, paramId(req));
+    res.status(202).json({ job });
+  } catch (err) {
+    if (err instanceof ImportJobNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ImportJobNotRerunnableError) {
+      res.status(409).json({ error: err.message });
       return;
     }
     throw err;

@@ -28,8 +28,8 @@ import { fileStorage } from "../../lib/file-storage";
 import { prisma } from "../../lib/prisma";
 import { createCategory, createItem } from "../menu/menu.service";
 import { updateRestaurantById } from "../restaurants/restaurant.service";
-import { ImportJobNotFoundError, ImportJobNotReadyError } from "./import.errors";
-import { approveJob, createImportJob, rejectJob } from "./import.service";
+import { ImportJobNotFoundError, ImportJobNotReadyError, ImportJobNotRerunnableError } from "./import.errors";
+import { approveJob, createImportJob, rejectJob, rerunJob, updateJobData } from "./import.service";
 import { importJobRunner } from "./job-runner";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
@@ -63,6 +63,7 @@ describe("createImportJob", () => {
         createdById: "user-1",
         sourceType: "PDF",
         sourceFilePath: "/uploads/abc.pdf",
+        sourceMimeType: "application/pdf",
       },
     });
     expect(mockJobRunner.enqueue).toHaveBeenCalledWith("job-1", {
@@ -70,6 +71,107 @@ describe("createImportJob", () => {
       buffer: Buffer.from("x"),
       mimeType: "application/pdf",
     });
+  });
+});
+
+describe("updateJobData", () => {
+  it("persists edited extractedData while the job is awaiting review", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      status: ImportStatus.AWAITING_REVIEW,
+    } as never);
+    mockPrisma.importJob.update.mockResolvedValue({ id: "job-1" } as never);
+
+    const edited = { categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1200 }] }] };
+    await updateJobData("my-restaurant", "job-1", edited);
+
+    expect(mockPrisma.importJob.update).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: { extractedData: edited },
+    });
+  });
+
+  it("rejects editing a job that isn't awaiting review", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      status: ImportStatus.APPROVED,
+    } as never);
+
+    await expect(updateJobData("my-restaurant", "job-1", { categories: [] })).rejects.toBeInstanceOf(
+      ImportJobNotReadyError,
+    );
+    expect(mockPrisma.importJob.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects editing a job belonging to a different restaurant", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({ id: "job-1", restaurantId: "other-restaurant" } as never);
+
+    await expect(updateJobData("my-restaurant", "job-1", { categories: [] })).rejects.toBeInstanceOf(
+      ImportJobNotFoundError,
+    );
+  });
+});
+
+describe("rerunJob", () => {
+  it("re-reads the stored file and re-enqueues extraction with its saved mimeType", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      sourceFilePath: "/uploads/abc.pdf",
+      sourceMimeType: "application/pdf",
+      sourceUrl: null,
+    } as never);
+    mockFileStorage.read.mockResolvedValue(Buffer.from("pdf-bytes"));
+    mockPrisma.importJob.update.mockResolvedValue({ id: "job-1", status: ImportStatus.PENDING } as never);
+
+    const result = await rerunJob("my-restaurant", "job-1");
+
+    expect(mockFileStorage.read).toHaveBeenCalledWith("/uploads/abc.pdf");
+    expect(mockJobRunner.enqueue).toHaveBeenCalledWith("job-1", {
+      kind: "file",
+      buffer: Buffer.from("pdf-bytes"),
+      mimeType: "application/pdf",
+    });
+    expect(mockPrisma.importJob.update).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: { status: ImportStatus.PENDING, errorMessage: null, extractedData: expect.anything(), reviewedAt: null },
+    });
+    expect(result).toEqual({ id: "job-1", status: ImportStatus.PENDING });
+  });
+
+  it("re-enqueues a url-based job with its stored sourceUrl", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      sourceFilePath: null,
+      sourceUrl: "https://example.com/menu",
+    } as never);
+    mockPrisma.importJob.update.mockResolvedValue({ id: "job-1", status: ImportStatus.PENDING } as never);
+
+    await rerunJob("my-restaurant", "job-1");
+
+    expect(mockFileStorage.read).not.toHaveBeenCalled();
+    expect(mockJobRunner.enqueue).toHaveBeenCalledWith("job-1", { kind: "url", url: "https://example.com/menu" });
+  });
+
+  it("throws when the job has neither a stored file nor a URL", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      restaurantId: "my-restaurant",
+      sourceFilePath: null,
+      sourceUrl: null,
+    } as never);
+
+    await expect(rerunJob("my-restaurant", "job-1")).rejects.toBeInstanceOf(ImportJobNotRerunnableError);
+    expect(mockJobRunner.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("rejects rerunning a job that belongs to a different restaurant", async () => {
+    mockPrisma.importJob.findUnique.mockResolvedValue({ id: "job-1", restaurantId: "other-restaurant" } as never);
+
+    await expect(rerunJob("my-restaurant", "job-1")).rejects.toBeInstanceOf(ImportJobNotFoundError);
   });
 });
 

@@ -17,6 +17,8 @@ describe("getPlaceDetails", () => {
           displayName: { text: "Joe's Diner" },
           formattedAddress: "123 Main St",
           internationalPhoneNumber: "+1 555-0100",
+          websiteUri: "https://joesdiner.example",
+          regularOpeningHours: { weekdayDescriptions: ["Monday: 9:00 AM - 9:00 PM"] },
           photos: [{ name: "places/abc/photos/1" }, { name: "places/abc/photos/2" }],
         }),
         { status: 200 },
@@ -29,8 +31,21 @@ describe("getPlaceDetails", () => {
       name: "Joe's Diner",
       address: "123 Main St",
       phone: "+1 555-0100",
+      website: "https://joesdiner.example",
+      hours: ["Monday: 9:00 AM - 9:00 PM"],
       photoNames: ["places/abc/photos/1", "places/abc/photos/2"],
     });
+  });
+
+  it("omits website/hours when the Places API doesn't return them", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ displayName: { text: "Joe's Diner" }, photos: [] }), { status: 200 }),
+    );
+
+    const details = await getPlaceDetails("abc");
+
+    expect(details.website).toBeUndefined();
+    expect(details.hours).toBeUndefined();
   });
 
   it("throws when the API responds with a non-2xx status", async () => {

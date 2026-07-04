@@ -1,5 +1,6 @@
 import type { ImportSourceType } from "@prisma/client";
 import type { ImportAdapter } from "../types";
+import { CsvImportAdapter } from "./csv.adapter";
 import { DoorDashImportAdapter } from "./doordash.adapter";
 import { GoogleMapsImportAdapter } from "./google-maps.adapter";
 import { GrubhubImportAdapter } from "./grubhub.adapter";
@@ -26,6 +27,7 @@ export const importAdapterRegistry = new ImportAdapterRegistry();
 // one adapter class + one `.register(new XAdapter())` line here.
 importAdapterRegistry.register(new PdfImportAdapter());
 importAdapterRegistry.register(new ImageImportAdapter());
+importAdapterRegistry.register(new CsvImportAdapter());
 importAdapterRegistry.register(new WebsiteImportAdapter());
 importAdapterRegistry.register(new GoogleMapsImportAdapter());
 importAdapterRegistry.register(new DoorDashImportAdapter());

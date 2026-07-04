@@ -1,13 +1,13 @@
 import type { ImportJob } from "@prisma/client";
-import { ImportStatus } from "@prisma/client";
+import { ImportStatus, Prisma } from "@prisma/client";
 import { fileStorage } from "../../lib/file-storage";
 import { prisma } from "../../lib/prisma";
 import { createCategory, createItem } from "../menu/menu.service";
 import { updateRestaurantById } from "../restaurants/restaurant.service";
-import { ImportJobNotFoundError, ImportJobNotReadyError } from "./import.errors";
+import { ImportJobNotFoundError, ImportJobNotReadyError, ImportJobNotRerunnableError } from "./import.errors";
 import type { CreateImportInput } from "./import.validation";
 import { importJobRunner } from "./job-runner";
-import { extractedMenuDataSchema, type ImportSourceInput } from "./types";
+import { extractedMenuDataSchema, type ExtractedMenuData, type ImportSourceInput } from "./types";
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -24,9 +24,12 @@ export async function createImportJob(
   let sourceFilePath: string | undefined;
   let sourceInput: ImportSourceInput;
 
+  let sourceMimeType: string | undefined;
+
   if (file) {
     const saved = await fileStorage.save(file.buffer, file.originalName);
     sourceFilePath = saved.path;
+    sourceMimeType = file.mimeType;
     sourceInput = { kind: "file", buffer: file.buffer, mimeType: file.mimeType };
   } else {
     if (!input.sourceUrl) {
@@ -41,6 +44,7 @@ export async function createImportJob(
       createdById,
       sourceType: input.sourceType,
       sourceFilePath,
+      sourceMimeType,
       sourceUrl: input.sourceUrl,
     },
   });
@@ -94,6 +98,58 @@ export async function approveJob(restaurantId: string, jobId: string): Promise<I
     where: { id: job.id },
     data: { status: ImportStatus.APPROVED, reviewedAt: new Date() },
   });
+}
+
+/**
+ * Lets the reviewer edit the AI-extracted data (bulk category
+ * reassignment, deleting bad rows, fixing a name/price) before it's
+ * committed to the menu — persisted here so approveJob's own re-read of
+ * job.extractedData picks up the edits, rather than the review screen
+ * needing a separate "apply my edits" code path.
+ */
+export async function updateJobData(restaurantId: string, jobId: string, data: ExtractedMenuData): Promise<ImportJob> {
+  const job = await findOwnJob(restaurantId, jobId);
+  if (job.status !== ImportStatus.AWAITING_REVIEW) {
+    throw new ImportJobNotReadyError();
+  }
+
+  return prisma.importJob.update({
+    where: { id: job.id },
+    data: { extractedData: data },
+  });
+}
+
+/**
+ * Re-runs extraction for an existing job using its own already-stored
+ * file (re-read from fileStorage) or sourceUrl — the same inputs the
+ * original createImportJob call used, so a FAILED job (transient fetch
+ * error, flaky AI call) or simply a website that's changed since the
+ * last import can be retried without the owner re-uploading/re-pasting
+ * anything. Resets status/extractedData so job-runner processes it fresh;
+ * does not touch anything already approved into the live menu from a
+ * prior run of this same job.
+ */
+export async function rerunJob(restaurantId: string, jobId: string): Promise<ImportJob> {
+  const job = await findOwnJob(restaurantId, jobId);
+
+  let sourceInput: ImportSourceInput;
+  if (job.sourceFilePath) {
+    const buffer = await fileStorage.read(job.sourceFilePath);
+    sourceInput = { kind: "file", buffer, mimeType: job.sourceMimeType ?? "application/octet-stream" };
+  } else if (job.sourceUrl) {
+    sourceInput = { kind: "url", url: job.sourceUrl };
+  } else {
+    throw new ImportJobNotRerunnableError();
+  }
+
+  const updated = await prisma.importJob.update({
+    where: { id: job.id },
+    data: { status: ImportStatus.PENDING, errorMessage: null, extractedData: Prisma.JsonNull, reviewedAt: null },
+  });
+
+  importJobRunner.enqueue(updated.id, sourceInput);
+
+  return updated;
 }
 
 export async function rejectJob(restaurantId: string, jobId: string): Promise<ImportJob> {
