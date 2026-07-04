@@ -239,6 +239,10 @@ const KNOWN_ENV_KEYS = [
   "RATE_LIMIT_PUBLIC_COMMERCE_PER_MINUTE",
   "RATE_LIMIT_WEBHOOK_PER_MINUTE",
   "RATE_LIMIT_STAFF_ACTION_PER_MINUTE",
+  // RC-1 — only read by api/cron/*.ts on the Vercel serverless deployment
+  // target; unused on the Docker/Render path, which still runs its own
+  // in-process schedulers instead.
+  "CRON_SECRET",
 ] as const;
 
 /**

@@ -7,6 +7,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src", "prisma", "scripts"],
+  "include": ["src", "prisma", "scripts", "api"],
   "exclude": ["node_modules", "dist"]
 }
