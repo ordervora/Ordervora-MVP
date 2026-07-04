@@ -119,8 +119,10 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
     try {
       await persistEdits();
       await approveImportJob(job.id);
-      router.push("/dashboard/import");
-      router.refresh();
+      // Sprint 11: approving hands off into the AI Restaurant Builder
+      // experience (site generation -> best-design selection -> publish
+      // -> QR provisioning), not back to the plain import list.
+      router.push("/dashboard/builder");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve import");
     } finally {

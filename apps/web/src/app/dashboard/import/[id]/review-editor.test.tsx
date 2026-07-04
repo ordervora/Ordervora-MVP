@@ -98,14 +98,14 @@ describe("ReviewEditor (Sprint 10)", () => {
     expect(mockApprove).not.toHaveBeenCalled();
   });
 
-  it("persists edits before approving, then redirects", async () => {
+  it("persists edits before approving, then hands off into the AI Restaurant Builder experience (Sprint 11)", async () => {
     render(<ReviewEditor job={job()} />);
 
     fireEvent.click(screen.getByText("Approve into menu"));
 
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith("job-1", expect.any(Object)));
     expect(mockApprove).toHaveBeenCalledWith("job-1");
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard/import"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/dashboard/builder"));
   });
 
   it("rejects without persisting edits first", async () => {

@@ -40,6 +40,8 @@ class InProcessGenerationJobRunner implements GenerationJobRunner {
 
   private async run(jobId: string, siteId: string, batchId: string, createdById: string): Promise<void> {
     try {
+      await prisma.generationJob.update({ where: { id: jobId }, data: { status: "RUNNING" } });
+
       const site = await prisma.site.findUniqueOrThrow({ where: { id: siteId } });
       const ingest = await ingestRestaurantData(site.restaurantId);
 

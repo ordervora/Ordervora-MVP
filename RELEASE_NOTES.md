@@ -1521,3 +1521,114 @@ explicit permission to be fetched (Website, Google Maps).
   `/dashboard/import/:id` pages were fetched with an authenticated
   session and inspected directly, confirming the CSV source option, the
   confidence badges, and the bulk-edit controls all render as designed.
+
+# Release Notes — Sprint 11: The AI Restaurant Builder Experience
+
+## Sprint 11 Summary
+
+Sprint 11 is a product-experience sprint, not a new-capability sprint: it
+fuses two features that already existed separately — the Import Engine
+(Sprints 04/05/10) and the AI Website Builder (Sprint 06) — into one
+continuous, cinematic "AI is building your restaurant" experience.
+Previously, approving an imported menu dropped the owner back on a plain
+list; building a website required navigating to a separate hub, clicking
+Generate, waiting on a small pulsing bar, picking one of three variations,
+then separately visiting Editor/Score/Publish pages, then separately
+creating a QR code from Tables. That's five disconnected manual steps.
+This sprint compresses all of it into one unbroken flow with zero extra
+clicks required for the happy path.
+
+A Product Experience Plan was written and shared before implementation
+(see conversation history) covering user journey, screen-by-screen
+experience, AI interactions, and error recovery — implementation followed
+it directly.
+
+## Features Completed
+
+- **Fused build pipeline**: approving an import now redirects into
+  `/dashboard/builder`, which auto-creates the site, starts generation,
+  auto-selects the highest-scoring variation once generation completes,
+  auto-publishes it, and auto-provisions one starter QR-ordering code —
+  all client-orchestrated over the *existing* site-generation/publish/
+  tables endpoints (no new backend capability was invented; see
+  Architecture Decisions).
+- **Live Build Screen**: a full-screen, staged timeline (grouped as
+  "Understanding your restaurant" / "Designing your website" /
+  "Publishing your business") with rotating AI-activity captions and a
+  live-growing website mockup — a schematic browser frame whose
+  header/hero/menu/gallery/footer blocks solidify from skeleton
+  placeholders into filled blocks as each *real* backend stage completes.
+  Every visible step maps to genuine work (the existing `GenerationJob`
+  stages, then the new client-orchestrated select/publish/QR steps) —
+  nothing is a fake timer.
+- **Finale Reveal**: a confetti burst, a live device preview of the
+  actually-published site (reusing the existing preview-token mechanism),
+  a real scannable/downloadable QR code encoding the customer ordering
+  URL, and next-step CTAs (view website, manage QR codes, go to
+  dashboard).
+- **Resumable by design**: reopening `/dashboard/builder` re-derives
+  state from the server (site/job status) — already-published sites go
+  straight to the reveal; an in-progress or previously-failed generation
+  resumes or offers retry instead of restarting the animation.
+- **Error recovery**: generation failures and post-generation
+  select/publish/QR failures surface inline on the same screen with a
+  human-readable message and a retry action — no dead-end pages. QR
+  provisioning failure specifically is non-fatal (the reveal still shows;
+  the owner can create a QR code later from Tables).
+- **Accessibility**: respects `prefers-reduced-motion` (via
+  `useSyncExternalStore`, not a state-setting effect) — falls back to a
+  plain stepped checklist with no heavy animation.
+
+## Maintenance Fixes
+
+- **`GenerationJob.status` was never set to `RUNNING`** despite the enum
+  having that value and the frontend explicitly checking for it — the
+  job runner only ever wrote `PENDING` (at creation) or `COMPLETED`/
+  `FAILED` (at the end), leaving `RUNNING` permanently dead code. Fixed
+  by setting `status: "RUNNING"` at the start of the job runner, before
+  any stage work begins. Low-risk, localized, fixed immediately per the
+  standing engineering policy.
+
+## Architecture Decisions
+
+- **No new backend capability, no schema changes.** Every stage in the
+  fused pipeline is either an existing `GenerationJob` stage or an
+  existing endpoint (`selectVariation`, `publishSite`,
+  `POST /me/tables`) called automatically by a new frontend orchestrator
+  hook (`useRestaurantBuilder`) instead of by a human clicking through
+  five separate pages. This keeps the blast radius small and fully
+  backward-compatible — the original manual Website hub, Editor, Score,
+  and Publish pages are untouched and still work exactly as before for
+  later edits/regeneration.
+- **Auto-select picks the highest `SiteScore.overall`** among the three
+  generated variations, ties broken by keeping the first-encountered
+  (highest `versionNo`) candidate — an explicit, testable, deterministic
+  rule rather than an opaque "AI choice."
+- **The "growing website" mockup is a structural skeleton reveal, not a
+  claim about real content** — colors/copy don't exist client-side until
+  generation finishes, so each block solidifies generically as its stage
+  completes rather than fabricating a preview of specific brand colors
+  or copy prematurely. Honest by construction.
+- **QR code encodes the existing customer ordering surface**
+  (`/order/qr/:qrToken`, from Sprint 07's QR ordering module) — no new
+  public route was added; only the auto-provisioning of one default
+  `Table` row is new (the customer-facing resolution flow already
+  existed).
+
+## Known Limitations
+
+- **No real browser automation available in this sandbox** — the client
+  orchestrator hook and every screen have thorough component/hook-level
+  test coverage (jsdom + mocked network), and the *entire real backend
+  pipeline* (site creation → generation with real menu data → auto-select
+  → publish → QR provisioning → the actual rendered preview showing the
+  real menu item) was verified end-to-end via direct HTTP calls against a
+  live local Postgres instance in this sandbox — but the client-side
+  hydration/rendering path itself (confetti firing, timeline animating,
+  the mockup filling in) was not observed in an actual browser.
+- **Tie-breaking among equally-scored variations** always keeps the same
+  one (highest `versionNo`) — deterministic, but not randomized or
+  owner-configurable.
+- **QR auto-provisioning always labels the table "Scan to Order"** and
+  isn't currently deduplicated against an existing table of the same
+  name if the owner re-runs the builder flow after already having one.

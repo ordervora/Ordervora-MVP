@@ -95,6 +95,17 @@ describe("generationJobRunner.enqueue", () => {
     expect(new Set(families)).toEqual(new Set(["LUXURY", "MODERN", "MINIMAL"]));
   });
 
+  it("marks the job RUNNING immediately, before any stage work begins (Sprint 11)", async () => {
+    generationJobRunner.enqueue("job-1", "site-1", "batch-1", "user-1");
+
+    // Wait for the whole run to finish (not just the RUNNING update) so this
+    // background task can't keep executing into the next test with mocks
+    // that have since been cleared.
+    await vi.waitFor(() => expect(mockPrisma.siteVersion.create).toHaveBeenCalledTimes(3));
+
+    expect(mockPrisma.generationJob.update).toHaveBeenCalledWith({ where: { id: "job-1" }, data: { status: "RUNNING" } });
+  });
+
   it("archives previous VARIATION rows before creating the new batch", async () => {
     generationJobRunner.enqueue("job-1", "site-1", "batch-1", "user-1");
 

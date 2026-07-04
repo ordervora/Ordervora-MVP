@@ -13,7 +13,9 @@
   "dependencies": {
     "@stripe/react-stripe-js": "^3.0.0",
     "@stripe/stripe-js": "^4.10.0",
+    "canvas-confetti": "^1.9.4",
     "next": "16.2.9",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -21,6 +23,7 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
