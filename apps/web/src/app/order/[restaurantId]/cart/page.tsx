@@ -5,13 +5,18 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   applyCoupon,
+  createAddress,
+  customerMe,
   getCart,
+  listAddresses,
   removeCartItem,
   removeCoupon,
   setCartFulfillment,
   updateCartItemQuantity,
   type Cart,
+  type CustomerAddress,
   type FulfillmentType,
+  type PublicCustomer,
 } from "@/lib/commerce-api";
 import { getStoredCartId } from "@/lib/cart-storage";
 
@@ -30,11 +35,34 @@ export default function CartPage() {
   const [error, setError] = useState<string | null>(null);
   const [cartId] = useState<string | null>(() => getStoredCartId(restaurantId));
 
+  // Delivery address picker (Sprint 08.1) — addresses are a logged-in-
+  // customer feature only (guest checkout has no saved addresses), so
+  // authChecked distinguishes "still checking" from "confirmed guest".
+  const [customer, setCustomer] = useState<PublicCustomer | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
+  const [showAddAddress, setShowAddAddress] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [newAddress, setNewAddress] = useState({ line1: "", city: "", state: "", postalCode: "", country: "US" });
+
   useEffect(() => {
     if (!cartId) {
       router.replace(`/order/${restaurantId}`);
     }
   }, [cartId, restaurantId, router]);
+
+  useEffect(() => {
+    customerMe()
+      .then(({ customer: me }) => {
+        setCustomer(me);
+        return listAddresses();
+      })
+      .then((result) => {
+        if (result) setAddresses(result.addresses);
+      })
+      .catch(() => undefined)
+      .finally(() => setAuthChecked(true));
+  }, []);
 
   function refresh(id: string) {
     return getCart(id)
@@ -78,6 +106,27 @@ export default function CartPage() {
     if (!cartId) return;
     await setCartFulfillment(cartId, { fulfillmentType });
     refresh(cartId);
+  }
+
+  async function handleSelectAddress(deliveryAddressId: string) {
+    if (!cartId) return;
+    await setCartFulfillment(cartId, { fulfillmentType: "DELIVERY", deliveryAddressId });
+    refresh(cartId);
+  }
+
+  async function handleAddAddress(event: React.FormEvent) {
+    event.preventDefault();
+    if (!cartId) return;
+    setAddressError(null);
+    try {
+      const { address } = await createAddress(newAddress);
+      setAddresses((prev) => [...prev, address]);
+      setNewAddress({ line1: "", city: "", state: "", postalCode: "", country: "US" });
+      setShowAddAddress(false);
+      await handleSelectAddress(address.id);
+    } catch (err) {
+      setAddressError(err instanceof Error ? err.message : "Failed to add address");
+    }
   }
 
   async function handleApplyCoupon() {
@@ -165,6 +214,112 @@ export default function CartPage() {
               </button>
             ))}
           </div>
+
+          {cart.fulfillmentType === "DELIVERY" && (
+            <div className="mt-2 flex flex-col gap-3 border-t border-black/[.08] pt-3 dark:border-white/[.145]">
+              {!authChecked && <p className="text-sm text-zinc-600 dark:text-zinc-400">Checking your account…</p>}
+
+              {authChecked && !customer && (
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  <Link href="/account/login" className="font-medium text-zinc-950 dark:text-zinc-50">
+                    Log in
+                  </Link>{" "}
+                  to deliver to a saved address.
+                </p>
+              )}
+
+              {authChecked && customer && (
+                <>
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Deliver to</span>
+
+                  {addresses.length === 0 && !showAddAddress && (
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400">No saved addresses yet.</p>
+                  )}
+
+                  {addresses.length > 0 && (
+                    <ul className="flex flex-col gap-2">
+                      {addresses.map((address) => (
+                        <li key={address.id}>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAddress(address.id)}
+                            className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                              cart.deliveryAddressId === address.id
+                                ? "border-transparent bg-foreground text-background"
+                                : "border-black/[.08] text-zinc-700 dark:border-white/[.145] dark:text-zinc-300"
+                            }`}
+                          >
+                            {address.line1}, {address.city}, {address.state} {address.postalCode}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {addressError && <p className="text-sm text-red-600">{addressError}</p>}
+
+                  {showAddAddress ? (
+                    <form onSubmit={handleAddAddress} className="flex flex-col gap-2">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Street address"
+                        value={newAddress.line1}
+                        onChange={(e) => setNewAddress((prev) => ({ ...prev, line1: e.target.value }))}
+                        className="rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          required
+                          placeholder="City"
+                          value={newAddress.city}
+                          onChange={(e) => setNewAddress((prev) => ({ ...prev, city: e.target.value }))}
+                          className="flex-1 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                        />
+                        <input
+                          type="text"
+                          required
+                          placeholder="State"
+                          value={newAddress.state}
+                          onChange={(e) => setNewAddress((prev) => ({ ...prev, state: e.target.value }))}
+                          className="w-20 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                        />
+                        <input
+                          type="text"
+                          required
+                          placeholder="ZIP"
+                          value={newAddress.postalCode}
+                          onChange={(e) => setNewAddress((prev) => ({ ...prev, postalCode: e.target.value }))}
+                          className="w-24 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="submit" className="rounded-full bg-foreground px-4 py-2 text-sm text-background">
+                          Save address
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddAddress(false)}
+                          className="rounded-full border border-black/[.08] px-4 py-2 text-sm text-zinc-700 dark:border-white/[.145] dark:text-zinc-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddAddress(true)}
+                      className="self-start text-sm font-medium text-zinc-950 dark:text-zinc-50"
+                    >
+                      + Add a new address
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
