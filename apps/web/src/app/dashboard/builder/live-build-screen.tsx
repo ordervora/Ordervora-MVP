@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BUILD_STEPS, overallProgressPercent, statusFor } from "./build-steps";
+import {
+  BUILD_STEPS,
+  VALUE_PITCH_ITEMS,
+  overallProgressPercent,
+  statusFor,
+  type BuildCaptionContext,
+} from "./build-steps";
+import { DesignChoiceReveal } from "./design-choice-reveal";
 import { usePrefersReducedMotion } from "./use-prefers-reduced-motion";
+import type { DesignCandidate } from "./use-restaurant-builder";
 import { WebsiteMockup } from "./website-mockup";
 
 const CAPTION_ROTATE_MS = 2200;
+const REASSURANCE_DELAY_MS = 7000;
 
 /**
  * Keyed by activeStepId at the call site so React remounts this (fresh
@@ -24,22 +33,83 @@ function RotatingCaption({ captions }: { captions: string[] }) {
   return <>{captions[index] ?? ""}</>;
 }
 
+/**
+ * A quiet reassurance line that only appears once the current stage has
+ * been active for a while — reassures without nagging on the fast steps.
+ * Keyed by activeStepId at the call site, same remount-to-reset pattern as
+ * RotatingCaption.
+ */
+function ReassuranceLine() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShow(true), REASSURANCE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!show) return null;
+  return (
+    <p className="animate-[fade-in-up_0.5s_ease-out] text-xs text-zinc-500 dark:text-zinc-500">
+      Still working — great restaurants take an extra moment.
+    </p>
+  );
+}
+
+function ValuePitchChecklist({ activeStepId }: { activeStepId: string }) {
+  return (
+    <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-xs">
+      {VALUE_PITCH_ITEMS.map((item) => {
+        const done = statusFor(item.doneAtStepId, activeStepId) === "done";
+        return (
+          <li
+            key={item.label}
+            className={`flex items-center gap-1.5 ${
+              done ? "text-black dark:text-zinc-50" : "text-zinc-400 dark:text-zinc-600"
+            }`}
+          >
+            <span
+              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] transition-colors duration-500 ${
+                done ? "animate-[pop-in_0.4s_ease-out] bg-green-600 text-white" : "border border-zinc-300 dark:border-zinc-700"
+              }`}
+            >
+              {done ? "✓" : ""}
+            </span>
+            {item.label}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function LiveBuildScreen({
   restaurantName,
   activeStepId,
   errorMessage,
   onRetry,
+  captionContext,
+  candidates,
+  winnerId,
+  colorSeed,
 }: {
   restaurantName: string;
   activeStepId: string;
   errorMessage?: string | null;
   onRetry?: () => void;
+  /** Extra brand details known once a design has been picked — personalizes the SELECTING/PUBLISHING captions. */
+  captionContext?: Partial<BuildCaptionContext>;
+  /** Present once SELECTING starts — powers the "dramatize the choice" moment in place of the generic mockup. */
+  candidates?: DesignCandidate[];
+  winnerId?: string | null;
+  colorSeed?: string | null;
 }) {
   const reducedMotion = usePrefersReducedMotion();
   const activeStep = BUILD_STEPS.find((s) => s.id === activeStepId);
   const progress = overallProgressPercent(activeStepId);
 
   const groups = [...new Set(BUILD_STEPS.map((s) => s.group))];
+  const captions = activeStep?.captions({ restaurantName, ...captionContext }) ?? [];
+  const showDesignChoice = activeStepId === "SELECTING" && candidates && candidates.length > 0;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 bg-zinc-50 p-8 dark:bg-black">
@@ -48,12 +118,13 @@ export function LiveBuildScreen({
           Building {restaurantName}&apos;s digital home
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {errorMessage ? (
-            "We hit a snag — nothing was lost."
-          ) : (
-            <RotatingCaption key={activeStepId} captions={activeStep?.captions ?? []} />
-          )}
+          {errorMessage ? "We hit a snag — nothing was lost." : <RotatingCaption key={activeStepId} captions={captions} />}
         </p>
+        {!errorMessage && (
+          <div key={activeStepId}>
+            <ReassuranceLine />
+          </div>
+        )}
       </div>
 
       <div className="grid w-full max-w-3xl grid-cols-1 gap-8 md:grid-cols-2">
@@ -71,7 +142,7 @@ export function LiveBuildScreen({
                       <span
                         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] transition-colors duration-500 ${
                           status === "done"
-                            ? "bg-green-600 text-white"
+                            ? "animate-[pop-in_0.4s_ease-out] bg-green-600 text-white"
                             : status === "active"
                               ? `border-2 border-foreground ${reducedMotion ? "" : "animate-pulse"}`
                               : "border border-zinc-300 text-transparent dark:border-zinc-700"
@@ -97,7 +168,11 @@ export function LiveBuildScreen({
         </div>
 
         <div className="flex flex-col items-center gap-4">
-          <WebsiteMockup activeStepId={activeStepId} reducedMotion={reducedMotion} />
+          {showDesignChoice ? (
+            <DesignChoiceReveal candidates={candidates} winnerId={winnerId ?? null} reducedMotion={reducedMotion} />
+          ) : (
+            <WebsiteMockup activeStepId={activeStepId} reducedMotion={reducedMotion} colorSeed={colorSeed} />
+          )}
           <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
             <div
               className="h-full rounded-full bg-foreground transition-[width] duration-700"
@@ -105,6 +180,7 @@ export function LiveBuildScreen({
             />
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{progress}% complete</p>
+          <ValuePitchChecklist activeStepId={activeStepId} />
         </div>
       </div>
 

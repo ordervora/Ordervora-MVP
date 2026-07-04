@@ -1632,3 +1632,106 @@ it directly.
 - **QR auto-provisioning always labels the table "Scan to Order"** and
   isn't currently deduplicated against an existing table of the same
   name if the owner re-runs the builder flow after already having one.
+
+## Sprint 11.1 Summary
+
+A WWDC-style Product Experience Review of the shipped Sprint 11 flow
+identified ten small, no-new-feature polish opportunities to raise the
+experience's emotional register — all ten were approved and implemented,
+alongside two additional product decisions: the primary CTA is now the
+emotional payoff of the whole journey, and the finale's voice was warmed
+from technical-completion framing to business-success framing.
+
+## Features Completed
+
+- **The Reveal Beat**: a ~700ms cinematic pause on the fully-complete
+  build screen (100%, `PROVISIONING`) before cutting to the Finale,
+  replacing the previous instant hard-cut (`builder-experience.tsx`).
+- **Personalized captions**: build-step captions are now a function of
+  context (`BuildCaptionContext`) instead of static strings — they
+  reference the restaurant by name throughout, and once a design is
+  picked (`SELECTING` onward) reference its real cuisine/tagline
+  (`"Choosing the design that says \"…\""`) instead of generic copy.
+- **Real color, sooner**: the website mockup reskins with the actual
+  winning design's `colorSeed` as soon as it's known (`SELECTING`
+  onward) instead of staying a generic gradient all the way to the
+  Finale.
+- **Dramatize the choice**: a new `DesignChoiceReveal` component shows
+  the generated candidate designs as color-swatch cards during
+  `SELECTING`; after a short beat the winner scales up and glows while
+  the others fade — visualizing the auto-select the hook already
+  performs by score, not a new decision.
+- **Shimmer, not pulse**: the mockup's skeleton blocks now sweep with a
+  moving shimmer gradient (`shimmer-sweep` keyframe) instead of a flat
+  `animate-pulse`.
+- **Weighted progress**: `overallProgressPercent` now weights each stage
+  by its realistic relative duration (AI content generation and design
+  assembly count for more of the bar; theme selection and QR
+  provisioning are near-instant) instead of one uniform increment per
+  step.
+- **Reassurance line for slow moments**: a quiet secondary line
+  ("Still working — great restaurants take an extra moment.") fades in
+  if the active stage has been running for more than 7 seconds.
+- **Value-pitch checklist**: a secondary ticking checklist (Website ·
+  Mobile-ready · SEO · QR ordering) runs alongside the main timeline,
+  ticking off each deliverable as its gating stage completes.
+- **Micro-interaction pass**: timeline checkmarks and checklist items
+  pop in (`pop-in` keyframe) on completion instead of appearing flatly.
+- **Warmed-up Finale voice**: the headline, subhead, and QR section copy
+  were all rewritten from technical-completion framing ("_website is
+  live_", "_your QR ordering code_") to business-success framing — the
+  owner reads that they've launched a real business, not that a process
+  finished. An optional, muted-by-default success chime (synthesized
+  via Web Audio, no new audio asset) is available via a visible toggle
+  and, once turned on, is remembered for future reveals.
+- **"Open My Restaurant" as the primary payoff**: the Finale's primary
+  CTA is now a large, prominent "Open My Restaurant" button (repurposing
+  the existing `/dashboard/website` hub, the only real functional
+  destination this can honestly point to — the `slug.sites.ordervora.example`
+  string shown elsewhere on the page is illustrative, not a resolvable
+  live domain in this environment). "Manage QR codes" remains a normal
+  secondary action; "Go to dashboard" is now a small, muted tertiary
+  text link rather than a co-equal button.
+
+## Architecture Decisions
+
+- **No new backend capability, no schema changes, no new endpoints** —
+  every item above is a frontend presentation change over data already
+  returned by existing endpoints (`listVariations`'s `definition`/
+  `scores`, already fetched by `useRestaurantBuilder`, is simply now also
+  surfaced to the UI instead of only used internally to pick a winner).
+- **`useRestaurantBuilder` now exposes `candidates`, `winnerId`, and
+  `winningDesign`** (tagline/cuisine/colorSeed), captured once at the
+  start of the existing `runFinishSequence` — before this sprint that
+  data was fetched and immediately discarded after picking the best
+  score.
+- **The reassurance line and the design-choice reveal's delay both use
+  the same "remount via `key`" or "effect fires once on mount" pattern**
+  already established for `RotatingCaption` in Sprint 11 — no imperative
+  state resets inside effects, keeping the codebase's existing
+  `react-hooks/set-state-in-effect` discipline intact.
+- **The chime is synthesized with the Web Audio API**, not a bundled
+  audio file — three sine-wave notes shaped with a gain envelope. Kept
+  behind a try/catch since Web Audio availability is never guaranteed
+  and the chime is explicitly a nice-to-have.
+
+## Testing Strategy
+
+All ten items and both CTA/copy decisions are covered by updated/new
+tests in `build-steps.test.ts`, `live-build-screen.test.tsx`,
+`builder-experience.test.tsx`, `finale-reveal.test.tsx`, and
+`use-restaurant-builder.test.ts` — fake timers verify the reveal beat,
+the reassurance line's delay, and the design-choice reveal's delay
+deterministically rather than waiting on real time in CI.
+
+## Known Limitations (additional, this sub-sprint)
+
+- **"Open My Restaurant" opens the dashboard's website hub, not a real
+  external live URL** — this sandbox has no resolvable public domain for
+  published sites (`*.sites.ordervora.example` is illustrative), so the
+  primary CTA points at the most functional existing destination rather
+  than a URL that would 404 in production today. Revisit once real site
+  hosting/domains exist.
+- **The chime preference is stored in `localStorage`**, so it's
+  per-browser, not per-account — a fresh browser or incognito session
+  defaults back to muted, by design.

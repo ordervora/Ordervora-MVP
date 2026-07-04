@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("canvas-confetti", () => ({ default: vi.fn() }));
@@ -27,7 +27,7 @@ describe("FinaleReveal", () => {
       />,
     );
 
-    expect(screen.getByText(/Joe's Diner is live/)).toBeInTheDocument();
+    expect(screen.getByText(/Joe's Diner is officially open for business/)).toBeInTheDocument();
     expect(screen.getByTestId("device-preview")).toHaveTextContent("v-1");
   });
 
@@ -62,13 +62,31 @@ describe("FinaleReveal", () => {
     expect(screen.getByText(/isn't ready yet/)).toBeInTheDocument();
   });
 
-  it("offers next-step CTAs to the website, tables, and dashboard", () => {
+  it("offers next-step CTAs to the website, tables, and dashboard — with the restaurant itself as the primary payoff", () => {
     render(
       <FinaleReveal restaurantName="Joe's Diner" siteId="site-1" siteSlug="joes-diner" publishedVersionId={null} qrToken={null} qrError={null} />,
     );
 
-    expect(screen.getByText("View my website")).toBeInTheDocument();
+    expect(screen.getByText("Open My Restaurant")).toBeInTheDocument();
     expect(screen.getByText("Manage QR codes")).toBeInTheDocument();
     expect(screen.getByText("Go to dashboard")).toBeInTheDocument();
+  });
+
+  it("keeps the celebration chime muted by default, with a visible toggle", () => {
+    render(
+      <FinaleReveal
+        restaurantName="Joe's Diner"
+        siteId="site-1"
+        siteSlug="joes-diner"
+        publishedVersionId="v-1"
+        qrToken="tok-abc"
+        qrError={null}
+      />,
+    );
+
+    const toggle = screen.getByText("🔕 Sound off");
+    expect(toggle).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByText("🔔 Sound on")).toBeInTheDocument();
   });
 });

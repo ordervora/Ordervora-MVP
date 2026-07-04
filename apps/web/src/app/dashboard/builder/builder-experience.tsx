@@ -1,8 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { FinaleReveal } from "./finale-reveal";
 import { LiveBuildScreen } from "./live-build-screen";
 import { useRestaurantBuilder } from "./use-restaurant-builder";
+
+/** A brief cinematic beat between the last build step and the reveal — long enough to register, short enough to never feel like a stall. */
+const REVEAL_DELAY_MS = 700;
 
 /**
  * The orchestrated "AI Restaurant Builder" experience — see Sprint 11's
@@ -12,6 +16,13 @@ import { useRestaurantBuilder } from "./use-restaurant-builder";
  */
 export function BuilderExperience({ restaurantName }: { restaurantName: string }) {
   const state = useRestaurantBuilder();
+  const [readyToReveal, setReadyToReveal] = useState(false);
+
+  useEffect(() => {
+    if (state.phase !== "done") return;
+    const timer = setTimeout(() => setReadyToReveal(true), REVEAL_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state.phase]);
 
   if (state.phase === "loading") {
     return (
@@ -48,18 +59,23 @@ export function BuilderExperience({ restaurantName }: { restaurantName: string }
     );
   }
 
-  if (state.phase === "finishing" || state.phase === "finish_failed") {
+  if (state.phase === "finishing" || state.phase === "finish_failed" || (state.phase === "done" && !readyToReveal)) {
+    const activeStepId = state.phase === "done" ? "PROVISIONING" : (state.finishFailure?.step ?? state.finishStepId);
     return (
       <LiveBuildScreen
         restaurantName={restaurantName}
-        activeStepId={state.finishFailure?.step ?? state.finishStepId}
+        activeStepId={activeStepId}
         errorMessage={state.finishFailure?.message ?? null}
         onRetry={state.phase === "finish_failed" ? state.retryFinish : undefined}
+        captionContext={state.winningDesign ?? undefined}
+        candidates={state.candidates}
+        winnerId={state.winnerId}
+        colorSeed={state.winningDesign?.colorSeed}
       />
     );
   }
 
-  // phase === "done"
+  // phase === "done" && readyToReveal
   return (
     <FinaleReveal
       restaurantName={restaurantName}

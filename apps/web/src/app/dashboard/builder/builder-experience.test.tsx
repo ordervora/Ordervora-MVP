@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUseRestaurantBuilder = vi.fn();
 vi.mock("./use-restaurant-builder", () => ({
@@ -30,6 +30,9 @@ function baseState(overrides: Record<string, unknown> = {}) {
     publishedVersionId: null,
     finishStepId: "SELECTING",
     finishFailure: null,
+    candidates: [],
+    winnerId: null,
+    winningDesign: null,
     qrToken: null,
     qrError: null,
     bootstrapError: null,
@@ -69,10 +72,23 @@ describe("BuilderExperience", () => {
     expect(screen.getByTestId("live-build-screen")).toHaveTextContent("PUBLISHING");
   });
 
-  it("renders the finale reveal when done", () => {
-    mockUseRestaurantBuilder.mockReturnValue(baseState({ phase: "done", siteId: "site-1", siteSlug: "joes" }));
-    render(<BuilderExperience restaurantName="Joe's Diner" />);
-    expect(screen.getByTestId("finale-reveal")).toHaveTextContent("Joe's Diner");
+  describe("the reveal beat", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("holds on the build screen for a brief cinematic beat before revealing the finale", () => {
+      mockUseRestaurantBuilder.mockReturnValue(baseState({ phase: "done", siteId: "site-1", siteSlug: "joes" }));
+      render(<BuilderExperience restaurantName="Joe's Diner" />);
+
+      expect(screen.getByTestId("live-build-screen")).toHaveTextContent("PROVISIONING");
+      expect(screen.queryByTestId("finale-reveal")).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(700);
+      });
+
+      expect(screen.getByTestId("finale-reveal")).toHaveTextContent("Joe's Diner");
+    });
   });
 
   it("shows a bootstrap error with a retry button", () => {

@@ -32,6 +32,19 @@ export interface FinishFailure {
   message: string;
 }
 
+/** A candidate design considered during the auto-select moment — just enough to dramatize the choice, not the full definition. */
+export interface DesignCandidate {
+  id: string;
+  colorSeed: string | null;
+  overall: number;
+}
+
+export interface WinningDesign {
+  tagline: string;
+  cuisine: string;
+  colorSeed: string;
+}
+
 export interface BuilderState {
   phase: BuilderPhase;
   job: GenerationJob | null;
@@ -41,6 +54,11 @@ export interface BuilderState {
   /** Which of the post-generation client-orchestrated steps is active — only meaningful while phase is "finishing" or "finish_failed". */
   finishStepId: FinishStepId;
   finishFailure: FinishFailure | null;
+  /** All generated candidates plus the winning id, known as soon as SELECTING starts — powers the "dramatize the choice" moment. */
+  candidates: DesignCandidate[];
+  winnerId: string | null;
+  /** The winning design's brand details — known from SELECTING onward, used to personalize captions and show real color sooner. */
+  winningDesign: WinningDesign | null;
   qrToken: string | null;
   qrError: string | null;
   bootstrapError: string | null;
@@ -74,6 +92,9 @@ export function useRestaurantBuilder(): BuilderState {
   const [publishedVersionId, setPublishedVersionId] = useState<string | null>(null);
   const [finishStepId, setFinishStepId] = useState<FinishStepId>("SELECTING");
   const [finishFailure, setFinishFailure] = useState<FinishFailure | null>(null);
+  const [candidates, setCandidates] = useState<DesignCandidate[]>([]);
+  const [winnerId, setWinnerId] = useState<string | null>(null);
+  const [winningDesign, setWinningDesign] = useState<WinningDesign | null>(null);
   const [qrToken, setQrToken] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
@@ -94,6 +115,17 @@ export function useRestaurantBuilder(): BuilderState {
         return candidateScore > currentScore ? candidate : current;
       }, variations[0]!);
       bestVersionId = best.id;
+      setCandidates(
+        variations.map((v) => ({ id: v.id, colorSeed: v.definition?.colorSeed ?? null, overall: v.scores?.[0]?.overall ?? 0 })),
+      );
+      setWinnerId(bestVersionId);
+      if (best.definition) {
+        setWinningDesign({
+          tagline: best.definition.tagline,
+          cuisine: best.definition.cuisine,
+          colorSeed: best.definition.colorSeed,
+        });
+      }
       await selectVariation(id, bestVersionId);
     } catch (err) {
       setFinishFailure({ step: "SELECTING", message: errorMessage(err, "Couldn't choose your best design") });
@@ -246,6 +278,9 @@ export function useRestaurantBuilder(): BuilderState {
     publishedVersionId,
     finishStepId,
     finishFailure,
+    candidates,
+    winnerId,
+    winningDesign,
     qrToken,
     qrError,
     bootstrapError,

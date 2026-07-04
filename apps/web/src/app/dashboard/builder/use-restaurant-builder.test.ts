@@ -103,9 +103,9 @@ describe("useRestaurantBuilder", () => {
     });
     mockListVariations.mockResolvedValue({
       variations: [
-        { id: "v-low", scores: [{ overall: 60 }] },
-        { id: "v-best", scores: [{ overall: 92 }] },
-        { id: "v-mid", scores: [{ overall: 75 }] },
+        { id: "v-low", scores: [{ overall: 60 }], definition: { tagline: "Low", cuisine: "diner", colorSeed: "#111111" } },
+        { id: "v-best", scores: [{ overall: 92 }], definition: { tagline: "Best", cuisine: "italian", colorSeed: "#e8590c" } },
+        { id: "v-mid", scores: [{ overall: 75 }], definition: { tagline: "Mid", cuisine: "diner", colorSeed: "#222222" } },
       ],
     });
     mockSelectVariation.mockResolvedValue({ version: { id: "v-best" } });
@@ -119,6 +119,10 @@ describe("useRestaurantBuilder", () => {
     expect(mockCreateTable).toHaveBeenCalledWith("Scan to Order");
     expect(result.current.qrToken).toBe("tok-abc");
     expect(result.current.publishedVersionId).toBe("v-best");
+    expect(result.current.winnerId).toBe("v-best");
+    expect(result.current.winningDesign).toEqual({ tagline: "Best", cuisine: "italian", colorSeed: "#e8590c" });
+    expect(result.current.candidates).toHaveLength(3);
+    expect(result.current.candidates.find((c) => c.id === "v-best")?.colorSeed).toBe("#e8590c");
   });
 
   it("still reaches done when QR provisioning fails — non-fatal", async () => {
