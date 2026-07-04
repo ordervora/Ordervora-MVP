@@ -33,7 +33,7 @@ RUN pnpm fetch
 FROM fetch AS build
 COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY apps/api ./apps/api
-RUN pnpm install --offline --frozen-lockfile --filter api...
+RUN pnpm install --frozen-lockfile --filter api...
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter api run build
 
@@ -57,7 +57,7 @@ COPY pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/api/prisma ./apps/api/prisma
 COPY apps/api/prisma.config.ts ./apps/api/prisma.config.ts
-RUN pnpm install --offline --frozen-lockfile --filter api... --prod
+RUN pnpm install --frozen-lockfile --filter api... --prod
 RUN pnpm --filter api exec prisma generate
 
 # ---- runtime --------------------------------------------------------------
