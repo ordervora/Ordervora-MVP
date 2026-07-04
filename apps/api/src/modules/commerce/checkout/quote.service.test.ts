@@ -10,7 +10,7 @@ vi.mock("../../../lib/prisma", () => ({
     tax: { findMany: vi.fn(() => []) },
     deliveryFeeRule: { findMany: vi.fn(() => []) },
     serviceFeeRule: { findMany: vi.fn(() => []) },
-    customerAddress: { findUnique: vi.fn() },
+    customerAddress: { findFirst: vi.fn() },
   },
 }));
 
@@ -103,9 +103,22 @@ describe("computeCheckoutQuote", () => {
   });
 
   it("is ineligible for delivery when the address has no geocoded location", async () => {
-    mockPrisma.customerAddress.findUnique.mockResolvedValue({ id: "addr-1", lat: null, lng: null } as never);
-    const quote = await computeCheckoutQuote(cart({ fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+    mockPrisma.customerAddress.findFirst.mockResolvedValue({ id: "addr-1", lat: null, lng: null } as never);
+    const quote = await computeCheckoutQuote(cart({ customerId: "c1", fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
     expect(quote.eligible).toBe(false);
+  });
+
+  it("is ineligible for delivery when the address doesn't belong to the cart's own customer (scoped lookup finds nothing)", async () => {
+    mockPrisma.customerAddress.findFirst.mockResolvedValue(null as never);
+    const quote = await computeCheckoutQuote(cart({ customerId: "c1", fulfillmentType: "DELIVERY", deliveryAddressId: "someone-elses-addr" }), 0);
+    expect(quote.eligible).toBe(false);
+    expect(mockPrisma.customerAddress.findFirst).toHaveBeenCalledWith({ where: { id: "someone-elses-addr", customerId: "c1" } });
+  });
+
+  it("is ineligible for delivery on a guest cart (no customerId), without even querying for the address", async () => {
+    const quote = await computeCheckoutQuote(cart({ customerId: null, fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+    expect(quote.eligible).toBe(false);
+    expect(mockPrisma.customerAddress.findFirst).not.toHaveBeenCalled();
   });
 
   it("applies a PERCENTAGE coupon as a discount", async () => {
@@ -159,18 +172,18 @@ describe("computeCheckoutQuote", () => {
     });
 
     it("passes the delivery address's own lat/lng through to the zone containment check — eligible when inside the zone", async () => {
-      mockPrisma.customerAddress.findUnique.mockResolvedValue({ id: "addr-1", lat: 41.8005, lng: -87.6 } as never);
+      mockPrisma.customerAddress.findFirst.mockResolvedValue({ id: "addr-1", lat: 41.8005, lng: -87.6 } as never);
 
-      const quote = await computeCheckoutQuote(cart({ fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+      const quote = await computeCheckoutQuote(cart({ customerId: "c1", fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
 
       expect(quote.eligible).toBe(true);
       expect(quote.resolvedFulfillmentMethod).toBe("RESTAURANT_DRIVER");
     });
 
     it("rejects when the address's lat/lng falls outside the zone-scoped rule's polygon/radius", async () => {
-      mockPrisma.customerAddress.findUnique.mockResolvedValue({ id: "addr-1", lat: 42.5, lng: -87.6 } as never);
+      mockPrisma.customerAddress.findFirst.mockResolvedValue({ id: "addr-1", lat: 42.5, lng: -87.6 } as never);
 
-      const quote = await computeCheckoutQuote(cart({ fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
+      const quote = await computeCheckoutQuote(cart({ customerId: "c1", fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }), 0);
 
       expect(quote.eligible).toBe(false);
     });

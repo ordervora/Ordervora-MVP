@@ -7,6 +7,7 @@ import {
   CartItemNotFoundError,
   CartNotFoundError,
   CartRestaurantMismatchError,
+  DeliveryAddressNotFoundError,
   InvalidModifierSelectionError,
   ItemNotOrderableError,
 } from "./cart.errors";
@@ -164,7 +165,7 @@ export async function setFulfillmentHandler(req: Request, res: Response): Promis
     const cart = await setCartFulfillment(req.params.cartId as string, parsed.data);
     res.status(200).json({ cart });
   } catch (err) {
-    if (err instanceof CartNotFoundError) {
+    if (err instanceof CartNotFoundError || err instanceof DeliveryAddressNotFoundError) {
       res.status(404).json({ error: err.message });
       return;
     }

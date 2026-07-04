@@ -4,6 +4,7 @@ vi.mock("../../../lib/prisma", () => ({
   prisma: {
     cart: { findFirst: vi.fn(), create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     cartItem: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    customerAddress: { findFirst: vi.fn() },
     menuItem: { findUnique: vi.fn() },
     menuItemInventory: { findUnique: vi.fn() },
     menuItemVariant: { findUnique: vi.fn() },
@@ -26,6 +27,7 @@ import {
   CartItemNotFoundError,
   CartNotFoundError,
   CartRestaurantMismatchError,
+  DeliveryAddressNotFoundError,
   InvalidModifierSelectionError,
   ItemNotOrderableError,
 } from "./cart.errors";
@@ -35,6 +37,7 @@ import {
   cartSubtotalCents,
   getCartWithItems,
   getOrCreateActiveCart,
+  setCartFulfillment,
   updateCartItemQuantity,
 } from "./cart.service";
 
@@ -171,6 +174,54 @@ describe("updateCartItemQuantity ownership", () => {
   it("rejects an item that does not belong to the given cart", async () => {
     mockPrisma.cartItem.findUnique.mockResolvedValue({ id: "ci-1", cartId: "different-cart" } as never);
     await expect(updateCartItemQuantity("cart-1", "ci-1", 3)).rejects.toBeInstanceOf(CartItemNotFoundError);
+  });
+});
+
+describe("setCartFulfillment — delivery address ownership", () => {
+  it("rejects a deliveryAddressId belonging to a different customer", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", customerId: "c1", items: [] } as never);
+    mockPrisma.customerAddress.findFirst.mockResolvedValue(null as never);
+
+    await expect(
+      setCartFulfillment("cart-1", { fulfillmentType: "DELIVERY", deliveryAddressId: "addr-owned-by-someone-else" }),
+    ).rejects.toBeInstanceOf(DeliveryAddressNotFoundError);
+    expect(mockPrisma.customerAddress.findFirst).toHaveBeenCalledWith({
+      where: { id: "addr-owned-by-someone-else", customerId: "c1" },
+    });
+    expect(mockPrisma.cart.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects any deliveryAddressId on a guest cart (no customerId)", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", customerId: null, items: [] } as never);
+
+    await expect(
+      setCartFulfillment("cart-1", { fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" }),
+    ).rejects.toBeInstanceOf(DeliveryAddressNotFoundError);
+    expect(mockPrisma.customerAddress.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.cart.update).not.toHaveBeenCalled();
+  });
+
+  it("accepts a deliveryAddressId that genuinely belongs to the cart's own customer", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", customerId: "c1", items: [] } as never);
+    mockPrisma.customerAddress.findFirst.mockResolvedValue({ id: "addr-1", customerId: "c1" } as never);
+    mockPrisma.cart.update.mockResolvedValue({ id: "cart-1", fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" } as never);
+
+    await setCartFulfillment("cart-1", { fulfillmentType: "DELIVERY", deliveryAddressId: "addr-1" });
+
+    expect(mockPrisma.cart.update).toHaveBeenCalledWith({
+      where: { id: "cart-1" },
+      data: { fulfillmentType: "DELIVERY", scheduledFor: undefined, deliveryAddressId: "addr-1" },
+    });
+  });
+
+  it("skips the ownership check entirely when no deliveryAddressId is given (e.g. switching to pickup)", async () => {
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1", customerId: "c1", items: [] } as never);
+    mockPrisma.cart.update.mockResolvedValue({ id: "cart-1", fulfillmentType: "PICKUP" } as never);
+
+    await setCartFulfillment("cart-1", { fulfillmentType: "PICKUP" });
+
+    expect(mockPrisma.customerAddress.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.cart.update).toHaveBeenCalled();
   });
 });
 

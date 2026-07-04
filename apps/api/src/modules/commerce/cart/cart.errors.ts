@@ -27,3 +27,9 @@ export class CartRestaurantMismatchError extends Error {
     super("A cart cannot span multiple restaurants");
   }
 }
+
+export class DeliveryAddressNotFoundError extends Error {
+  constructor() {
+    super("Delivery address not found");
+  }
+}

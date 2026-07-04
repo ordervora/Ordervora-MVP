@@ -63,9 +63,16 @@ export async function computeCheckoutQuote(
   let deliveryLat: number | undefined;
   let deliveryLng: number | undefined;
   if (cart.fulfillmentType === "DELIVERY") {
-    const address = cart.deliveryAddressId
-      ? await prisma.customerAddress.findUnique({ where: { id: cart.deliveryAddressId } })
-      : null;
+    // Scoped to the cart's own customerId (never just the bare id) — a
+    // second, independent check alongside cart.service.ts's
+    // assertDeliveryAddressOwnership, since this function is the one
+    // that actually reads the address's lat/lng into the fee/eligibility
+    // calculation. A guest cart (customerId null) can never resolve an
+    // address here, matching the guest-checkout limitation elsewhere.
+    const address =
+      cart.deliveryAddressId && cart.customerId
+        ? await prisma.customerAddress.findFirst({ where: { id: cart.deliveryAddressId, customerId: cart.customerId } })
+        : null;
     if (!address?.lat || !address.lng || restaurant.lat === null || restaurant.lng === null) {
       return {
         eligible: false,

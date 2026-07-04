@@ -8,6 +8,7 @@ import {
   CartItemNotFoundError,
   CartNotFoundError,
   CartRestaurantMismatchError,
+  DeliveryAddressNotFoundError,
   InvalidModifierSelectionError,
   ItemNotOrderableError,
 } from "./cart.errors";
@@ -166,8 +167,30 @@ export async function removeCartItem(cartId: string, itemId: string): Promise<vo
   await prisma.cartItem.delete({ where: { id: item.id } });
 }
 
+/**
+ * A deliveryAddressId is only ever meaningful if it's one of the cart's
+ * own customer's saved addresses — previously accepted whatever ID the
+ * client sent with no ownership check at all, letting any authenticated
+ * customer attach another customer's CustomerAddress row (and its
+ * lat/lng) to their own cart. Guest carts (no customerId) can never have
+ * a valid deliveryAddressId, since CustomerAddress.customerId is
+ * required. Mirrors assertCartOwnership's convention of throwing the
+ * same "not found" error a genuinely nonexistent address would throw,
+ * rather than a distinct 403 that would confirm the ID belongs to
+ * someone else.
+ */
+async function assertDeliveryAddressOwnership(customerId: string | null, deliveryAddressId: string | undefined): Promise<void> {
+  if (!deliveryAddressId) return;
+  const address =
+    customerId && (await prisma.customerAddress.findFirst({ where: { id: deliveryAddressId, customerId } }));
+  if (!address) {
+    throw new DeliveryAddressNotFoundError();
+  }
+}
+
 export async function setCartFulfillment(cartId: string, input: SetFulfillmentInput): Promise<Cart> {
-  await getCartWithItems(cartId);
+  const cart = await getCartWithItems(cartId);
+  await assertDeliveryAddressOwnership(cart.customerId, input.deliveryAddressId);
   return prisma.cart.update({
     where: { id: cartId },
     data: {

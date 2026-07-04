@@ -39,7 +39,7 @@ import {
   setFulfillmentHandler,
   updateCartItemHandler,
 } from "./cart.controller";
-import { CartNotFoundError, CartRestaurantMismatchError, InvalidModifierSelectionError, ItemNotOrderableError } from "./cart.errors";
+import { CartNotFoundError, CartRestaurantMismatchError, DeliveryAddressNotFoundError, InvalidModifierSelectionError, ItemNotOrderableError } from "./cart.errors";
 import {
   addCartItem,
   bindCartToTable,
@@ -272,6 +272,22 @@ describe("updateCartItemHandler / removeCartItemHandler / setFulfillmentHandler 
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(setCartFulfillment).toHaveBeenCalled();
+  });
+
+  it("setFulfillmentHandler returns 404 when the service rejects a deliveryAddressId it doesn't own", async () => {
+    vi.mocked(getCartWithItems).mockResolvedValue(ownCart());
+    vi.mocked(setCartFulfillment).mockRejectedValue(new DeliveryAddressNotFoundError());
+
+    const req = {
+      params: { cartId: "cart-1" },
+      body: { fulfillmentType: "DELIVERY", deliveryAddressId: "3fa85f64-5717-4562-b3fc-2c963f66afa6" },
+      cookies: {},
+    } as unknown as Request;
+    const res = mockRes();
+
+    await setFulfillmentHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 });
 
