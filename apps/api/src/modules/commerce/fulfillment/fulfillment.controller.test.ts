@@ -9,6 +9,7 @@ vi.mock("./fulfillment.service", () => ({
   getDriverAssignmentByFulfillment: vi.fn(),
   recordLocationPing: vi.fn(),
   assignDriver: vi.fn(),
+  listDriverCandidates: vi.fn(),
   updateFulfillmentStatus: vi.fn(),
   listMyDriverAssignments: vi.fn(),
   respondToAssignment: vi.fn(),
@@ -24,6 +25,7 @@ import type { Request, Response } from "express";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
 import {
   assignDriverHandler,
+  listDriverCandidatesHandler,
   locationPingHandler,
   myAssignmentsHandler,
   respondToAssignmentHandler,
@@ -33,6 +35,7 @@ import {
   assignDriver,
   getDriverAssignmentByFulfillment,
   getFulfillment,
+  listDriverCandidates,
   listMyDriverAssignments,
   recordLocationPing,
   respondToAssignment,
@@ -122,6 +125,38 @@ describe("respondToAssignmentHandler", () => {
 
     expect(respondToAssignment).toHaveBeenCalledWith("driver-1", "da1", true);
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe("listDriverCandidatesHandler", () => {
+  it("scopes the driver list to the caller's own restaurant", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue("r1");
+    vi.mocked(listDriverCandidates).mockResolvedValue([
+      { id: "u1", name: "Alice", email: "alice@example.com", activeAssignmentCount: 0 },
+    ] as never);
+
+    const req = { user: { id: "owner-1" } } as unknown as Request;
+    const res = mockRes();
+
+    await listDriverCandidatesHandler(req, res);
+
+    expect(listDriverCandidates).toHaveBeenCalledWith("r1");
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      drivers: [{ id: "u1", name: "Alice", email: "alice@example.com", activeAssignmentCount: 0 }],
+    });
+  });
+
+  it("returns 404 when the caller has no restaurant", async () => {
+    vi.mocked(getOwnRestaurantId).mockResolvedValue(null);
+
+    const req = { user: { id: "orphan-1" } } as unknown as Request;
+    const res = mockRes();
+
+    await listDriverCandidatesHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(listDriverCandidates).not.toHaveBeenCalled();
   });
 });
 

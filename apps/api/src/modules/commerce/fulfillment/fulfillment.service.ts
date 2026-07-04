@@ -33,6 +33,43 @@ const BUSY_DRIVER_ASSIGNMENT_STATUSES: DriverAssignmentStatus[] = [
 /** How long an OFFERED assignment waits for a driver response before expireStaleOffers reclaims it (Sprint 07.6 C-11). */
 const OFFER_TIMEOUT_MS = getNumberEnv("DRIVER_OFFER_TIMEOUT_MS", 3 * 60_000);
 
+export interface DriverCandidate {
+  id: string;
+  name: string;
+  email: string;
+  activeAssignmentCount: number;
+}
+
+/**
+ * Staff eligible to be assigned as a driver for this restaurant, each with
+ * their current busy-assignment count — the same "busy" definition
+ * assignDriver's own concurrency check uses. This count is the seam a
+ * future online/busy/offline driver-status feature can build on directly
+ * (busy is already derived here); it does not require a new endpoint.
+ */
+export async function listDriverCandidates(restaurantId: string): Promise<DriverCandidate[]> {
+  const staff = await prisma.user.findMany({
+    where: { restaurantId, role: Role.RESTAURANT_STAFF },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: "asc" },
+  });
+  if (staff.length === 0) return [];
+
+  const counts = await prisma.driverAssignment.groupBy({
+    by: ["driverId"],
+    where: { driverId: { in: staff.map((s) => s.id) }, status: { in: BUSY_DRIVER_ASSIGNMENT_STATUSES } },
+    _count: { _all: true },
+  });
+  const countByDriverId = new Map(counts.map((c) => [c.driverId, c._count._all]));
+
+  return staff.map((s) => ({
+    id: s.id,
+    name: s.name,
+    email: s.email,
+    activeAssignmentCount: countByDriverId.get(s.id) ?? 0,
+  }));
+}
+
 export async function getFulfillment(restaurantId: string, fulfillmentId: string): Promise<Fulfillment> {
   const fulfillment = await prisma.fulfillment.findUnique({ where: { id: fulfillmentId } });
   if (!fulfillment || fulfillment.restaurantId !== restaurantId) {

@@ -4,14 +4,17 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardNav } from "@/components/dashboard-nav";
 import {
+  assignDriver,
   cancelOrder,
   completeOrder,
   getOwnOrder,
+  listDriverCandidates,
   markOutForDelivery,
   markPaidCash,
   markReady,
   refundOrder,
   startPreparing,
+  type DriverCandidate,
   type OwnerOrderDetail,
 } from "@/lib/owner-commerce-api";
 
@@ -36,6 +39,9 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<OwnerOrderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
+  const [drivers, setDrivers] = useState<DriverCandidate[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [assigningDriver, setAssigningDriver] = useState(false);
 
   const refresh = useCallback(() => {
     return getOwnOrder(orderId)
@@ -56,6 +62,47 @@ export default function OrderDetailPage() {
       cancelled = true;
     };
   }, [orderId]);
+
+  const fulfillmentMethod = order?.fulfillment?.method;
+  useEffect(() => {
+    if (fulfillmentMethod !== "RESTAURANT_DRIVER") return;
+    let cancelled = false;
+    listDriverCandidates()
+      .then((result) => {
+        if (!cancelled) setDrivers(result.drivers);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load drivers");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fulfillmentMethod]);
+
+  /**
+   * Also serves as the reassign action — assigning a fulfillment that
+   * already has a different active driver silently moves it to the new
+   * one (server-side upsert), so no separate "reassign" code path exists.
+   * Deliberately not built yet: unassign, automatic/AI assignment, and
+   * online/busy/offline driver status — this control is designed so each
+   * can be added later (e.g. an "Unassign" button calling a future
+   * unassign endpoint, or an "Auto-assign" button next to this select)
+   * without restructuring what's here.
+   */
+  async function handleAssignDriver() {
+    const fulfillmentId = order?.fulfillment?.id;
+    if (!fulfillmentId || !selectedDriverId) return;
+    setAssigningDriver(true);
+    try {
+      await assignDriver(fulfillmentId, selectedDriverId);
+      setSelectedDriverId("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to assign driver");
+    } finally {
+      setAssigningDriver(false);
+    }
+  }
 
   async function handleAction(action: (id: string) => Promise<{ order: OwnerOrderDetail }>) {
     try {
@@ -166,6 +213,44 @@ export default function OrderDetailPage() {
             <button type="button" onClick={handleRefund} className="rounded-full border border-red-300 px-4 py-2 text-sm text-red-600">
               Issue refund
             </button>
+          </div>
+        )}
+
+        {order.fulfillment && order.fulfillment.method === "RESTAURANT_DRIVER" && (
+          <div className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+            <h2 className="text-sm font-semibold text-black dark:text-zinc-50">Driver</h2>
+            {order.fulfillment.driverAssignment ? (
+              <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                Currently assigned to{" "}
+                <strong>{drivers.find((d) => d.id === order.fulfillment!.driverAssignment!.driverId)?.name ?? "a driver"}</strong>{" "}
+                — status: {order.fulfillment.driverAssignment.status}
+              </p>
+            ) : (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">No driver assigned yet.</p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedDriverId}
+                onChange={(e) => setSelectedDriverId(e.target.value)}
+                className="rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+              >
+                <option value="">Select a driver…</option>
+                {drivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                    {d.activeAssignmentCount > 0 ? ` (busy: ${d.activeAssignmentCount})` : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAssignDriver}
+                disabled={!selectedDriverId || assigningDriver}
+                className="rounded-full bg-foreground px-4 py-2 text-sm text-background disabled:opacity-50"
+              >
+                {order.fulfillment.driverAssignment ? "Reassign driver" : "Assign driver"}
+              </button>
+            </div>
           </div>
         )}
       </div>

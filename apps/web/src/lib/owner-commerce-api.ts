@@ -23,7 +23,14 @@ export interface OwnerOrder {
 export interface OwnerOrderDetail extends OwnerOrder {
   items: { id: string; menuItemNameSnapshot: string; quantity: number; unitPriceCents: number }[];
   payment: { id: string; status: string } | null;
-  fulfillment: { id: string; status: string; method: string } | null;
+  fulfillment:
+    | {
+        id: string;
+        status: string;
+        method: string;
+        driverAssignment: DriverAssignment | null;
+      }
+    | null;
 }
 
 export interface OrderEvent {
@@ -102,6 +109,19 @@ export interface DriverAssignment {
   status: string;
   currentLat: number | null;
   currentLng: number | null;
+}
+
+/**
+ * Eligible driver = this restaurant's staff. activeAssignmentCount is
+ * already-derived "busy" info (same definition assignDriver's own
+ * concurrency check uses) — the seam a future online/busy/offline
+ * driver-status feature builds on directly, not a placeholder.
+ */
+export interface DriverCandidate {
+  id: string;
+  name: string;
+  email: string;
+  activeAssignmentCount: number;
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -228,6 +248,18 @@ export function updateKitchenCapacity(input: Partial<KitchenCapacity>) {
 
 export function listFulfillmentProviders() {
   return apiFetch<{ providers: FulfillmentProvider[] }>("/api/restaurants/me/fulfillment-providers");
+}
+
+export function listDriverCandidates() {
+  return apiFetch<{ drivers: DriverCandidate[] }>("/api/restaurants/me/fulfillment/drivers");
+}
+
+/** Also the reassign action — assigning a fulfillment that already has a different active driver silently moves it to the new one (server-side upsert). */
+export function assignDriver(fulfillmentId: string, driverId: string) {
+  return apiFetch<{ assignment: DriverAssignment }>(`/api/restaurants/me/fulfillment/${fulfillmentId}/assign-driver`, {
+    method: "POST",
+    body: JSON.stringify({ driverId }),
+  });
 }
 
 // --- POS -------------------------------------------------------------------------

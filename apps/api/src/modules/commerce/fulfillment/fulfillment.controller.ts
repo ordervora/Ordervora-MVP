@@ -14,6 +14,7 @@ import {
   assignDriver,
   getDriverAssignmentByFulfillment,
   getFulfillment,
+  listDriverCandidates,
   listMyDriverAssignments,
   recordLocationPing,
   respondToAssignment,
@@ -89,6 +90,15 @@ export async function disconnectProviderHandler(req: Request, res: Response): Pr
     }
     throw err;
   }
+}
+
+/** Eligible driver candidates (this restaurant's staff) for the assign-driver dashboard control. */
+export async function listDriverCandidatesHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const drivers = await listDriverCandidates(restaurantId);
+  res.status(200).json({ drivers });
 }
 
 export async function assignDriverHandler(req: Request, res: Response): Promise<void> {

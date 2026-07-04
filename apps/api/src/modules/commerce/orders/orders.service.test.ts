@@ -74,6 +74,18 @@ describe("tenant isolation", () => {
     mockPrisma.order.findUnique.mockResolvedValue(order({ restaurantId: "other" }));
     await expect(getOwnOrder("my-restaurant", "order-1")).rejects.toBeInstanceOf(OrderNotFoundError);
   });
+
+  it("includes the fulfillment's driverAssignment so the dashboard can show who's currently assigned (Sprint 09)", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(order());
+    await getOwnOrder("r1", "order-1");
+    expect(mockPrisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          fulfillment: { include: { driverAssignment: true } },
+        }),
+      }),
+    );
+  });
 });
 
 describe("state transitions", () => {

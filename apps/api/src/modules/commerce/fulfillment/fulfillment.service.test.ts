@@ -3,8 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
     fulfillment: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
-    user: { findUnique: vi.fn() },
-    driverAssignment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn() },
+    driverAssignment: {
+      upsert: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn(),
+      findMany: vi.fn(),
+      groupBy: vi.fn(),
+    },
     driverLocationPing: { create: vi.fn() },
     $transaction: vi.fn(),
     $queryRaw: vi.fn(),
@@ -38,6 +45,7 @@ import {
   countActiveDriverAssignments,
   expireStaleOffers,
   getFulfillment,
+  listDriverCandidates,
   listMyDriverAssignments,
   recordLocationPing,
   respondToAssignment,
@@ -219,6 +227,44 @@ describe("assignDriver", () => {
     await assignDriver("r1", "f1", "driver-b");
 
     expect(sendDriverReassignedAwayNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe("listDriverCandidates", () => {
+  it("returns this restaurant's staff sorted by name with a zero busy count when there are no assignments", async () => {
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: "u1", name: "Alice", email: "alice@example.com" },
+      { id: "u2", name: "Bob", email: "bob@example.com" },
+    ] as never);
+    mockPrisma.driverAssignment.groupBy.mockResolvedValue([] as never);
+
+    const result = await listDriverCandidates("r1");
+
+    expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { restaurantId: "r1", role: "RESTAURANT_STAFF" } }),
+    );
+    expect(result).toEqual([
+      { id: "u1", name: "Alice", email: "alice@example.com", activeAssignmentCount: 0 },
+      { id: "u2", name: "Bob", email: "bob@example.com", activeAssignmentCount: 0 },
+    ]);
+  });
+
+  it("surfaces each driver's active (busy) assignment count", async () => {
+    mockPrisma.user.findMany.mockResolvedValue([{ id: "u1", name: "Alice", email: "alice@example.com" }] as never);
+    mockPrisma.driverAssignment.groupBy.mockResolvedValue([{ driverId: "u1", _count: { _all: 2 } }] as never);
+
+    const result = await listDriverCandidates("r1");
+
+    expect(result).toEqual([{ id: "u1", name: "Alice", email: "alice@example.com", activeAssignmentCount: 2 }]);
+  });
+
+  it("short-circuits without querying assignment counts when the restaurant has no staff", async () => {
+    mockPrisma.user.findMany.mockResolvedValue([] as never);
+
+    const result = await listDriverCandidates("r1");
+
+    expect(result).toEqual([]);
+    expect(mockPrisma.driverAssignment.groupBy).not.toHaveBeenCalled();
   });
 });
 

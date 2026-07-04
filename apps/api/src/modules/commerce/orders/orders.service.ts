@@ -22,12 +22,14 @@ export async function listOrders(restaurantId: string, query: ListOrdersQuery): 
   return { orders, total };
 }
 
-type OrderWithRelations = Prisma.OrderGetPayload<{ include: { items: true; payment: true; fulfillment: true } }>;
+type OrderWithRelations = Prisma.OrderGetPayload<{
+  include: { items: true; payment: true; fulfillment: { include: { driverAssignment: true } } };
+}>;
 
 export async function getOwnOrder(restaurantId: string, orderId: string): Promise<OrderWithRelations> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { items: true, payment: true, fulfillment: true },
+    include: { items: true, payment: true, fulfillment: { include: { driverAssignment: true } } },
   });
   if (!order || order.restaurantId !== restaurantId) {
     throw new OrderNotFoundError();

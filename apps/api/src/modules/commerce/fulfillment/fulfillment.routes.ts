@@ -7,6 +7,7 @@ import {
   assignDriverHandler,
   connectProviderHandler,
   disconnectProviderHandler,
+  listDriverCandidatesHandler,
   listProvidersHandler,
   locationPingHandler,
   myAssignmentsHandler,
@@ -24,6 +25,7 @@ fulfillmentRouter.get("/me/fulfillment-providers", requireAuth, staffOrOwner, st
 fulfillmentRouter.post("/me/fulfillment-providers/:type/connect", requireAuth, staffOrOwner, staffActionRateLimiter, connectProviderHandler);
 fulfillmentRouter.delete("/me/fulfillment-providers/:type", requireAuth, staffOrOwner, staffActionRateLimiter, disconnectProviderHandler);
 
+fulfillmentRouter.get("/me/fulfillment/drivers", requireAuth, staffOrOwner, staffActionRateLimiter, listDriverCandidatesHandler);
 fulfillmentRouter.post("/me/fulfillment/:id/assign-driver", requireAuth, staffOrOwner, staffActionRateLimiter, assignDriverHandler);
 fulfillmentRouter.patch("/me/fulfillment/:id/status", requireAuth, staffOrOwner, staffActionRateLimiter, updateFulfillmentStatusHandler);
 fulfillmentRouter.post("/me/fulfillment/:id/location-ping", requireAuth, staffOrOwner, staffActionRateLimiter, locationPingHandler);
