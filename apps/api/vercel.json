@@ -1,10 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "functions": {
-    "api/index.ts": { "maxDuration": 30 },
-    "api/cron/*.ts": { "maxDuration": 30 }
-  },
   "crons": [
     { "path": "/api/cron/outbox", "schedule": "* * * * *" },
     { "path": "/api/cron/stale-offers", "schedule": "* * * * *" }
