@@ -1,6 +1,7 @@
 import type { ImportJob } from "@prisma/client";
 import { ImportStatus, Prisma } from "@prisma/client";
 import { fileStorage } from "../../lib/file-storage";
+import { createLogger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { createCategory, createItem } from "../menu/menu.service";
 import { updateRestaurantById } from "../restaurants/restaurant.service";
@@ -8,6 +9,8 @@ import { ImportJobNotFoundError, ImportJobNotReadyError, ImportJobNotRerunnableE
 import type { CreateImportInput } from "./import.validation";
 import { importJobRunner } from "./job-runner";
 import { extractedMenuDataSchema, type ExtractedMenuData, type ImportSourceInput } from "./types";
+
+const logger = createLogger("import-service");
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -27,9 +30,18 @@ export async function createImportJob(
   let sourceMimeType: string | undefined;
 
   if (file) {
-    const saved = await fileStorage.save(file.buffer, file.originalName);
-    sourceFilePath = saved.path;
-    sourceMimeType = file.mimeType;
+    // Best-effort: extraction below runs off the in-memory buffer, never
+    // off this saved copy, so a persistence failure (e.g. no object
+    // storage configured and the local-disk fallback's directory isn't
+    // writable in this deployment target) shouldn't fail the import
+    // itself — it only means rerunJob won't have a file to re-read later.
+    try {
+      const saved = await fileStorage.save(file.buffer, file.originalName);
+      sourceFilePath = saved.path;
+      sourceMimeType = file.mimeType;
+    } catch (err) {
+      logger.warn({ err }, "createImportJob: failed to persist a copy of the uploaded file; continuing without it");
+    }
     sourceInput = { kind: "file", buffer: file.buffer, mimeType: file.mimeType };
   } else {
     if (!input.sourceUrl) {

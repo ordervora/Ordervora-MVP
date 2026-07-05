@@ -72,6 +72,34 @@ describe("createImportJob", () => {
       mimeType: "application/pdf",
     });
   });
+
+  it("still creates and enqueues the job when persisting a copy of the file fails (e.g. no writable local disk)", async () => {
+    mockFileStorage.save.mockRejectedValue(new Error("ENOENT: no such file or directory, mkdir '/var/task/uploads'"));
+    mockPrisma.importJob.create.mockResolvedValue({ id: "job-1" } as never);
+
+    const job = await createImportJob(
+      "restaurant-1",
+      "user-1",
+      { sourceType: "PDF" as never },
+      { buffer: Buffer.from("x"), mimeType: "application/pdf", originalName: "menu.pdf" },
+    );
+
+    expect(job).toEqual({ id: "job-1" });
+    expect(mockPrisma.importJob.create).toHaveBeenCalledWith({
+      data: {
+        restaurantId: "restaurant-1",
+        createdById: "user-1",
+        sourceType: "PDF",
+        sourceFilePath: undefined,
+        sourceMimeType: undefined,
+      },
+    });
+    expect(mockJobRunner.enqueue).toHaveBeenCalledWith("job-1", {
+      kind: "file",
+      buffer: Buffer.from("x"),
+      mimeType: "application/pdf",
+    });
+  });
 });
 
 describe("updateJobData", () => {

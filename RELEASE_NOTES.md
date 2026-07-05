@@ -1920,3 +1920,54 @@ launch is never blocked on a single vendor's account being available.
   and response parsing are covered by mocked unit tests; the Anthropic
   path was already proven live in earlier sprints and is structurally
   unchanged.
+
+# Release Notes — RC-1: Import Uploads Fail on Vercel Without Object Storage
+
+## Summary
+
+Live-testing the first real menu import against production (with a real
+`OPENAI_API_KEY` in place) surfaced a bug: uploading any file (PDF/image)
+crashed with `ENOENT: no such file or directory, mkdir '/var/task/uploads'`.
+Vercel's serverless functions have a read-only filesystem outside `/tmp`,
+and no object storage (`OBJECT_STORAGE_BUCKET`, Phase 7) has been
+configured for this deployment yet, so `fileStorage` fell back to
+`LocalDiskFileStorage`, which fails immediately.
+
+## Root Cause and Fix
+
+`import.service.ts`'s `createImportJob` called `fileStorage.save()`
+unconditionally and let any failure crash the whole request — but that
+saved copy is used **only** by `rerunJob` (to re-read the original file
+later); the actual extraction pipeline (`importJobRunner.enqueue`) always
+runs off the in-memory upload buffer, never off the saved copy. Wrapped
+the save call in a try/catch: on failure, it logs a warning and leaves
+`sourceFilePath`/`sourceMimeType` unset, but the job is still created and
+extraction still proceeds normally.
+
+**Trade-off, stated plainly**: without object storage configured,
+`rerunJob` isn't available for file-based imports (there's no persisted
+copy to re-read) — it still works for URL-based imports (website/Google
+Maps), which never depended on file storage. This is the correct
+near-term trade-off: it unblocks the core upload → extract → review →
+approve flow immediately, without requiring an S3-compatible storage
+account to be provisioned before the first pilot restaurant can use
+Import at all. Configuring `OBJECT_STORAGE_BUCKET` (see
+`docs/runbooks/object-storage.md`) later restores file-based rerun with
+no further code changes — the factory in `file-storage.ts` already
+handles that switch.
+
+## Testing
+
+- `import.service.test.ts` — new case: `fileStorage.save()` rejecting
+  still results in the job being created (with `sourceFilePath`/
+  `sourceMimeType` left `undefined`) and the runner being enqueued with
+  the in-memory buffer, exactly as before.
+- Full suite: 998 passing, lint/typecheck/build clean across both apps.
+
+## Verification
+
+Found via a real, live test against production (not simulated): logged
+into the deployed `apps/web`, attempted a real image upload through
+Import with the newly-configured `OPENAI_API_KEY`, and got the exact
+runtime error from Vercel's logs. Root-caused directly from the stack
+trace rather than guessed.
