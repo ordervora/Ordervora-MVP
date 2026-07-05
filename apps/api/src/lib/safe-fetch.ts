@@ -10,16 +10,30 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 export class SafeFetchError extends Error {}
 
 /**
- * Derived from `fetch`'s own signature rather than naming the ambient
- * `Response` interface directly — some build environments (confirmed:
- * Vercel's) resolve the bare `Response` identifier to a different,
- * memberless declaration than the one `fetch()`'s return type itself
- * uses, even though `@types/node` is the exact same pinned version in
- * both places. places-client.ts's fetch usage (pure inference, never
- * naming `Response`) is unaffected by this — this alias gets the same
- * immunity without giving up the explicit type.
+ * @types/node's ambient `Response` type intentionally resolves to an
+ * empty interface when it thinks a DOM-lib `Response` is already in
+ * scope (a `typeof globalThis extends { onmessage: any }` check in
+ * web-globals/fetch.d.ts). Some build environments (confirmed: Vercel's
+ * zero-config Node.js Function builder for files under `api/`) trip
+ * that check even with `"lib": ["ES2022"]` and an identical pinned
+ * `@types/node` version, leaving the real `Response`/`fetch()` return
+ * type memberless there while it's fully populated locally. Declaring
+ * our own narrow structural shape for exactly the members this file
+ * touches — and asserting into it once, at the `fetch()` call site —
+ * makes the rest of the file immune to which branch of that ambient
+ * check any given build environment takes.
  */
-type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+interface FetchResponse {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly headers: { get(name: string): string | null };
+  readonly body: {
+    getReader(): {
+      read(): Promise<{ done: false; value: Uint8Array } | { done: true; value?: undefined }>;
+      cancel(): Promise<void>;
+    };
+  } | null;
+}
 
 function ipv4ToLong(ip: string): number {
   return ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
@@ -112,7 +126,7 @@ export async function safeFetch(inputUrl: string, options: SafeFetchOptions = {}
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: FetchResponse;
     try {
-      response = await fetch(currentUrl, { redirect: "manual", signal: controller.signal });
+      response = (await fetch(currentUrl, { redirect: "manual", signal: controller.signal })) as FetchResponse;
     } finally {
       clearTimeout(timeout);
     }
