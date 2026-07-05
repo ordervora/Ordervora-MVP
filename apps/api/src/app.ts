@@ -270,3 +270,21 @@ export function createApp() {
 
   return app;
 }
+
+let cachedApp: ReturnType<typeof createApp> | undefined;
+
+/**
+ * Vercel's Express zero-config detection independently discovers and
+ * invokes this file directly for some request paths (in addition to our
+ * own api/index.ts handler), and crashes if it finds no valid default
+ * export ("Invalid export found in module ... default export must be a
+ * function or server"). This gives it one. Built lazily, on first actual
+ * invocation, rather than at module load — createApp() reads validated
+ * env vars (e.g. FRONTEND_URL for CORS), and this file must stay safe to
+ * import before that validation has run (see api/index.ts's
+ * assertStartupEnv() call, and app.test.ts's per-test createApp() calls).
+ */
+export default function handleRequest(req: Request, res: Response) {
+  cachedApp ??= createApp();
+  cachedApp(req, res);
+}
