@@ -126,7 +126,10 @@ export async function safeFetch(inputUrl: string, options: SafeFetchOptions = {}
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: FetchResponse;
     try {
-      response = (await fetch(currentUrl, { redirect: "manual", signal: controller.signal })) as FetchResponse;
+      response = (await fetch(currentUrl, {
+        redirect: "manual",
+        signal: controller.signal,
+      })) as unknown as FetchResponse;
     } finally {
       clearTimeout(timeout);
     }
