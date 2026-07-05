@@ -1809,6 +1809,17 @@ functions the old `setInterval` schedulers called.
   guidance for Supavisor), with no `connectionString` key present to
   override it. `DATABASE_URL` no longer needs `sslmode`/`uselibpqcompat`
   query params at all for this to work correctly.
+- **`apps/web`'s own `pnpm install` on Vercel failed via an unrelated
+  workspace package**: pnpm's recursive install runs every workspace
+  package's `postinstall`, so provisioning a separate Vercel project for
+  `apps/web` (Root Directory `apps/web`) still ran `apps/api`'s
+  `postinstall: prisma generate` — which needs `DATABASE_URL` resolvable
+  even just to run — in a project that has no reason to carry that var.
+  Replaced `apps/api`'s `postinstall` with
+  `scripts/postinstall-generate.cjs`, which skips `prisma generate`
+  gracefully (exit 0, log line) when `DATABASE_URL` is absent, and runs
+  it normally otherwise — no change to `apps/api`'s own deploy, which
+  always has it set.
 
 ## Fixes Along the Way
 
