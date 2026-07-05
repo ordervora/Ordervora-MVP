@@ -1785,6 +1785,14 @@ functions the old `setInterval` schedulers called.
   unchanged — no application code was altered beyond the serverless
   entrypoint files and the two fixes below.
 
+## Post-Launch Follow-up
+
+- **Database password rotated**: the original password was pasted in
+  plaintext into an assistant chat transcript during setup; rotated via
+  Supabase's dashboard (`Settings → Database → Reset database password`)
+  as a precaution, and `DATABASE_URL` updated in Vercel to match. No
+  application code changes — deploy-only.
+
 ## Fixes Along the Way
 
 - **`safe-fetch.ts` / `places-client.ts` build failures on Vercel only**:
