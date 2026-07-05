@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class MockAnthropic {
-    messages = { create: mockCreate };
-  },
+vi.mock("../../../lib/ai", () => ({
+  getAIProvider: () => ({ complete: mockComplete }),
 }));
 
 import { scoreSiteDefinition } from "./score-aggregator";
@@ -14,7 +12,7 @@ import type { AssetSummary, BrandProfile, SiteDefinition } from "../types";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ alignmentScore: 100 }) }] });
+  mockComplete.mockResolvedValue(JSON.stringify({ alignmentScore: 100 }));
 });
 
 const theme = THEME_CATALOG.find((t) => t.key === "modern-bistro")!;

@@ -181,7 +181,17 @@ const KNOWN_ENV_KEYS = [
   "JWT_REFRESH_SECRET", // documented in .env.example; not currently read by any module — see Phase 3 completion report
   "COMMERCE_ENCRYPTION_KEY",
   "COMMERCE_ENCRYPTION_KEY_PREVIOUS",
+  // Multi-provider AI abstraction (lib/ai) — priority order OpenAI, then
+  // Anthropic, then Gemini: the first of these three keys found set
+  // selects the provider used for every AI feature (menu import, brand
+  // analysis, content generation, the Brand Consistency judge). The
+  // *_MODEL overrides are optional; each provider has a sensible default.
+  "OPENAI_API_KEY",
+  "OPENAI_MODEL",
   "ANTHROPIC_API_KEY",
+  "ANTHROPIC_MODEL",
+  "GEMINI_API_KEY",
+  "GEMINI_MODEL",
   "GOOGLE_MAPS_API_KEY",
   "ADMIN_EMAIL",
   "ADMIN_PASSWORD",

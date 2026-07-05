@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class MockAnthropic {
-    messages = { create: mockCreate };
-  },
+vi.mock("../../lib/ai", () => ({
+  getAIProvider: () => ({ complete: mockComplete }),
 }));
 
 import { adaptToneForVariation, generateContentCore } from "./content-generator";
@@ -52,7 +50,7 @@ function validContentCore(overrides: Partial<ContentCore> = {}): ContentCore {
 
 describe("generateContentCore", () => {
   it("parses a valid AI response into a ContentCore", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify(validContentCore()) }] });
+    mockComplete.mockResolvedValue(JSON.stringify(validContentCore()));
 
     const core = await generateContentCore(ingest, brandProfile);
 
@@ -60,9 +58,7 @@ describe("generateContentCore", () => {
   });
 
   it("sanitizes banned claims out of the generated copy", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify(validContentCore({ heroSubhead: "The best pasta in the world." })) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify(validContentCore({ heroSubhead: "The best pasta in the world." })));
 
     const core = await generateContentCore(ingest, brandProfile);
 
@@ -70,7 +66,7 @@ describe("generateContentCore", () => {
   });
 
   it("falls back to templated copy when the AI response fails schema validation", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ notARealShape: true }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ notARealShape: true }));
 
     const core = await generateContentCore(ingest, brandProfile);
 
@@ -79,7 +75,7 @@ describe("generateContentCore", () => {
   });
 
   it("falls back to templated copy when the API call throws", async () => {
-    mockCreate.mockRejectedValue(new Error("network error"));
+    mockComplete.mockRejectedValue(new Error("network error"));
 
     const core = await generateContentCore(ingest, brandProfile);
 
@@ -87,7 +83,7 @@ describe("generateContentCore", () => {
   });
 
   it("never invents specific facts like address/phone/hours in the fallback", async () => {
-    mockCreate.mockRejectedValue(new Error("network error"));
+    mockComplete.mockRejectedValue(new Error("network error"));
 
     const core = await generateContentCore(ingest, brandProfile);
 
@@ -99,9 +95,7 @@ describe("adaptToneForVariation", () => {
   const core = validContentCore();
 
   it("parses a valid tone-adapted response", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify(validContentCore({ heroHeadline: "Reserve Your Table Tonight" })) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify(validContentCore({ heroHeadline: "Reserve Your Table Tonight" })));
 
     const adapted = await adaptToneForVariation(core, "LUXURY", ingest);
 
@@ -109,7 +103,7 @@ describe("adaptToneForVariation", () => {
   });
 
   it("falls back to the unadapted shared core when the AI response is invalid", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ garbage: true }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ garbage: true }));
 
     const adapted = await adaptToneForVariation(core, "MODERN", ingest);
 
@@ -117,7 +111,7 @@ describe("adaptToneForVariation", () => {
   });
 
   it("falls back to the unadapted shared core when the API call throws", async () => {
-    mockCreate.mockRejectedValue(new Error("network error"));
+    mockComplete.mockRejectedValue(new Error("network error"));
 
     const adapted = await adaptToneForVariation(core, "MINIMAL", ingest);
 

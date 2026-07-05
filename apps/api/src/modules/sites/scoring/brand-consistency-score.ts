@@ -1,9 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { getOptionalEnv } from "../../../config/env";
+import { getAIProvider } from "../../../lib/ai";
 import { z } from "zod";
 import type { BrandProfile, DimensionScore, SiteDefinition, Suggestion, ThemeCatalogEntry } from "../types";
-
-const MODEL = "claude-sonnet-5";
 
 const judgeResponseSchema = z.object({
   alignmentScore: z.number().min(0).max(100),
@@ -35,17 +32,10 @@ ${RESPONSE_SHAPE}`;
 /** LLM judge half of the hybrid score — never throws; a neutral score on failure keeps the pipeline moving. */
 async function judgeBrandConsistency(definition: SiteDefinition, brandProfile: BrandProfile): Promise<{ alignmentScore: number; issue?: string }> {
   try {
-    const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 512,
-      messages: [{ role: "user", content: buildPrompt(definition, brandProfile) }],
-    });
+    const text = await getAIProvider().complete({ text: buildPrompt(definition, brandProfile), maxTokens: 512 });
+    if (!text) return { alignmentScore: 80 };
 
-    const textBlock = message.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") return { alignmentScore: 80 };
-
-    const parsed: unknown = JSON.parse(textBlock.text);
+    const parsed: unknown = JSON.parse(text);
     const result = judgeResponseSchema.safeParse(parsed);
     return result.success ? result.data : { alignmentScore: 80 };
   } catch {

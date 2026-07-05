@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { getOptionalEnv } from "../../config/env";
+import { getAIProvider } from "../../lib/ai";
 import { brandProfileSchema, type BrandPersonality, type BrandProfile, type IngestData } from "./types";
 
-const MODEL = "claude-sonnet-5";
 const CONFIDENCE_THRESHOLD = 0.5;
 
 const SAFE_DEFAULT_PERSONALITY: BrandPersonality = {
@@ -91,19 +89,12 @@ function applyConfidenceThresholds(profile: BrandProfile): BrandProfile {
  */
 export async function analyzeBrand(input: IngestData): Promise<BrandProfile> {
   try {
-    const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      messages: [{ role: "user", content: buildPrompt(input) }],
-    });
-
-    const textBlock = message.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
+    const text = await getAIProvider().complete({ text: buildPrompt(input), maxTokens: 1024 });
+    if (!text) {
       return safeDefaultBrandProfile();
     }
 
-    const parsed: unknown = JSON.parse(textBlock.text);
+    const parsed: unknown = JSON.parse(text);
     const result = brandProfileSchema.safeParse(parsed);
     if (!result.success) {
       return safeDefaultBrandProfile();

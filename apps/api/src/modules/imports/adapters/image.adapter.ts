@@ -1,9 +1,9 @@
 import { ImportSourceType } from "@prisma/client";
-import type { Base64ImageSource } from "@anthropic-ai/sdk/resources/messages";
+import type { AIMediaType } from "../../../lib/ai";
 import { extractMenuFromImages } from "../vision-extractor";
 import type { ExtractedMenuData, ImportAdapter, ImportSourceInput } from "../types";
 
-const SUPPORTED_MIME_TYPES: Base64ImageSource["media_type"][] = [
+const SUPPORTED_MIME_TYPES: AIMediaType[] = [
   "image/png",
   "image/jpeg",
   "image/webp",

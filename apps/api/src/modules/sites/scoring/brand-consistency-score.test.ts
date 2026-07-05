@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class MockAnthropic {
-    messages = { create: mockCreate };
-  },
+vi.mock("../../../lib/ai", () => ({
+  getAIProvider: () => ({ complete: mockComplete }),
 }));
 
 import { scoreBrandConsistency } from "./brand-consistency-score";
@@ -54,7 +52,7 @@ const brandProfile: BrandProfile = {
 
 describe("scoreBrandConsistency", () => {
   it("gives a perfect score when typography matches the theme and the LLM judge is fully aligned", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ alignmentScore: 100 }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ alignmentScore: 100 }));
 
     const result = await scoreBrandConsistency(definition(), brandProfile, theme);
 
@@ -63,7 +61,7 @@ describe("scoreBrandConsistency", () => {
   });
 
   it("penalizes typography that no longer matches the theme's curated pairing", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ alignmentScore: 100 }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ alignmentScore: 100 }));
 
     const result = await scoreBrandConsistency(definition({ typography: { display: "Comic Sans", body: "Comic Sans" } }), brandProfile, theme);
 
@@ -72,7 +70,7 @@ describe("scoreBrandConsistency", () => {
   });
 
   it("penalizes a low LLM alignment score and surfaces its issue", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ alignmentScore: 40, issue: "Tone reads too casual for a formal brand" }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ alignmentScore: 40, issue: "Tone reads too casual for a formal brand" }));
 
     const result = await scoreBrandConsistency(definition(), brandProfile, theme);
 
@@ -83,7 +81,7 @@ describe("scoreBrandConsistency", () => {
   });
 
   it("falls back to a neutral score when the LLM call fails, without throwing", async () => {
-    mockCreate.mockRejectedValue(new Error("network error"));
+    mockComplete.mockRejectedValue(new Error("network error"));
 
     const result = await scoreBrandConsistency(definition(), brandProfile, theme);
 

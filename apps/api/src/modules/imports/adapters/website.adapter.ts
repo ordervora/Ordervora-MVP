@@ -1,5 +1,5 @@
 import { ImportSourceType } from "@prisma/client";
-import type { Base64ImageSource } from "@anthropic-ai/sdk/resources/messages";
+import type { AIMediaType } from "../../../lib/ai";
 import { getNumberEnv } from "../../../config/env";
 import { safeFetch } from "../../../lib/safe-fetch";
 import { mergeExtractedMenuData } from "../merge-extracted-data";
@@ -12,7 +12,7 @@ import { rankMenuImages } from "./website/rank-menu-images";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-const IMAGE_MIME_BY_EXTENSION: Record<string, Base64ImageSource["media_type"]> = {
+const IMAGE_MIME_BY_EXTENSION: Record<string, AIMediaType> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -20,7 +20,7 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, Base64ImageSource["media_type"]> =
   ".gif": "image/gif",
 };
 
-function guessMediaType(url: string): Base64ImageSource["media_type"] | undefined {
+function guessMediaType(url: string): AIMediaType | undefined {
   const path = new URL(url).pathname.toLowerCase();
   const extension = Object.keys(IMAGE_MIME_BY_EXTENSION).find((ext) => path.endsWith(ext));
   return extension ? IMAGE_MIME_BY_EXTENSION[extension] : undefined;

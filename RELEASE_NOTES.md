@@ -1857,3 +1857,66 @@ functions the old `setInterval` schedulers called.
   an unusual, easy-to-miss coupling for a project that otherwise
   configures everything explicitly via `vercel.json` — worth a project
   settings audit note if this project is ever handed off or reconfigured.
+
+# Release Notes — RC-1 Milestone 3: Multi-Provider AI Abstraction
+
+## Summary
+
+Every AI-backed feature (menu import extraction, Brand Analysis, website
+content generation, the Brand Consistency score's LLM judge) now goes
+through one provider-agnostic interface (`apps/api/src/lib/ai`) instead
+of calling `@anthropic-ai/sdk` directly. Adding OpenAI and Gemini as
+alternative providers, selectable purely by which API key is present, so
+launch is never blocked on a single vendor's account being available.
+
+## What Changed
+
+- **`lib/ai/types.ts`** — `AIProvider` interface (`complete({ text,
+  images?, maxTokens }): Promise<string>`), plus a provider-agnostic
+  `AIMediaType`/`AIImageInput` (previously `Base64ImageSource` was
+  imported directly from `@anthropic-ai/sdk` in three files, coupling
+  even non-Anthropic code paths to that one vendor's SDK).
+- **`lib/ai/providers/{openai,anthropic,gemini}.ts`** — one adapter per
+  vendor, each translating the shared request shape into that SDK's own
+  call (OpenAI: `chat.completions.create` with `image_url` data-URL
+  parts; Anthropic: `messages.create` with base64 image blocks; Gemini:
+  `generateContent` with `inlineData` parts).
+- **`lib/ai/index.ts`** — `getAIProvider()`, the single selection point
+  every call site uses. Priority order: `OPENAI_API_KEY`, then
+  `ANTHROPIC_API_KEY`, then `GEMINI_API_KEY` — first one present wins.
+  Throws only if none are set. Re-evaluated on every call (not memoized),
+  matching the codebase's existing lazy-env-read convention, so tests
+  never need a real key.
+- **Four call sites migrated**: `vision-extractor.ts`
+  (`extractMenuFromImages`/`extractMenuFromText`), `content-generator.ts`,
+  `brand-analysis.ts`, `scoring/brand-consistency-score.ts` — each now
+  calls `getAIProvider().complete(...)` instead of instantiating
+  `Anthropic` directly. No behavior change: same prompts, same
+  `maxTokens` budgets per call site, same JSON-parse-and-validate
+  handling, same fallback-on-failure guarantees.
+- Model choice per provider is overridable via `OPENAI_MODEL` /
+  `ANTHROPIC_MODEL` / `GEMINI_MODEL` (sensible defaults if unset) —
+  switching providers, or pinning a specific model, is an environment
+  variable change only, never an application-code change.
+
+## Testing
+
+- `lib/ai/index.test.ts` — priority-order selection (all 3-key
+  combinations), and the "none set" error.
+- `lib/ai/providers/{openai,anthropic,gemini}.test.ts` — each provider's
+  request shaping (text + image parts, `maxTokens` mapping) and response
+  extraction, with the vendor SDK mocked.
+- All four migrated call sites' existing test suites updated to mock
+  `getAIProvider()` directly (returning the raw response text) rather
+  than faking each vendor SDK's full response envelope — a net
+  simplification, and vendor-agnostic going forward.
+- Full suite: 996 passing (up from 983 pre-refactor), lint/typecheck/build
+  clean across both apps.
+
+## Known Limitations
+
+- Not yet exercised against a live OpenAI or Gemini account in this
+  environment (no network egress) — provider selection, request shaping,
+  and response parsing are covered by mocked unit tests; the Anthropic
+  path was already proven live in earlier sprints and is structurally
+  unchanged.

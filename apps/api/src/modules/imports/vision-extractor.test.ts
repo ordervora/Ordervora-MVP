@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class MockAnthropic {
-    messages = { create: mockCreate };
-  },
+vi.mock("../../lib/ai", () => ({
+  getAIProvider: () => ({ complete: mockComplete }),
 }));
 
 import { extractMenuFromImages, extractMenuFromText } from "./vision-extractor";
@@ -16,16 +14,11 @@ beforeEach(() => {
 
 describe("extractMenuFromImages", () => {
   it("parses a valid AI response into ExtractedMenuData", async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1200 }] }],
-          }),
-        },
-      ],
-    });
+    mockComplete.mockResolvedValue(
+      JSON.stringify({
+        categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1200 }] }],
+      }),
+    );
 
     const result = await extractMenuFromImages([Buffer.from("fake-image")], "image/png");
 
@@ -34,15 +27,13 @@ describe("extractMenuFromImages", () => {
   });
 
   it("rejects a malformed AI response that doesn't match the expected schema", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify({ notCategories: [] }) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify({ notCategories: [] }));
 
     await expect(extractMenuFromImages([Buffer.from("fake-image")], "image/png")).rejects.toThrow();
   });
 
-  it("rejects when the AI response contains no text block", async () => {
-    mockCreate.mockResolvedValue({ content: [] });
+  it("rejects when the AI response contains no text content", async () => {
+    mockComplete.mockResolvedValue("");
 
     await expect(extractMenuFromImages([Buffer.from("fake-image")], "image/png")).rejects.toThrow();
   });
@@ -50,17 +41,12 @@ describe("extractMenuFromImages", () => {
 
 describe("extractMenuFromText", () => {
   it("parses a valid AI response, including a businessProfile, into ExtractedMenuData", async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1200 }] }],
-            businessProfile: { name: "Joe's Diner", phone: "555-0100" },
-          }),
-        },
-      ],
-    });
+    mockComplete.mockResolvedValue(
+      JSON.stringify({
+        categories: [{ name: "Mains", items: [{ name: "Burger", priceCents: 1200 }] }],
+        businessProfile: { name: "Joe's Diner", phone: "555-0100" },
+      }),
+    );
 
     const result = await extractMenuFromText("Welcome to Joe's Diner. Menu: Burger $12.00. Call 555-0100.");
 
@@ -69,9 +55,7 @@ describe("extractMenuFromText", () => {
   });
 
   it("rejects a malformed AI response that doesn't match the expected schema", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify({ notCategories: [] }) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify({ notCategories: [] }));
 
     await expect(extractMenuFromText("some page text")).rejects.toThrow();
   });

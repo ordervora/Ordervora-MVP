@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class MockAnthropic {
-    messages = { create: mockCreate };
-  },
+vi.mock("../../lib/ai", () => ({
+  getAIProvider: () => ({ complete: mockComplete }),
 }));
 
 import { analyzeBrand } from "./brand-analysis";
@@ -45,7 +43,7 @@ function validAiResponse(overrides: Record<string, unknown> = {}) {
 
 describe("analyzeBrand", () => {
   it("parses a valid AI response into a BrandProfile", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify(validAiResponse()) }] });
+    mockComplete.mockResolvedValue(JSON.stringify(validAiResponse()));
 
     const profile = await analyzeBrand(ingest());
 
@@ -55,9 +53,7 @@ describe("analyzeBrand", () => {
   });
 
   it("falls back to a safe default cuisine when confidence is below threshold", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify(validAiResponse({ confidence: { cuisine: 0.2, businessType: 0.85, priceTier: 0.8, personality: 0.75 } })) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify(validAiResponse({ confidence: { cuisine: 0.2, businessType: 0.85, priceTier: 0.8, personality: 0.75 } })));
 
     const profile = await analyzeBrand(ingest());
 
@@ -66,9 +62,7 @@ describe("analyzeBrand", () => {
   });
 
   it("falls back to a safe default personality when confidence is below threshold", async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify(validAiResponse({ confidence: { cuisine: 0.9, businessType: 0.85, priceTier: 0.8, personality: 0.1 } })) }],
-    });
+    mockComplete.mockResolvedValue(JSON.stringify(validAiResponse({ confidence: { cuisine: 0.9, businessType: 0.85, priceTier: 0.8, personality: 0.1 } })));
 
     const profile = await analyzeBrand(ingest());
 
@@ -82,7 +76,7 @@ describe("analyzeBrand", () => {
   });
 
   it("returns a safe-default profile (confidence 0) when the AI response fails schema validation", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ notARealShape: true }) }] });
+    mockComplete.mockResolvedValue(JSON.stringify({ notARealShape: true }));
 
     const profile = await analyzeBrand(ingest());
 
@@ -91,7 +85,7 @@ describe("analyzeBrand", () => {
   });
 
   it("returns a safe-default profile when the response has no text block", async () => {
-    mockCreate.mockResolvedValue({ content: [] });
+    mockComplete.mockResolvedValue("");
 
     const profile = await analyzeBrand(ingest());
 
@@ -99,7 +93,7 @@ describe("analyzeBrand", () => {
   });
 
   it("returns a safe-default profile when the API call throws", async () => {
-    mockCreate.mockRejectedValue(new Error("network error"));
+    mockComplete.mockRejectedValue(new Error("network error"));
 
     const profile = await analyzeBrand(ingest());
 
@@ -120,7 +114,7 @@ describe("analyzeBrand", () => {
   });
 
   it("never throws, even on malformed JSON", async () => {
-    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "not json at all" }] });
+    mockComplete.mockResolvedValue("not json at all");
 
     await expect(analyzeBrand(ingest())).resolves.toBeDefined();
   });

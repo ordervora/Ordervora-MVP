@@ -1,9 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { getOptionalEnv } from "../../config/env";
+import { getAIProvider } from "../../lib/ai";
 import { sanitizeClaims } from "./claims-filter";
 import { contentCoreSchema, toneAdaptedCopySchema, type BrandProfile, type ContentCore, type IngestData, type StyleFamilyValue, type ToneAdaptedCopy } from "./types";
-
-const MODEL = "claude-sonnet-5";
 
 const CONTENT_SHAPE = `Return ONLY a JSON object (no prose, no markdown fences) matching this shape:
 
@@ -58,15 +55,8 @@ voice/wording. ${CONTENT_SHAPE}`;
 }
 
 async function callAndParseText(prompt: string): Promise<string | null> {
-  const client = new Anthropic({ apiKey: getOptionalEnv("ANTHROPIC_API_KEY") });
-  const message = await client.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const textBlock = message.content.find((block) => block.type === "text");
-  return textBlock && textBlock.type === "text" ? textBlock.text : null;
+  const text = await getAIProvider().complete({ text: prompt, maxTokens: 2048 });
+  return text || null;
 }
 
 function sanitizeContentCore<T extends ContentCore>(core: T): T {
