@@ -9,6 +9,18 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export class SafeFetchError extends Error {}
 
+/**
+ * Derived from `fetch`'s own signature rather than naming the ambient
+ * `Response` interface directly — some build environments (confirmed:
+ * Vercel's) resolve the bare `Response` identifier to a different,
+ * memberless declaration than the one `fetch()`'s return type itself
+ * uses, even though `@types/node` is the exact same pinned version in
+ * both places. places-client.ts's fetch usage (pure inference, never
+ * naming `Response`) is unaffected by this — this alias gets the same
+ * immunity without giving up the explicit type.
+ */
+type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+
 function ipv4ToLong(ip: string): number {
   return ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
 }
@@ -98,7 +110,7 @@ export async function safeFetch(inputUrl: string, options: SafeFetchOptions = {}
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
+    let response: FetchResponse;
     try {
       response = await fetch(currentUrl, { redirect: "manual", signal: controller.signal });
     } finally {
@@ -130,7 +142,7 @@ export async function safeFetch(inputUrl: string, options: SafeFetchOptions = {}
   throw new SafeFetchError("Too many redirects");
 }
 
-async function readBodyWithCap(response: Response, maxBytes: number): Promise<Buffer> {
+async function readBodyWithCap(response: FetchResponse, maxBytes: number): Promise<Buffer> {
   const reader = response.body?.getReader();
   if (!reader) {
     return Buffer.alloc(0);
