@@ -4,5 +4,8 @@
     { "path": "/api/cron/outbox", "schedule": "* * * * *" },
     { "path": "/api/cron/stale-offers", "schedule": "* * * * *" }
   ],
-  "rewrites": [{ "source": "/:path((?!api/cron/).*)", "destination": "/api/index" }]
+  "rewrites": [
+    { "source": "/", "destination": "/api/index" },
+    { "source": "/:path((?!api/cron/).*)", "destination": "/api/index" }
+  ]
 }
