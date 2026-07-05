@@ -1792,6 +1792,23 @@ functions the old `setInterval` schedulers called.
   Supabase's dashboard (`Settings → Database → Reset database password`)
   as a precaution, and `DATABASE_URL` updated in Vercel to match. No
   application code changes — deploy-only.
+- **TLS verification moved from connection-string flags into code**:
+  `/ready` kept failing with `self-signed certificate in certificate
+  chain` even after the password rotation and a correctly-pasted
+  `?sslmode=require&uselibpqcompat=true`. Root cause: `pg`'s
+  `ConnectionParameters` re-parses `connectionString` and merges it
+  *over* any explicit sibling config (including an explicit `ssl`
+  override), so passing `{ connectionString, ssl }` together silently
+  drops the explicit `ssl` in favor of whatever the URL's query string
+  produces — meaning correctness depended entirely on typing that query
+  string exactly right in a dashboard text field, repeatedly, on a
+  phone. Fixed in `lib/prisma.ts` by parsing `DATABASE_URL` into its
+  discrete fields (host/port/user/password/database) ourselves and
+  passing `ssl: { rejectUnauthorized: false }` as its own top-level
+  config property (encrypted, not certificate-verified — Supabase's own
+  guidance for Supavisor), with no `connectionString` key present to
+  override it. `DATABASE_URL` no longer needs `sslmode`/`uselibpqcompat`
+  query params at all for this to work correctly.
 
 ## Fixes Along the Way
 
