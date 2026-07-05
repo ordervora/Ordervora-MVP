@@ -214,7 +214,8 @@ export function createApp() {
     try {
       await prisma.$queryRaw`SELECT 1`;
       res.status(200).json({ status: "ready" });
-    } catch {
+    } catch (err) {
+      logger.error({ err }, "Readiness check failed: database is not reachable");
       res.status(503).json({ status: "not ready" });
     }
   });
