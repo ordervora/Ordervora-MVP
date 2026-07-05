@@ -1735,3 +1735,89 @@ deterministically rather than waiting on real time in CI.
 - **The chime preference is stored in `localStorage`**, so it's
   per-browser, not per-account — a fresh browser or incognito session
   defaults back to muted, by design.
+
+# Release Notes — RC-1 Milestone 2: Deploy apps/api to Vercel
+
+## Summary
+
+`apps/api` is live in production on Vercel, replacing the Render/Railway
+path that had blocked deployment entirely. The existing Express app is
+unchanged in structure — this milestone is a serverless wrapper and
+platform migration, not a rewrite: `api/index.ts` exports `createApp()`'s
+result directly as the Vercel Function handler, and the two in-process
+background workers (outbox processing, stale-offer expiry) became
+Vercel Cron-triggered HTTP endpoints calling the exact same underlying
+functions the old `setInterval` schedulers called.
+
+## Infrastructure
+
+- **Database**: `OrderVora-SaaS` Supabase Postgres project, migrated via
+  Supabase's SQL execution tooling (no direct Postgres TCP egress from
+  this environment) and connected in production via Supavisor's
+  **Transaction pooler** (port 6543), not the direct connection —
+  Supabase's direct connection is IPv6-only by default, and Vercel's
+  serverless functions are IPv4-only. The pooled connection string also
+  needs `sslmode=require&uselibpqcompat=true`: without
+  `uselibpqcompat`, `pg`'s connection-string parser currently treats
+  `require` as an alias for `verify-full` (full certificate-chain
+  validation), which fails against Supavisor's cert chain; with it,
+  `require` gets standard libpq semantics (encrypted, not
+  certificate-verified) instead.
+- **Deployment platform**: Vercel, via GitHub integration (auto-deploys
+  on push to `main`). Root Directory is `apps/api`; the project's
+  **Framework Preset must stay set to "Express"** — switching it to
+  "Other" was tried mid-milestone to chase an unrelated routing bug and
+  broke the build outright (`STATIC_BUILD_NO_OUT_DIR`, Vercel falling
+  back to expecting a static `public/` output instead of building
+  `api/*.ts` as Node.js Functions). Reverted; see Known Limitations.
+- **Cron jobs**: `/api/cron/outbox` and `/api/cron/stale-offers`, both
+  scheduled every minute via `vercel.json#crons`, gated by a
+  `CRON_SECRET` bearer token that Vercel sends automatically on its own
+  scheduled invocations.
+
+## Verification
+
+- `/health` — 200, confirms the process is up and reports background
+  worker status.
+- `/ready` — 200, confirms live database connectivity through the
+  pooled connection.
+- Existing test suite (983 tests) and lint/typecheck/build all pass
+  unchanged — no application code was altered beyond the serverless
+  entrypoint files and the two fixes below.
+
+## Fixes Along the Way
+
+- **`safe-fetch.ts` / `places-client.ts` build failures on Vercel only**:
+  `@types/node`'s ambient `Response`/`Headers` types resolve to an empty
+  interface in Vercel's build environment specifically (a DOM-lib-
+  conflict-avoidance check in `@types/node`'s `web-globals/*.d.ts` files
+  evaluates differently there than locally, even with an identical
+  pinned `@types/node` version). Fixed with a small project-wide
+  ambient-type augmentation (`src/types/fetch-globals.d.ts`) restoring
+  the real members via declaration merging, independent of which branch
+  of that check fires in a given environment.
+- **`/ready` DB check silently swallowed its error**: added structured
+  logging of the underlying Prisma/driver error in the `catch` block —
+  the only way to diagnose the pooled-connection SSL issue above via
+  Vercel's runtime logs rather than reproducing it locally.
+
+## Known Limitations
+
+- **The literal `/` path returns `FUNCTION_INVOCATION_FAILED`.** Vercel's
+  Express zero-config detection independently invokes `src/app.js`
+  directly for that one path (separate from `api/index.ts`, which
+  correctly serves every other path including `/health`, `/ready`, and
+  `/api/*`), and crashes because `app.ts` exports `createApp` as a named
+  export only, not a default export. An attempted fix (giving `app.ts` a
+  default export, matching Vercel's documented Express convention)
+  turned out to break the *entire* deployment in a much worse way when
+  combined with the Framework Preset being set to "Other" — reverted in
+  favor of leaving this one narrow, low-traffic path broken. Nothing in
+  production ever requests the bare `/` — the frontend only calls
+  `/api/*`, `/health`, `/ready` — so this is deferred rather than
+  actively harmful. Revisit once Vercel's Express zero-config behavior
+  around this is better understood.
+- **Framework Preset is load-bearing and must stay "Express".** This is
+  an unusual, easy-to-miss coupling for a project that otherwise
+  configures everything explicitly via `vercel.json` — worth a project
+  settings audit note if this project is ever handed off or reconfigured.
