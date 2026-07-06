@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import type { PublicUser, Restaurant } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DashboardNav } from "@/components/dashboard-nav";
@@ -51,10 +50,11 @@ async function AdminOverview() {
 }
 
 export default async function DashboardPage() {
+  // layout.tsx already redirects to /login on an unauthenticated session,
+  // so a failure here would only ever be a genuine transient error.
   const result = await serverFetch<{ user: PublicUser }>("/api/auth/me");
-
   if (!result.ok) {
-    redirect("/login");
+    return <p className="text-sm text-red-600 dark:text-red-400">Could not load your account. Please refresh.</p>;
   }
 
   const { user } = result.data;

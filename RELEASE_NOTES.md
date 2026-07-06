@@ -2242,6 +2242,20 @@ block a pilot restaurant that isn't using per-item inventory limits.
   live DB lookup and can't be exercised in this sandbox without one.
 - Full suite: 1006 passing, lint/typecheck/build clean across both apps.
 
+## A UX Fix Found During the Audit
+
+`/dashboard/*` pages each assumed an authenticated session but enforced
+it ad hoc (or not at all) — `/dashboard/menu`, for one, treated a 401
+from `GET /api/menu/categories` identically to "no restaurant yet" and
+showed "Set up your restaurant first before adding a menu" instead of
+sending an expired/missing session back to `/login`. Added
+`apps/web/src/app/dashboard/layout.tsx`, which checks `/api/auth/me`
+once and redirects unauthenticated requests to `/login` — Next.js
+wraps every nested route under a layout automatically, so this closes
+the gap platform-wide in one file rather than requiring a per-page fix,
+and it makes every existing "not found" fallback message accurate again
+(it can now only fire for a genuine empty state, never a stale session).
+
 ## A Second Security Fix Found During the Audit (Not From the Agent)
 
 While investigating the audit findings, re-examined the earlier
