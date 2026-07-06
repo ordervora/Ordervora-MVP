@@ -15,6 +15,7 @@ export interface Restaurant {
   isPublished: boolean;
   isSuspended: boolean;
   suspendedReason: string | null;
+  referralCode: string | null;
 }
 
 export interface RestaurantInput {
@@ -23,6 +24,15 @@ export interface RestaurantInput {
   address?: string;
   phone?: string;
   isPublished?: boolean;
+  /** The *referrer's* code (from a ?ref= link) — only meaningful on creation. */
+  referralCode?: string;
+}
+
+export interface ReferredRestaurant {
+  id: string;
+  name: string;
+  isPublished: boolean;
+  createdAt: string;
 }
 
 export interface MenuItem {
@@ -168,6 +178,14 @@ export function updateRestaurant(input: RestaurantInput) {
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export function getRestaurant() {
+  return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me");
+}
+
+export function listReferrals() {
+  return apiFetch<{ referrals: ReferredRestaurant[] }>("/api/restaurants/me/referrals");
 }
 
 export type HoursDayOfWeek = "SUNDAY" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY";

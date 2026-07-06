@@ -8,6 +8,9 @@ export const createRestaurantSchema = z.object({
   description: optionalText,
   address: optionalText,
   phone: z.string().max(32).optional(),
+  // The *referrer's* shareable code (from a ?ref= link), not this
+  // restaurant's own — see restaurant.service.ts's createRestaurant.
+  referralCode: z.string().max(32).optional(),
 });
 
 export const updateRestaurantSchema = z.object({

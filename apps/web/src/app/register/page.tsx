@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { register } from "@/lib/api";
+import { setStoredReferralCode } from "@/lib/referral-storage";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,6 +13,16 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Plain window.location (not useSearchParams) so this page can stay
+  // statically prerenderable — a referral link is only ever followed by
+  // a real browser, so a client-only read is sufficient. Stashed for the
+  // restaurant-creation step that follows, since a Restaurant (the
+  // referable entity) doesn't exist until then.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) setStoredReferralCode(ref);
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();

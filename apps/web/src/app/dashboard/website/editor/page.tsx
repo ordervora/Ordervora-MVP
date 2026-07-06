@@ -4,6 +4,7 @@ import { DashboardNav } from "@/components/dashboard-nav";
 import type { SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DraftForm } from "./draft-form";
+import { SectionEditor } from "./section-editor";
 
 export default async function EditorPage() {
   const siteResult = await serverFetch<{ site: WebsiteSite }>("/api/sites/me");
@@ -40,10 +41,15 @@ export default async function EditorPage() {
             <h1 className="text-lg font-semibold text-black dark:text-zinc-50">Editor</h1>
             <span className="text-xs text-zinc-500 dark:text-zinc-500">{draft.styleFamily}</span>
           </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-500">
-            Constrained editing only — theme, palette, and copy. For a full-page layout builder see Known Limitations.
-          </p>
           <DraftForm siteId={site.id} tagline={draft.definition.tagline} colorSeed={draft.definition.colorSeed} />
+        </div>
+
+        <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
+          <h2 className="text-lg font-semibold text-black dark:text-zinc-50">Homepage sections</h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-500">
+            Edit each section&apos;s text and reorder them — changes save automatically to your draft.
+          </p>
+          <SectionEditor siteId={site.id} pages={draft.definition.pages} pageSlug="/" />
           <div className="flex gap-3 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
             <Link
               href={`/dashboard/website/variations/${draft.id}`}

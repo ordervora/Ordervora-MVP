@@ -2484,3 +2484,58 @@ change this session.
 **Sprint 16 is now complete.** Next: Sprint 17 (billing/subscription
 model — blocked on the user's own Stripe Connect setup for pieces of
 it; website builder editor + referral program are not blocked).
+
+## Sprint 17, Part 1 — Full Website Builder Editor
+
+**Section text editing + reordering (done):** the `/dashboard/website/editor`
+page previously only let an owner tweak the tagline and brand color —
+the rest of the generated site (hero copy, about-page story, section
+order) required regenerating a whole new variation to change. The
+backend's `PATCH /api/sites/:id/draft` has accepted a full partial
+`SiteDefinition` (including `pages`, with all their sections) since
+Sprint 06, but nothing in the frontend used that beyond the two design
+fields — this closes that gap without any backend change. The editor
+now lists every section on the homepage, lets the owner edit each
+section's free-text props (headline/subhead/button label for the hero,
+the about page's excerpt/story text, the CTA banner's label) inline
+with autosave-on-blur, and reorder sections with up/down buttons.
+Sections with no freeform text of their own (hours/location, gallery,
+menu, contact info/form, footer — driven by live restaurant data, not
+generated copy) still show in the list and are still reorderable, just
+without a text editor. The reorder/field-mapping logic is pure and
+unit-tested (`lib/site-editor.ts`); saves always send the *entire*
+`pages` array back (not just the one field touched), since the
+backend's patch is a shallow merge on top-level keys.
+
+## Sprint 17, Part 2 — Referral Program
+
+**Restaurant-to-restaurant referral tracking (done):** every restaurant
+now gets its own shareable referral code the moment it's created,
+visible on a new `/dashboard/referrals` page as a copyable link
+(`/register?ref=CODE`). A prospective owner who registers via that link
+has the code captured client-side (`localStorage`, since the referring
+restaurant doesn't exist as an entity to link to until the *next* step,
+restaurant creation) and, when they create their own restaurant, the
+code is resolved to the referring restaurant's id and stored on the new
+row (`Restaurant.referredById`) — an unrecognized or missing code is
+silently ignored rather than blocking signup, the same
+don't-let-a-secondary-feature-break-the-primary-action convention used
+for coupons. The referrals page lists everyone referred so far (name,
+published status, joined date).
+
+This is **tracking only for now** — there's no reward to grant yet
+since OrderVora's own billing/subscription system (the other half of
+Sprint 17) hasn't shipped. Every referral relationship recorded today
+is already in place to attach a reward to once billing exists; nothing
+here needs to be rebuilt later, just wired up.
+
+Requires two new nullable `Restaurant` columns in production:
+`apps/api/prisma/migrations/20260706120000_sprint17_referral_program/migration.sql`
+(`referralCode` unique, `referredById`) — same manual Supabase
+SQL-editor step as every other schema change this session.
+
+**Next in Sprint 17:** OrderVora's own billing/subscription model —
+this is the one piece of the full roadmap that needs the user to set up
+their own Stripe Connect (or equivalent) account before it can be
+built; will be surfaced as a discrete step when reached rather than
+assumed.

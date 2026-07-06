@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createRestaurant, updateRestaurant, type Restaurant } from "@/lib/api";
+import { clearStoredReferralCode, getStoredReferralCode } from "@/lib/referral-storage";
 
 export function RestaurantForm({ restaurant }: { restaurant: Restaurant | null }) {
   const router = useRouter();
@@ -29,7 +30,9 @@ export function RestaurantForm({ restaurant }: { restaurant: Restaurant | null }
       if (restaurant) {
         await updateRestaurant(input);
       } else {
-        await createRestaurant(input);
+        const referralCode = getStoredReferralCode();
+        await createRestaurant({ ...input, referralCode: referralCode ?? undefined });
+        clearStoredReferralCode();
       }
       router.refresh();
     } catch (err) {

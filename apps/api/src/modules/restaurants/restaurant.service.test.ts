@@ -8,9 +8,16 @@ vi.mock("../../lib/prisma", () => ({
   },
 }));
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
-import { createRestaurant, getOwnRestaurantId, suspendRestaurant, unsuspendRestaurant } from "./restaurant.service";
+import {
+  createRestaurant,
+  getOwnRestaurantId,
+  listReferrals,
+  suspendRestaurant,
+  unsuspendRestaurant,
+} from "./restaurant.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -42,7 +49,7 @@ describe("createRestaurant", () => {
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("creates a restaurant and links it to the owner when none exists yet", async () => {
+  it("creates a restaurant, links it to the owner, and assigns it its own referral code", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
 
     const created = { id: "new-restaurant", ownerId: "owner-1", name: "Test" };
@@ -60,11 +67,80 @@ describe("createRestaurant", () => {
     const result = await createRestaurant("owner-1", { name: "Test" });
 
     expect(result).toEqual(created);
-    expect(txRestaurantCreate).toHaveBeenCalledWith({ data: { ownerId: "owner-1", name: "Test" } });
+    expect(txRestaurantCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ ownerId: "owner-1", name: "Test", referredById: undefined, referralCode: expect.any(String) }),
+    });
     expect(txUserUpdate).toHaveBeenCalledWith({
       where: { id: "owner-1" },
       data: { restaurantId: "new-restaurant" },
     });
+  });
+
+  it("resolves an unknown referral code to no referrer rather than failing signup", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
+    mockPrisma.restaurant.findUnique.mockResolvedValue(null);
+
+    const txRestaurantCreate = vi.fn().mockResolvedValue({ id: "new-restaurant" });
+    const txMock = { restaurant: { create: txRestaurantCreate }, user: { update: vi.fn() } };
+    const transactionMock = mockPrisma.$transaction as unknown as {
+      mockImplementation: (fn: (callback: (tx: typeof txMock) => unknown) => unknown) => void;
+    };
+    transactionMock.mockImplementation((fn) => fn(txMock));
+
+    await createRestaurant("owner-1", { name: "Test", referralCode: "BOGUSCODE" });
+
+    expect(txRestaurantCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ referredById: undefined }),
+    });
+  });
+
+  it("links a new restaurant to the referring restaurant when the code matches", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
+    mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "referrer-1" } as never);
+
+    const txRestaurantCreate = vi.fn().mockResolvedValue({ id: "new-restaurant" });
+    const txMock = { restaurant: { create: txRestaurantCreate }, user: { update: vi.fn() } };
+    const transactionMock = mockPrisma.$transaction as unknown as {
+      mockImplementation: (fn: (callback: (tx: typeof txMock) => unknown) => unknown) => void;
+    };
+    transactionMock.mockImplementation((fn) => fn(txMock));
+
+    await createRestaurant("owner-1", { name: "Test", referralCode: "REFCODE1" });
+
+    expect(txRestaurantCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ referredById: "referrer-1" }),
+    });
+  });
+
+  it("retries with a fresh code on a referral-code collision, and gives up after too many collisions", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
+
+    const collision = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "test",
+      meta: { target: ["referralCode"] },
+    });
+    const txRestaurantCreate = vi.fn().mockRejectedValue(collision);
+    const txMock = { restaurant: { create: txRestaurantCreate }, user: { update: vi.fn() } };
+    const transactionMock = mockPrisma.$transaction as unknown as {
+      mockImplementation: (fn: (callback: (tx: typeof txMock) => unknown) => unknown) => void;
+    };
+    transactionMock.mockImplementation((fn) => fn(txMock));
+
+    await expect(createRestaurant("owner-1", { name: "Test" })).rejects.toThrow(collision);
+    expect(txRestaurantCreate).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("listReferrals", () => {
+  it("lists restaurants referred by the given restaurant", async () => {
+    const referred = [{ id: "r2", name: "Joe's", isPublished: true, createdAt: new Date() }];
+    mockPrisma.restaurant.findMany.mockResolvedValue(referred as never);
+
+    await expect(listReferrals("r1")).resolves.toEqual(referred);
+    expect(mockPrisma.restaurant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { referredById: "r1" } }),
+    );
   });
 });
 

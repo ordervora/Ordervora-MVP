@@ -1,7 +1,38 @@
-import type { Restaurant } from "@prisma/client";
+import { Prisma, type Restaurant } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { NoRestaurantError, RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
+import { generateReferralCode } from "./referral-code";
 import type { CreateRestaurantInput, UpdateRestaurantInput } from "./restaurant.validation";
+
+type PrismaOrTx = typeof prisma | Prisma.TransactionClient;
+
+const MAX_REFERRAL_CODE_ATTEMPTS = 5;
+
+/**
+ * Every restaurant gets its own shareable referral code at creation
+ * time. Collisions are astronomically unlikely at this scale (32-bit
+ * keyspace) but retried rather than assumed impossible, mirroring this
+ * codebase's other unique-token generators under real contention.
+ */
+async function createWithUniqueReferralCode(
+  tx: PrismaOrTx,
+  data: Omit<Prisma.RestaurantUncheckedCreateInput, "referralCode">,
+): Promise<Restaurant> {
+  for (let attempt = 1; attempt <= MAX_REFERRAL_CODE_ATTEMPTS; attempt++) {
+    try {
+      return await tx.restaurant.create({ data: { ...data, referralCode: generateReferralCode() } });
+    } catch (err) {
+      const isReferralCodeCollision =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002" &&
+        (err.meta?.target as string[] | undefined)?.includes("referralCode");
+      if (!isReferralCodeCollision || attempt === MAX_REFERRAL_CODE_ATTEMPTS) {
+        throw err;
+      }
+    }
+  }
+  throw new Error("unreachable");
+}
 
 /**
  * Single source of truth for mapping an authenticated user to the
@@ -19,12 +50,31 @@ export async function createRestaurant(ownerId: string, input: CreateRestaurantI
     throw new RestaurantAlreadyExistsError();
   }
 
+  // referralCode here is the *referrer's* code (from a ?ref= link), not
+  // this restaurant's own — an unknown/invalid code is silently ignored
+  // rather than blocking signup, the same "don't let a bad referral
+  // break the primary action" convention used for coupons elsewhere.
+  const { referralCode: referrerCode, ...rest } = input;
+  const referrer = referrerCode
+    ? await prisma.restaurant.findUnique({ where: { referralCode: referrerCode }, select: { id: true } })
+    : null;
+
   return prisma.$transaction(async (tx) => {
-    const restaurant = await tx.restaurant.create({
-      data: { ownerId, ...input },
+    const restaurant = await createWithUniqueReferralCode(tx, {
+      ownerId,
+      ...rest,
+      referredById: referrer?.id,
     });
     await tx.user.update({ where: { id: ownerId }, data: { restaurantId: restaurant.id } });
     return restaurant;
+  });
+}
+
+export async function listReferrals(restaurantId: string): Promise<Pick<Restaurant, "id" | "name" | "isPublished" | "createdAt">[]> {
+  return prisma.restaurant.findMany({
+    where: { referredById: restaurantId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true, isPublished: true, createdAt: true },
   });
 }
 

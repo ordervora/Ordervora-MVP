@@ -6,7 +6,9 @@ import { NoRestaurantError, RestaurantAlreadyExistsError, RestaurantNotFoundErro
 import {
   createRestaurant,
   getOwnRestaurant,
+  getOwnRestaurantId,
   listAllRestaurants,
+  listReferrals,
   suspendRestaurant,
   unsuspendRestaurant,
   updateOwnRestaurant,
@@ -73,6 +75,16 @@ export async function updateMine(req: Request, res: Response): Promise<void> {
 export async function listAll(_req: Request, res: Response): Promise<void> {
   const restaurants = await listAllRestaurants();
   res.status(200).json({ restaurants });
+}
+
+export async function getOwnReferrals(req: Request, res: Response): Promise<void> {
+  const restaurantId = await getOwnRestaurantId(req.user!.id);
+  if (!restaurantId) {
+    res.status(404).json({ error: new NoRestaurantError().message });
+    return;
+  }
+  const referrals = await listReferrals(restaurantId);
+  res.status(200).json({ referrals });
 }
 
 export async function suspend(req: Request, res: Response): Promise<void> {

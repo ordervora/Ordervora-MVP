@@ -87,6 +87,17 @@ model Restaurant {
   isSuspended     Boolean @default(false)
   suspendedReason String?
 
+  // Platform referral program (Sprint 17) — tracking only for now (no
+  // billing system exists yet to grant a reward against); every
+  // restaurant gets its own shareable code at creation time, and
+  // optionally records which other restaurant's code it was created
+  // under. Nullable rather than backfilled so this column addition
+  // never needs a data-migration pass over existing rows.
+  referralCode String?      @unique
+  referredById String?
+  referredBy   Restaurant?  @relation("RestaurantReferrals", fields: [referredById], references: [id])
+  referrals    Restaurant[] @relation("RestaurantReferrals")
+
   members    User[]         @relation("RestaurantMembers")
   categories MenuCategory[]
   items      MenuItem[]
