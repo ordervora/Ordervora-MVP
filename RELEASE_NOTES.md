@@ -2034,3 +2034,48 @@ Found via a real, live test against production: a real image import
 got stuck at `PROCESSING`, confirmed via a direct Supabase query showing
 zero progress on the job row. Deploying this fix and re-running the same
 upload is the live verification step.
+
+# Release Notes — RC-1: Login Broken Across Cross-Site Vercel Domains
+
+## Summary
+
+A live test right after the `waitUntil` deploy surfaced a more severe
+bug: the dashboard showed "Not authenticated" and an empty import
+history for an already-logged-in session, on an iOS Safari client.
+
+## Root Cause
+
+RC-1 M3 deployed `apps/web` and `apps/api` as two separate Vercel
+projects, on two separate `*.vercel.app` domains. Because `vercel.app`
+is on the public suffix list, those two domains are **cross-site** to
+each other for cookie purposes — not just cross-origin. The auth
+cookies (`cookies.ts`) were set with `sameSite: "lax"`, which browsers
+attach only to same-site requests and top-level cross-site navigations
+(plain link clicks) — never to a cross-site `fetch`/XHR call. Every API
+request the frontend makes is a cross-site `fetch`, so the login cookie
+was never sent back to the API after being set: the app looked logged
+out immediately, not intermittently.
+
+## Fix
+
+Changed `baseOptions.sameSite` in `cookies.ts` from a hardcoded `"lax"`
+to `isProduction ? "none" : "lax"`. `SameSite=None` is what actually
+allows a cookie to ride along on a cross-site request, and it requires
+`Secure` — already true in production. CORS was already correctly
+scoped for this (verified via response headers: a specific
+`Access-Control-Allow-Origin` plus `Access-Control-Allow-Credentials:
+true`, not a wildcard), so no other change was needed.
+
+## Testing
+
+- Full suite: 998 passing, lint/typecheck/build clean across both apps.
+  No existing test asserted a specific `sameSite` value, so nothing had
+  to change to accommodate the fix.
+
+## Verification
+
+Found via a real, live test against production (iOS Safari, the
+dedicated `apps/web` deployment). Root-caused directly from the
+project topology (two separate Vercel domains) and the auth cookie
+configuration, then confirmed the CORS side was already correct via the
+live `/health` response headers before deploying the cookie fix.
