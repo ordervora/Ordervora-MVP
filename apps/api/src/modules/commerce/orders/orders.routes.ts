@@ -1,6 +1,6 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
-import { staffActionRateLimiter } from "../../../middleware/rate-limit";
+import { publicCommerceRateLimiter, staffActionRateLimiter } from "../../../middleware/rate-limit";
 import { requireAuth } from "../../../middleware/require-auth";
 import { requireIdempotencyKey } from "../../../middleware/require-idempotency-key";
 import { requireRole } from "../../../middleware/require-role";
@@ -56,7 +56,9 @@ ordersRouter.post(
   refundHandler,
 );
 
-// Public order tracking — mounted at "/api/public" myself.
+// Public order tracking — mounted at "/api/public" myself. Relies on the
+// order ID being an unguessable UUID (no other auth); rate-limited like
+// every other public commerce route for defense in depth.
 export const publicOrdersRouter = Router();
-publicOrdersRouter.get("/orders/:id", publicGetOrderHandler);
-publicOrdersRouter.get("/orders/:id/timeline", publicGetOrderTimelineHandler);
+publicOrdersRouter.get("/orders/:id", publicCommerceRateLimiter, publicGetOrderHandler);
+publicOrdersRouter.get("/orders/:id/timeline", publicCommerceRateLimiter, publicGetOrderTimelineHandler);

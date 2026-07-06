@@ -60,6 +60,47 @@ describe("createApp", () => {
     expect(res.text).toContain("http_request_duration_seconds");
   });
 
+  describe("CSRF hardening: no urlencoded/form body parsing", () => {
+    /**
+     * Deliberately does not go through createApp()/supertest here: every
+     * route besides /health and /metrics sits behind siteEdgeMiddleware
+     * (custom-domain routing), which does a real Prisma lookup on every
+     * request and throws without a live database — this file's own
+     * top comment notes exactly that constraint. This test instead
+     * mirrors app.ts's actual body-parser configuration (express.json()
+     * only, no express.urlencoded()) in a minimal standalone Express
+     * instance, so the specific parsing behavior is verified without
+     * needing a database.
+     */
+    it("does not populate req.body from a application/x-www-form-urlencoded request, closing the classic form-based CSRF path for cookie-authenticated routes", async () => {
+      const express = (await import("express")).default;
+      const request = (await import("supertest")).default;
+      const app = express();
+      app.use(express.json());
+      app.post("/probe", (req, res) => {
+        res.json({ body: req.body ?? null });
+      });
+
+      // A bare HTML <form> can only ever send this content type (or
+      // multipart/form-data or text/plain) — never application/json — so
+      // if this were parsed into req.body, a malicious page's
+      // auto-submitting form could drive any cookie-authenticated route
+      // (auth here is cookie-only — see middleware/require-auth.ts — and
+      // the cross-site custom domain requires SameSite=None, see
+      // modules/auth/cookies.ts — so this is a live CSRF vector unless
+      // the server flatly refuses to parse non-JSON bodies).
+      const formRes = await request(app)
+        .post("/probe")
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send("email=attacker%40example.com&password=hunter2");
+      expect(formRes.body.body).toBeFalsy();
+
+      // Positive control: a genuine JSON request still parses normally.
+      const jsonRes = await request(app).post("/probe").send({ email: "a@a.com" });
+      expect(jsonRes.body.body).toEqual({ email: "a@a.com" });
+    });
+  });
+
   describe("CORS apex/www equivalence", () => {
     const originalFrontendUrl = process.env.FRONTEND_URL;
 

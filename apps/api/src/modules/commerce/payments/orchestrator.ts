@@ -222,6 +222,38 @@ export interface RefundOrderPaymentInput {
   restaurantId: string;
 }
 
+/**
+ * Reserves `amountCents` of refund capacity atomically: a single
+ * `UPDATE ... WHERE refundedAmountCents + $amount <= capturedAmountCents`
+ * is one indivisible statement, so Postgres's own row-level locking
+ * serializes two concurrent refund calls for the same payment — the
+ * second one blocks until the first commits, then re-evaluates the WHERE
+ * clause against the now-updated row. An empty result means the balance
+ * was already (partially or fully) consumed by a concurrent refund.
+ * Mirrors the same atomic-UPDATE pattern used for the DeliveryConfig/
+ * KitchenCapacity singleton races — see delivery-config.service.ts.
+ */
+async function reserveRefundAmount(paymentId: string, amountCents: number): Promise<Payment | null> {
+  const rows = await prisma.$queryRaw<Payment[]>`
+    UPDATE "Payment"
+    SET "refundedAmountCents" = "refundedAmountCents" + ${amountCents},
+        "status" = (CASE WHEN "refundedAmountCents" + ${amountCents} >= "capturedAmountCents" THEN 'REFUNDED' ELSE 'PARTIALLY_REFUNDED' END)::"PaymentStatus"
+    WHERE "id" = ${paymentId} AND "refundedAmountCents" + ${amountCents} <= "capturedAmountCents"
+    RETURNING *
+  `;
+  return rows[0] ?? null;
+}
+
+/** Reverses a reservation made by reserveRefundAmount when the provider call afterward fails, so the balance isn't permanently under-refundable. */
+async function releaseRefundAmount(paymentId: string, amountCents: number, capturedAmountCents: number): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "Payment"
+    SET "refundedAmountCents" = "refundedAmountCents" - ${amountCents},
+        "status" = (CASE WHEN "refundedAmountCents" - ${amountCents} <= 0 THEN 'CAPTURED' WHEN "refundedAmountCents" - ${amountCents} >= ${capturedAmountCents} THEN 'REFUNDED' ELSE 'PARTIALLY_REFUNDED' END)::"PaymentStatus"
+    WHERE "id" = ${paymentId}
+  `;
+}
+
 export async function refundOrderPayment(input: RefundOrderPaymentInput) {
   const payment = await prisma.payment.findUnique({ where: { id: input.paymentId }, include: { provider: true } });
   if (!payment) {
@@ -235,16 +267,25 @@ export async function refundOrderPayment(input: RefundOrderPaymentInput) {
     throw new PaymentNotFoundError();
   }
 
-  // Enforce the remaining-balance invariant at the application layer
-  // (Sprint 07.7 H-4) rather than relying entirely on the provider to
-  // reject an over-refund — checked before ever calling the provider.
-  const remaining = payment.capturedAmountCents - payment.refundedAmountCents;
-  if (input.amountCents > remaining) {
+  // Reserve the refund capacity atomically BEFORE ever calling the
+  // provider (Sprint 07.7 H-4's remaining-balance invariant, now closed
+  // against concurrent refunds too — see reserveRefundAmount): two
+  // concurrent refund calls for the same payment can no longer both
+  // observe "enough remaining balance" and both charge the provider.
+  const reserved = await reserveRefundAmount(input.paymentId, input.amountCents);
+  if (!reserved) {
     throw new RefundExceedsRemainingBalanceError();
   }
 
   const credentials = decryptSecret(payment.provider.credentialsEncrypted);
   const result = await adapter.refund(attempt.providerPaymentIntentId, input.amountCents, credentials);
+
+  if (!result.success) {
+    // The reservation already moved refundedAmountCents/status forward;
+    // since the provider never actually moved money, release it back so
+    // the balance isn't permanently (and incorrectly) under-refundable.
+    await releaseRefundAmount(input.paymentId, input.amountCents, payment.capturedAmountCents);
+  }
 
   // The Refund row is written regardless of outcome — a FAILED attempt
   // must still be auditable — but a failed refund is ALWAYS surfaced as
@@ -266,14 +307,6 @@ export async function refundOrderPayment(input: RefundOrderPaymentInput) {
     throw new RefundFailedError(result.failureMessage);
   }
 
-  const newRefundedTotal = payment.refundedAmountCents + input.amountCents;
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: {
-      refundedAmountCents: newRefundedTotal,
-      status: newRefundedTotal >= payment.capturedAmountCents ? "REFUNDED" : "PARTIALLY_REFUNDED",
-    },
-  });
   await prisma.transaction.create({
     data: {
       orderId: payment.orderId,

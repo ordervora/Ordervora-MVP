@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
-    order: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    order: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     orderEvent: { findMany: vi.fn(), create: vi.fn() },
     orderTimeline: { findMany: vi.fn(), create: vi.fn() },
     transaction: { create: vi.fn() },
@@ -168,7 +168,8 @@ describe("notification-failure-must-not-throw (Sprint 07.7 H-12)", () => {
 describe("markPaidCash", () => {
   it("marks paymentStatus PAID and writes a CHARGE Transaction with no provider involved", async () => {
     mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "UNPAID", totalCents: 1500 }));
-    mockPrisma.order.update.mockResolvedValue(order({ paymentStatus: "PAID" }));
+    mockPrisma.order.updateMany.mockResolvedValue({ count: 1 } as never);
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
 
     await markPaidCash("r1", "order-1");
 
@@ -180,7 +181,8 @@ describe("markPaidCash", () => {
 
   it("is a no-op on a repeat call once the order is already PAID (Sprint 07.7 H-2)", async () => {
     mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "UNPAID", totalCents: 1500 }));
-    mockPrisma.order.update.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
+    mockPrisma.order.updateMany.mockResolvedValue({ count: 1 } as never);
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
 
     await markPaidCash("r1", "order-1");
 
@@ -189,7 +191,24 @@ describe("markPaidCash", () => {
     await markPaidCash("r1", "order-1");
 
     expect(mockPrisma.transaction.create).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.order.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the two-concurrent-call race: a second concurrent call whose atomic updateMany matches zero rows never double-writes a Transaction (Sprint 07.7 H-2, now race-safe)", async () => {
+    // Both concurrent calls' initial findUnique reads observe UNPAID —
+    // the race this closes is exactly that both could otherwise proceed.
+    mockPrisma.order.findUnique.mockResolvedValue(order({ paymentStatus: "UNPAID", totalCents: 1500 }));
+    // Simulates Postgres row-level serialization: the first call's
+    // UPDATE...WHERE paymentStatus != 'PAID' commits and matches 1 row;
+    // the second call's identical statement (evaluated against the
+    // now-committed row) matches 0.
+    mockPrisma.order.updateMany.mockResolvedValueOnce({ count: 1 } as never).mockResolvedValueOnce({ count: 0 } as never);
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValue(order({ paymentStatus: "PAID", totalCents: 1500 }));
+
+    await markPaidCash("r1", "order-1");
+    await markPaidCash("r1", "order-1");
+
+    expect(mockPrisma.transaction.create).toHaveBeenCalledTimes(1);
   });
 });
 

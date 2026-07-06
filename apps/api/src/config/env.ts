@@ -137,6 +137,19 @@ export function requireEnv(name: string): string {
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
+  // Mirrors coreEnvSchema's superRefine guard for JWT_ACCESS_SECRET/
+  // COMMERCE_ENCRYPTION_KEY, extended to every requireEnv-based secret
+  // (ADMIN_PASSWORD, SMTP_PASSWORD, etc.) — those live outside the core
+  // schema (they're only required when the specific feature that reads
+  // them actually runs, e.g. prisma/seed.ts), but a placeholder value
+  // slipping through in production is exactly as dangerous here: e.g.
+  // ADMIN_PASSWORD left at .env.example's committed
+  // "replace-with-a-strong-password" would seed a live Role.ADMIN
+  // account with a publicly-known password the first time the seed
+  // script runs against production.
+  if (process.env.NODE_ENV === "production" && KNOWN_PLACEHOLDER_VALUES.has(value)) {
+    throw new Error(`${name} is still set to the .env.example placeholder value — production requires a real, generated value (never the example value).`);
+  }
   return value;
 }
 

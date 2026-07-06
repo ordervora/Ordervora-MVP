@@ -193,7 +193,20 @@ export function createApp() {
       },
     }),
   );
-  app.use(express.urlencoded({ extended: true }));
+  // No express.urlencoded() here, deliberately: every real client (apps/web)
+  // only ever sends application/json, and cookie-based auth (requireAuth
+  // reads only req.cookies, no bearer-token/custom-header alternative)
+  // plus the cross-site custom domain's SameSite=None cookie (see
+  // cookies.ts) means a plain HTML <form> POST is otherwise a live CSRF
+  // vector: a form can set Content-Type: application/x-www-form-urlencoded
+  // or multipart/form-data (never application/json) and isn't subject to
+  // CORS preflight at all, so if a urlencoded body parser were mounted
+  // globally, a malicious page's auto-submitting form could populate
+  // req.body with attacker-chosen fields on any authenticated route and
+  // ride the victim's cookie cross-site. Restricting body parsing to
+  // strict application/json closes that path: a bare form can never
+  // produce that content type, and a script-driven fetch with it triggers
+  // a CORS preflight our origin allowlist rejects for any other site.
   app.use(cookieParser());
 
   // Serves uploaded images (site assets, import files) — see

@@ -2129,3 +2129,134 @@ verified present at Namecheap immediately after being added.
   provider is chosen (RC-1 M5), since those records depend on which
   provider is sending mail. This is the only remaining M4 item, and it's
   blocked on the M5 provider decision rather than anything domain-side.
+
+# Release Notes — RC-1 M5: Resend Email + Pre-Launch Platform Audit
+
+## Summary
+
+Configured Resend as the production SMTP provider (domain verified,
+DKIM/SPF/DMARC DNS live), then ran a full platform audit ahead of
+Version 1.0 launch — covering tenant isolation, auth/authz, race
+conditions in money-handling code, rate limiting, webhook signature
+verification, and secret-placeholder detection. Google Maps import
+(`GOOGLE_MAPS_API_KEY`) is deliberately deferred post-launch per
+explicit instruction — not a blocker for the first pilot restaurant.
+
+## Resend Configuration
+
+No code changes were needed for the email transport itself —
+`EmailNotificationProviderAdapter` already used generic SMTP via
+`nodemailer`, and Resend supports standard SMTP directly
+(`smtp.resend.com:587`). `ordervora.com` is verified on Resend with
+DKIM (`resend._domainkey` TXT), SPF (`send` MX + TXT), and DMARC
+(`_dmarc` TXT) all live at Namecheap. `SMTP_HOST`/`SMTP_PORT`/
+`SMTP_USER`/`SMTP_PASSWORD`/`SMTP_FROM_ADDRESS` are set on the backend
+Vercel project.
+
+## Audit Findings and Fixes
+
+**High — refund double-processing race (real money could be refunded
+twice at the provider).** `payments/orchestrator.ts`'s `refundOrderPayment`
+read `payment.refundedAmountCents` once into a JS variable and wrote
+back `refundedAmountCents + amountCents` later, using that stale value —
+two concurrent refund calls for the same payment (two staff double-
+clicking, or two legitimately different idempotency-key retries) could
+both pass the remaining-balance check before either write landed, both
+call Stripe for real money, and the last DB write would silently
+under-record that a double-refund happened. Fixed with the same
+atomic-UPDATE pattern already used for the DeliveryConfig/KitchenCapacity
+races: `reserveRefundAmount()` runs a single `UPDATE ... WHERE
+refundedAmountCents + $amount <= capturedAmountCents RETURNING *`
+*before* ever calling the provider — Postgres's own row-level locking
+serializes concurrent calls, and an empty result means the balance was
+already consumed. If the provider call subsequently fails,
+`releaseRefundAmount()` reverses the reservation so the balance isn't
+permanently under-refundable.
+
+**High — `ADMIN_PASSWORD` had no placeholder-value validation, unlike
+the app's other core secrets.** `.env.example`'s committed
+`ADMIN_PASSWORD="replace-with-a-strong-password"` is already in
+`KNOWN_PLACEHOLDER_VALUES`, but that list was only checked for
+`JWT_ACCESS_SECRET`/`COMMERCE_ENCRYPTION_KEY` (the core Zod schema);
+`ADMIN_PASSWORD` is read ad hoc via `requireEnv` from `prisma/seed.ts`
+and was never checked at all. If the seed script ever ran against
+production without the hosting platform's env var actually overriding
+this, it would silently create a live `Role.ADMIN` account with a
+password taken straight from the publicly-committed example file.
+Fixed by moving the placeholder check into `requireEnv` itself (in
+production only), so it now protects every requireEnv-based secret
+uniformly, not just the two in the core schema.
+
+**Medium — three public cart endpoints were missing the rate limiter
+every sibling route has.** `GET /cart/:cartId`, `DELETE /cart/:cartId/
+items/:itemId`, and `DELETE /cart/:cartId/coupon` in `cart.routes.ts`
+now carry `publicCommerceRateLimiter` like every other route in that
+file.
+
+**Low — public order-tracking endpoints had no rate limiter.**
+`GET /api/public/orders/:id` and `/timeline` now carry
+`publicCommerceRateLimiter`, matching the rest of the public commerce
+surface's defense-in-depth posture (the ID being an unguessable UUID
+was the only existing protection).
+
+**Low — `markPaidCash`'s check-then-act wasn't inside an atomic
+operation.** Two concurrent calls (different idempotency keys) could
+both observe `paymentStatus !== "PAID"` and both write a `Transaction`
+ledger row for the same cash order — a reporting/double-counting bug,
+not an actual double payment (no provider is involved for cash orders).
+Fixed with `prisma.order.updateMany({ where: { paymentStatus: { not:
+"PAID" } }, ... })`: the atomic `WHERE` + `UPDATE` means only the call
+that actually flips the status (`count === 1`) writes the Transaction
+row.
+
+**Verified holding, no new issues found:** Stripe webhook signature
+verification (`Stripe.webhooks.constructEvent` against the real raw
+body); H-3's payment-error-message redaction on every payment code
+path; tenant-ownership checks (`findOwn*`) on every newer module's
+routes (imports, sites, QR ordering); zero TODO/FIXME/HACK comments
+anywhere in either app.
+
+**Known limitation, not fixed this pass:** tracked inventory
+(`quantityAvailable`) is never decremented on real order placement —
+only a manual staff toggle currently prevents overselling a
+limited-quantity item. Deferred: this is a product-shape decision
+(how oversell tolerance should behave), not a pure bug, and doesn't
+block a pilot restaurant that isn't using per-item inventory limits.
+
+## Testing
+
+- `orchestrator.test.ts` — new case proving the refund race is closed:
+  a second concurrent refund whose reservation observes the balance
+  already consumed is rejected, and the provider's refund API is only
+  ever called once.
+- `orders.service.test.ts` — new case proving the `markPaidCash` race
+  is closed: a second concurrent call whose atomic `updateMany` matches
+  zero rows never double-writes a Transaction row.
+- `env.test.ts` — new cases: a placeholder value is rejected via
+  `requireEnv` in production, allowed outside production, and a genuine
+  value is always allowed.
+- `app.test.ts` — new case proving `express.urlencoded()` is not
+  mounted (see the SameSite=None CSRF note below), verified against a
+  minimal standalone Express instance mirroring `app.ts`'s real parser
+  config, since every other route sits behind `siteEdgeMiddleware`'s
+  live DB lookup and can't be exercised in this sandbox without one.
+- Full suite: 1006 passing, lint/typecheck/build clean across both apps.
+
+## A Second Security Fix Found During the Audit (Not From the Agent)
+
+While investigating the audit findings, re-examined the earlier
+`SameSite=None` cookie fix (RC-1 M4) in light of `requireAuth` being
+purely cookie-based with no bearer-token/custom-header alternative:
+`SameSite=None` (required for the cross-site custom-domain
+architecture) removes the CSRF protection `SameSite=Lax` used to
+provide, since it now allows cookies on cross-site requests. Confirmed
+`express.urlencoded()` was mounted globally in `app.ts` with no real
+client ever sending non-JSON bodies — meaning a bare HTML `<form>`
+(which can only send `application/x-www-form-urlencoded`,
+`multipart/form-data`, or `text/plain`, never `application/json`, and
+isn't subject to CORS preflight at all) could have populated `req.body`
+on any cookie-authenticated route from a malicious page. Removed the
+unused `express.urlencoded()` middleware entirely: the API now only
+ever parses `application/json`, which a bare form can't produce and a
+cross-origin script-driven `fetch` can't get past the CORS origin
+allowlist for.

@@ -131,9 +131,19 @@ export async function markPaidCash(restaurantId: string, orderId: string): Promi
   if (order.paymentStatus === "PAID") {
     return order;
   }
-  const updated = await prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "PAID" } });
-  await prisma.transaction.create({ data: { orderId: order.id, restaurantId, type: "CHARGE", amountCents: order.totalCents } });
-  return updated;
+  // updateMany's WHERE + UPDATE is one atomic statement, so two
+  // concurrent calls (a double-submitted staff click, or two different
+  // idempotency-key retries racing) can't both observe "not yet PAID"
+  // and both write a Transaction row for the same charge — only the one
+  // that actually flips paymentStatus (count === 1) does.
+  const { count } = await prisma.order.updateMany({
+    where: { id: order.id, paymentStatus: { not: "PAID" } },
+    data: { paymentStatus: "PAID" },
+  });
+  if (count === 1) {
+    await prisma.transaction.create({ data: { orderId: order.id, restaurantId, type: "CHARGE", amountCents: order.totalCents } });
+  }
+  return prisma.order.findUniqueOrThrow({ where: { id: order.id } });
 }
 
 /**

@@ -8,6 +8,8 @@ vi.mock("../../../lib/prisma", () => ({
     payment: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     refund: { create: vi.fn() },
     transaction: { create: vi.fn() },
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -393,7 +395,7 @@ describe("refundOrderPayment", () => {
     ).rejects.toBeInstanceOf(PaymentNotFoundError);
   });
 
-  it("creates a Refund row and a negative Transaction on success", async () => {
+  it("creates a Refund row and a negative Transaction on success, after atomically reserving the refund amount", async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: "pay-1",
       orderId: "o1",
@@ -403,6 +405,10 @@ describe("refundOrderPayment", () => {
       capturedAmountCents: 1000,
     } as never);
     mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    // The atomic reservation (reserveRefundAmount) succeeds, returning the updated row.
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { id: "pay-1", refundedAmountCents: 500, capturedAmountCents: 1000, status: "PARTIALLY_REFUNDED" },
+    ] as never);
     mockRefund.mockResolvedValue({ success: true, providerRefundId: "re_123" });
     mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "COMPLETED" } as never);
 
@@ -414,15 +420,15 @@ describe("refundOrderPayment", () => {
     });
 
     expect(refund.id).toBe("refund-1");
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1); // reservation, before the provider call
     expect(mockPrisma.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ amountCents: -500, type: "REFUND" }) }),
     );
-    expect(mockPrisma.payment.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "PARTIALLY_REFUNDED" }) }),
-    );
+    // No compensating release on the success path.
+    expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
   });
 
-  it("throws RefundFailedError (never returns silently) when the provider rejects the refund, and does not touch Order/Payment status", async () => {
+  it("throws RefundFailedError (never returns silently) when the provider rejects the refund, and releases the reservation back", async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: "pay-1",
       orderId: "o1",
@@ -432,6 +438,9 @@ describe("refundOrderPayment", () => {
       capturedAmountCents: 1000,
     } as never);
     mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { id: "pay-1", refundedAmountCents: 500, capturedAmountCents: 1000, status: "PARTIALLY_REFUNDED" },
+    ] as never);
     mockRefund.mockResolvedValue({ success: false, failureMessage: "already refunded" });
     mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "FAILED" } as never);
 
@@ -448,12 +457,13 @@ describe("refundOrderPayment", () => {
     expect(mockPrisma.refund.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED" }) }),
     );
-    // ...but nothing downstream that implies success ever runs.
-    expect(mockPrisma.payment.update).not.toHaveBeenCalled();
+    // ...the reservation is released back since the provider never actually moved money...
+    expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
+    // ...and nothing downstream that implies success ever runs.
     expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  it("throws RefundExceedsRemainingBalanceError before ever calling the provider (Sprint 07.7 H-4)", async () => {
+  it("throws RefundExceedsRemainingBalanceError before ever calling the provider, when the atomic reservation finds insufficient remaining balance (Sprint 07.7 H-4, now race-safe)", async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: "pay-1",
       orderId: "o1",
@@ -463,6 +473,8 @@ describe("refundOrderPayment", () => {
       capturedAmountCents: 1000,
     } as never);
     mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    // The atomic UPDATE...WHERE clause matches no row: insufficient remaining balance.
+    mockPrisma.$queryRaw.mockResolvedValue([] as never);
 
     await expect(
       refundOrderPayment({
@@ -487,6 +499,9 @@ describe("refundOrderPayment", () => {
       capturedAmountCents: 1000,
     } as never);
     mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { id: "pay-1", refundedAmountCents: 1000, capturedAmountCents: 1000, status: "REFUNDED" },
+    ] as never);
     mockRefund.mockResolvedValue({ success: true, providerRefundId: "re_123" });
     mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "COMPLETED" } as never);
 
@@ -499,5 +514,49 @@ describe("refundOrderPayment", () => {
 
     expect(refund.id).toBe("refund-1");
     expect(mockRefund).toHaveBeenCalledWith("pi_123", 400, expect.any(String));
+  });
+
+  it("closes the two-concurrent-refund race: a second concurrent refund whose reservation observes the balance already consumed is rejected, never double-charging the provider", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: "pay-1",
+      orderId: "o1",
+      provider: provider(),
+      successfulAttemptId: "attempt-1",
+      refundedAmountCents: 0,
+      capturedAmountCents: 1000,
+    } as never);
+    mockPrisma.paymentAttempt.findUnique.mockResolvedValue({ providerPaymentIntentId: "pi_123" } as never);
+    // Simulates Postgres's own row-level serialization: the first
+    // concurrent call's atomic UPDATE commits and consumes the full
+    // balance; the second call's atomic UPDATE (evaluated against the
+    // now-committed row) matches no row.
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([
+        { id: "pay-1", refundedAmountCents: 1000, capturedAmountCents: 1000, status: "REFUNDED" },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+    mockRefund.mockResolvedValue({ success: true, providerRefundId: "re_123" });
+    mockPrisma.refund.create.mockResolvedValue({ id: "refund-1", status: "COMPLETED" } as never);
+
+    const first = await refundOrderPayment({
+      paymentId: "pay-1",
+      amountCents: 1000,
+      reason: "CUSTOMER_REQUEST",
+      restaurantId: "r1",
+    });
+    expect(first.id).toBe("refund-1");
+
+    await expect(
+      refundOrderPayment({
+        paymentId: "pay-1",
+        amountCents: 1000,
+        reason: "CUSTOMER_REQUEST",
+        restaurantId: "r1",
+      }),
+    ).rejects.toBeInstanceOf(RefundExceedsRemainingBalanceError);
+
+    // The provider's refund API was only ever called once — the second
+    // concurrent attempt never reached it.
+    expect(mockRefund).toHaveBeenCalledTimes(1);
   });
 });

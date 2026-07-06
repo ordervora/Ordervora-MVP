@@ -181,6 +181,32 @@ describe("requireEnv (Phase 3 — shared single-var helper, replaces 5 duplicate
     process.env.SOME_TEST_VAR = "";
     expect(() => requireEnv("SOME_TEST_VAR")).toThrow(/SOME_TEST_VAR/);
   });
+
+  describe("production-only placeholder rejection", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    it("rejects a .env.example placeholder value in production — e.g. ADMIN_PASSWORD left at its committed default", () => {
+      process.env.NODE_ENV = "production";
+      process.env.SOME_TEST_VAR = "replace-with-a-strong-password";
+      expect(() => requireEnv("SOME_TEST_VAR")).toThrow(/placeholder value/);
+    });
+
+    it("allows the same placeholder-looking string outside production (dev/test)", () => {
+      process.env.NODE_ENV = "test";
+      process.env.SOME_TEST_VAR = "replace-with-a-strong-password";
+      expect(requireEnv("SOME_TEST_VAR")).toBe("replace-with-a-strong-password");
+    });
+
+    it("allows a genuine, non-placeholder value in production", () => {
+      process.env.NODE_ENV = "production";
+      process.env.SOME_TEST_VAR = "a-genuinely-random-generated-value";
+      expect(requireEnv("SOME_TEST_VAR")).toBe("a-genuinely-random-generated-value");
+    });
+  });
 });
 
 describe("getStringEnv", () => {
