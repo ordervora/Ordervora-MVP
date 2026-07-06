@@ -2,7 +2,16 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { getPublicOrder, getPublicOrderTimeline, type Order, type OrderTimelineEntry } from "@/lib/commerce-api";
+import {
+  customerMe,
+  getOwnReview,
+  getPublicOrder,
+  getPublicOrderTimeline,
+  submitReview,
+  type Order,
+  type OrderTimelineEntry,
+  type Review,
+} from "@/lib/commerce-api";
 
 const MILESTONE_LABELS: Record<string, string> = {
   PLACED: "Order placed",
@@ -20,6 +29,13 @@ export default function OrderTrackingPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [timeline, setTimeline] = useState<OrderTimelineEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [review, setReview] = useState<Review | null | undefined>(undefined);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +65,32 @@ export default function OrderTrackingPage() {
       cancelled = true;
     };
   }, [orderId]);
+
+  useEffect(() => {
+    customerMe()
+      .then(() => {
+        setLoggedIn(true);
+        return getOwnReview(orderId);
+      })
+      .then((result) => {
+        if (result) setReview(result.review);
+      })
+      .catch(() => undefined);
+  }, [orderId]);
+
+  async function handleSubmitReview(event: React.FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setReviewError(null);
+    try {
+      const { review: created } = await submitReview(orderId, { rating, comment: comment || undefined });
+      setReview(created);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Failed to submit review");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   if (error) {
     return <p className="p-8 text-sm text-red-600">{error}</p>;
@@ -81,6 +123,49 @@ export default function OrderTrackingPage() {
             </li>
           ))}
         </ol>
+
+        {loggedIn && order.status === "COMPLETED" && review !== undefined && (
+          <div className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+            {review ? (
+              <>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Your review</span>
+                <span className="text-lg">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</span>
+                {review.comment && <p className="text-sm text-zinc-600 dark:text-zinc-400">{review.comment}</p>}
+              </>
+            ) : (
+              <form onSubmit={handleSubmitReview} className="flex flex-col gap-3">
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">How was your order?</span>
+                {reviewError && <p className="text-sm text-red-600">{reviewError}</p>}
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className="text-2xl leading-none"
+                      aria-label={`${star} stars`}
+                    >
+                      {star <= rating ? "★" : "☆"}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Optional comment"
+                  className="rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="self-start rounded-full bg-foreground px-4 py-2 text-sm text-background disabled:opacity-50"
+                >
+                  {submitting ? "Submitting…" : "Submit review"}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

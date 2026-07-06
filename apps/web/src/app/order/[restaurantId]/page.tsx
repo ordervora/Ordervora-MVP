@@ -7,6 +7,7 @@ import {
   addCartItem,
   createCart,
   getPublicMenu,
+  getRestaurantReviews,
   type Cart,
   type PublicMenu,
   type PublicMenuItem,
@@ -25,6 +26,7 @@ export default function OrderMenuPage() {
   const [cart, setCart] = useState<Cart | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeItem, setActiveItem] = useState<PublicMenuItem | null>(null);
+  const [rating, setRating] = useState<{ averageRating: number | null; reviewCount: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +52,12 @@ export default function OrderMenuPage() {
     return () => {
       cancelled = true;
     };
+  }, [restaurantId]);
+
+  useEffect(() => {
+    getRestaurantReviews(restaurantId)
+      .then((result) => setRating({ averageRating: result.averageRating, reviewCount: result.reviewCount }))
+      .catch(() => undefined);
   }, [restaurantId]);
 
   async function handleQuickAdd(item: PublicMenuItem) {
@@ -81,6 +89,11 @@ export default function OrderMenuPage() {
           <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">{menu.restaurant.name}</h1>
           {menu.restaurant.address && (
             <p className="text-sm text-zinc-600 dark:text-zinc-400">{menu.restaurant.address}</p>
+          )}
+          {rating && rating.reviewCount > 0 && rating.averageRating !== null && (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              ★ {rating.averageRating.toFixed(1)} ({rating.reviewCount} review{rating.reviewCount === 1 ? "" : "s"})
+            </p>
           )}
         </header>
 

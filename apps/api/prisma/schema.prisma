@@ -101,6 +101,7 @@ model Restaurant {
   loyaltyProgram       LoyaltyProgram?
   loyaltyAccounts      LoyaltyAccount[]
   customerFavorites    CustomerFavorite[]
+  reviews              Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -478,6 +479,7 @@ model Customer {
   couponRedemptions CouponRedemption[]
   refreshTokens     CustomerRefreshToken[]
   passwordResetTokens CustomerPasswordResetToken[]
+  reviews           Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -762,6 +764,7 @@ model Order {
   loyaltyTransactions  LoyaltyTransaction[]
   transactions         Transaction[]
   notificationLogs     NotificationLog[]
+  review               Review?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -792,6 +795,26 @@ model OrderItem {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+}
+
+// One review per order — @@unique on orderId is what actually enforces
+// "a customer can only review a given order once" at the database level
+// (the service layer's own check is a non-authoritative UX check, same
+// convention as this codebase's coupon/loyalty redemption checks).
+model Review {
+  id           String     @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  orderId      String     @unique
+  order        Order      @relation(fields: [orderId], references: [id])
+  rating       Int
+  comment      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([restaurantId, createdAt])
 }
 
 enum OrderEventType {

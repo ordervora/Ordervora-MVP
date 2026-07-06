@@ -429,3 +429,33 @@ export interface CustomerOrderSummary {
 export function listCustomerOrders() {
   return apiFetch<{ orders: CustomerOrderSummary[] }>("/api/customer/orders");
 }
+
+// --- Reviews --------------------------------------------------------------
+
+export interface Review {
+  id: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+}
+
+export interface PublicReview extends Review {
+  customerFirstName: string;
+}
+
+export function getOwnReview(orderId: string) {
+  return apiFetch<{ review: Review | null }>(`/api/customer/orders/${orderId}/review`);
+}
+
+export function submitReview(orderId: string, input: { rating: number; comment?: string }) {
+  return apiFetch<{ review: Review }>(`/api/customer/orders/${orderId}/review`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getRestaurantReviews(restaurantId: string) {
+  return apiFetch<{ reviews: PublicReview[]; averageRating: number | null; reviewCount: number }>(
+    `/api/public/restaurants/${restaurantId}/reviews`,
+  );
+}

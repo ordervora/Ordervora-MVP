@@ -20,6 +20,7 @@ import { couponsRouter } from "./modules/commerce/coupons/coupons.routes";
 import { customerRouter } from "./modules/commerce/customers/index.routes";
 import { deliveryRulesRouter } from "./modules/commerce/delivery-rules/delivery-rules.routes";
 import { loyaltyOwnerRouter, loyaltyCustomerRouter } from "./modules/commerce/loyalty/loyalty.routes";
+import { reviewsCustomerRouter, reviewsPublicRouter } from "./modules/commerce/reviews/reviews.routes";
 import { fulfillmentRouter } from "./modules/commerce/fulfillment/fulfillment.routes";
 import { menuCommerceRouter } from "./modules/commerce/menu-commerce/menu-commerce.routes";
 import { publicMenuRouter } from "./modules/commerce/menu-commerce/public-menu.routes";
@@ -291,6 +292,7 @@ export function createApp() {
   // Commerce & Fulfillment Engine (Sprint 07) — customer-facing, public
   // (guest/customer identity resolved from cookies, not requireAuth).
   app.use("/api/public", publicMenuRouter);
+  app.use("/api/public", reviewsPublicRouter);
   app.use("/api/public", publicCartRouter);
   app.use("/api/public", publicPaymentConfigRouter);
   app.use("/api/public", checkoutRouter);
@@ -300,6 +302,7 @@ export function createApp() {
   // Customer (end-diner) account auth — separate identity from staff auth.
   app.use("/api/customer", customerRouter);
   app.use("/api/customer", loyaltyCustomerRouter);
+  app.use("/api/customer", reviewsCustomerRouter);
 
   // BYOP webhooks — no requireAuth, signature-verified per-provider instead.
   app.use("/api/webhooks/payments", paymentWebhookRouter);
