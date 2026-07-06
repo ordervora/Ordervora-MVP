@@ -20,6 +20,7 @@ import { couponsRouter } from "./modules/commerce/coupons/coupons.routes";
 import { customerRouter } from "./modules/commerce/customers/index.routes";
 import { deliveryRulesRouter } from "./modules/commerce/delivery-rules/delivery-rules.routes";
 import { loyaltyOwnerRouter, loyaltyCustomerRouter } from "./modules/commerce/loyalty/loyalty.routes";
+import { analyticsRouter } from "./modules/commerce/analytics/analytics.routes";
 import { reviewsCustomerRouter, reviewsPublicRouter } from "./modules/commerce/reviews/reviews.routes";
 import { fulfillmentRouter } from "./modules/commerce/fulfillment/fulfillment.routes";
 import { menuCommerceRouter } from "./modules/commerce/menu-commerce/menu-commerce.routes";
@@ -283,6 +284,7 @@ export function createApp() {
   app.use("/api/restaurants", ordersRouter);
   app.use("/api/restaurants", tablesRouter);
   app.use("/api/restaurants", loyaltyOwnerRouter);
+  app.use("/api/restaurants", analyticsRouter);
   app.use("/api/admin/restaurants", adminRestaurantRouter);
   app.use("/api/menu", menuRouter);
   app.use("/api/imports", importRouter);

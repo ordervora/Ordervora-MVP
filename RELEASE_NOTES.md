@@ -2362,3 +2362,30 @@ the live Supabase database by hand, the same way the original schema
 was: via Supabase's SQL editor. The exact `ALTER TABLE`/`CREATE TABLE`
 statements are in `apps/api/prisma/migrations/20260706090000_sprint14_loyalty_redemption/migration.sql`
 and `apps/api/prisma/migrations/20260706093000_sprint14_reviews/migration.sql`.
+
+## Sprint 15, Part 1 — Restaurant Analytics Dashboard
+
+**Revenue, order, and top-item reporting (done):** a new owner-only
+`analytics` module reports, over an adjustable 7/30/90-day window:
+total revenue, order count, average order value, and a per-status order
+breakdown (`GET /me/analytics/summary`); a day-by-day revenue/order-
+count series for charting (`GET /me/analytics/revenue-by-day`); and the
+restaurant's best-selling menu items by quantity, with revenue
+attributed per item (`GET /me/analytics/top-items`). "Revenue" is
+defined as every order that proceeded past payment — everything except
+`CANCELLED` (never charged) and `FAILED` (payment never captured) —
+which intentionally includes partially/fully refunded orders; a
+net-of-refunds figure is left for a future iteration. The two grouped
+queries (by day, by item) use parameterized raw SQL for the
+`GROUP BY`/date-truncation work Prisma's type-safe query builder can't
+express, with explicit `::int` casts so Postgres's `bigint` aggregates
+don't surface as non-JSON-serializable `BigInt`s.
+
+New dashboard page at `/dashboard/analytics`: three headline stat
+cards, a status breakdown strip, a simple bar chart of revenue by day,
+and a ranked top-10-items list, all following the same 7/30/90-day
+toggle. No new database tables or columns — this reads entirely from
+the existing `Order`/`OrderItem` tables, so no manual SQL step is
+needed for this part of Sprint 15.
+
+**Next in Sprint 15:** staff roles/permissions management UI.

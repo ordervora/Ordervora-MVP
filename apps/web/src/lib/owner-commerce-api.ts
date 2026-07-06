@@ -356,3 +356,37 @@ export function updateLoyaltyProgram(input: Partial<Pick<LoyaltyProgram, "points
     body: JSON.stringify(input),
   });
 }
+
+// --- Analytics -------------------------------------------------------------------
+
+export interface RevenueSummary {
+  totalRevenueCents: number;
+  averageOrderValueCents: number;
+  totalOrders: number;
+  ordersByStatus: Record<string, number>;
+}
+
+export interface RevenueByDay {
+  day: string;
+  revenueCents: number;
+  orderCount: number;
+}
+
+export interface TopItem {
+  menuItemId: string;
+  name: string;
+  quantitySold: number;
+  revenueCents: number;
+}
+
+export function getRevenueSummary(days = 30) {
+  return apiFetch<RevenueSummary>(`/api/restaurants/me/analytics/summary?days=${days}`);
+}
+
+export function getRevenueByDay(days = 30) {
+  return apiFetch<{ days: RevenueByDay[] }>(`/api/restaurants/me/analytics/revenue-by-day?days=${days}`);
+}
+
+export function getTopItems(days = 30, limit = 10) {
+  return apiFetch<{ items: TopItem[] }>(`/api/restaurants/me/analytics/top-items?days=${days}&limit=${limit}`);
+}
