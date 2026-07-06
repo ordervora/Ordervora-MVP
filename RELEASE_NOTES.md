@@ -2274,3 +2274,39 @@ unused `express.urlencoded()` middleware entirely: the API now only
 ever parses `application/json`, which a bare form can't produce and a
 cross-origin script-driven `fetch` can't get past the CORS origin
 allowlist for.
+
+## Sprint 12: Post-Audit Feature Backlog (In Progress)
+
+Following the full-platform product audit (documented separately),
+started systematically closing the gaps it identified, in priority
+order, starting with items with zero external-account dependency:
+
+- **Customer favorites bug fixed**: the account page rendered each
+  favorite as a raw `Item {menuItemId}` string instead of the dish
+  name. `favorites.service.ts`'s `listFavorites` now includes the
+  related `MenuItem`'s name/price/availability, and the frontend
+  renders it properly.
+- **Customer order history added**: no past-orders view existed
+  anywhere in the customer account UI. Added
+  `GET /api/customer/orders` plus an account-page section listing each
+  past order (restaurant, order number, status, total, date) linking to
+  the existing public tracking page.
+- **Saved payment methods UI added**: the backend
+  (`payment-methods.service.ts`) already supported listing/deleting a
+  customer's saved cards, but there was no frontend for it. Added an
+  account-page section, and tightened the list endpoint to return only
+  display-safe fields (brand/last4/expiry) — it previously returned the
+  raw `providerToken` to the frontend unnecessarily.
+- **Restaurant operating-hours editor added**: `RestaurantHours` and
+  `GET/PUT /api/restaurants/me/hours` already existed and were already
+  enforced at checkout (`isRestaurantOpenAt`), but had zero dashboard
+  UI — an owner had no way to actually set their hours. Added a weekly
+  hours editor to `/dashboard/restaurant`.
+
+Remaining backlog (marketing website, menu variant/modifier dashboard
+UI, loyalty program, customer reviews, analytics/reporting, staff
+permissions, kitchen display upgrades, a real admin console, and
+OrderVora's own billing/subscription model) is tracked and being
+worked through continuously; items requiring a third-party account
+(additional payment/delivery/POS providers, SMS) are deferred until
+those credentials exist.
