@@ -26,6 +26,10 @@ export const applyCouponSchema = z.object({
   code: z.string().min(1).max(32),
 });
 
+export const applyLoyaltyRedemptionSchema = z.object({
+  points: z.number().int().positive(),
+});
+
 // A table is bound to a cart only via a scanned QR token, never a raw
 // client-supplied tableId — the token is resolved to a real Table row
 // server-side (see bindCartToTable in cart.service.ts).
@@ -38,4 +42,5 @@ export type AddCartItemInput = z.infer<typeof addCartItemSchema>;
 export type UpdateCartItemInput = z.infer<typeof updateCartItemSchema>;
 export type SetFulfillmentInput = z.infer<typeof setFulfillmentSchema>;
 export type ApplyCouponInput = z.infer<typeof applyCouponSchema>;
+export type ApplyLoyaltyRedemptionInput = z.infer<typeof applyLoyaltyRedemptionSchema>;
 export type BindTableInput = z.infer<typeof bindTableSchema>;

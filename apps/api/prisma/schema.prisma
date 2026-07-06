@@ -634,6 +634,11 @@ model Cart {
   // validateCouponForRedemption — this field only remembers the
   // customer's selection between requests.
   couponCode         String?
+  // Loyalty points the customer has chosen to redeem toward this cart's
+  // total, mirroring couponCode's "remembers the selection, re-validated
+  // fresh at quote and placement time" pattern — never trusted as still
+  // redeemable just because it's set here.
+  loyaltyPointsToRedeem Int?
   expiresAt          DateTime
 
   items CartItem[]

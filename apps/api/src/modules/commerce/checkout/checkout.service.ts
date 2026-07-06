@@ -8,6 +8,8 @@ import { authorizeOrderPayment, captureOrderPayment } from "../payments/orchestr
 import { NoAvailableProviderError, PaymentMethodNotFoundError } from "../payments/payments.errors";
 import { validateCouponForRedemption } from "../coupons/coupons.service";
 import { CouponInvalidError, CouponNotFoundError } from "../coupons/coupons.errors";
+import { InsufficientLoyaltyPointsError } from "../loyalty/loyalty.errors";
+import { redeemPointsInTransaction } from "../loyalty/loyalty.service";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
 import { assertValidOrderTransition } from "../orders/order-state-machine";
 import { nextOrderNumber } from "../orders/order-number";
@@ -257,6 +259,20 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
         });
       }
 
+      // Loyalty redemption: an independent atomic step from the coupon
+      // block above (not layered onto it) — the WHERE-guarded UPDATE
+      // inside redeemPointsInTransaction is atomic at the database's row
+      // level under any isolation level, so it doesn't need (and doesn't
+      // force) the Serializable isolation the coupon path requires for
+      // its count-then-insert check. cart.customerId is required (never
+      // set for guests, who have no LoyaltyAccount identity).
+      if (cart.customerId && cart.loyaltyPointsToRedeem) {
+        const redeemed = await redeemPointsInTransaction(tx, cart.customerId, restaurantId, cart.loyaltyPointsToRedeem, created.id);
+        if (!redeemed) {
+          throw new InsufficientLoyaltyPointsError();
+        }
+      }
+
       // The cart's ACTIVE -> CONVERTED transition happens in the same
       // transaction as Order creation, guarded above by the cart-status
       // check and by Order.cartId's unique constraint: a concurrent second
@@ -275,6 +291,9 @@ export async function placeOrder(cartId: string, restaurantId: string, input: Pl
     }
     if (err instanceof CouponInvalidError) {
       throw new CheckoutIneligibleError(err.message);
+    }
+    if (err instanceof InsufficientLoyaltyPointsError) {
+      throw new CheckoutIneligibleError("Your loyalty points balance changed — please review your redemption and try again");
     }
     if (isSerializationFailure(err)) {
       throw new CheckoutIneligibleError("This coupon just reached its redemption limit — please remove it and try again");

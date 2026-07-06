@@ -19,6 +19,7 @@ import { checkoutRouter } from "./modules/commerce/checkout/checkout.routes";
 import { couponsRouter } from "./modules/commerce/coupons/coupons.routes";
 import { customerRouter } from "./modules/commerce/customers/index.routes";
 import { deliveryRulesRouter } from "./modules/commerce/delivery-rules/delivery-rules.routes";
+import { loyaltyOwnerRouter, loyaltyCustomerRouter } from "./modules/commerce/loyalty/loyalty.routes";
 import { fulfillmentRouter } from "./modules/commerce/fulfillment/fulfillment.routes";
 import { menuCommerceRouter } from "./modules/commerce/menu-commerce/menu-commerce.routes";
 import { publicMenuRouter } from "./modules/commerce/menu-commerce/public-menu.routes";
@@ -280,6 +281,7 @@ export function createApp() {
   app.use("/api/restaurants", couponsRouter);
   app.use("/api/restaurants", ordersRouter);
   app.use("/api/restaurants", tablesRouter);
+  app.use("/api/restaurants", loyaltyOwnerRouter);
   app.use("/api/admin/restaurants", adminRestaurantRouter);
   app.use("/api/menu", menuRouter);
   app.use("/api/imports", importRouter);
@@ -297,6 +299,7 @@ export function createApp() {
 
   // Customer (end-diner) account auth — separate identity from staff auth.
   app.use("/api/customer", customerRouter);
+  app.use("/api/customer", loyaltyCustomerRouter);
 
   // BYOP webhooks — no requireAuth, signature-verified per-provider instead.
   app.use("/api/webhooks/payments", paymentWebhookRouter);

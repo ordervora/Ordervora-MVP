@@ -28,6 +28,9 @@ vi.mock("@/lib/commerce-api", () => ({
   updateCartItemQuantity: vi.fn(),
   applyCoupon: vi.fn(),
   removeCoupon: vi.fn(),
+  getLoyaltyBalance: vi.fn().mockResolvedValue({ program: null, pointsBalance: 0 }),
+  applyLoyaltyRedemption: vi.fn(),
+  removeLoyaltyRedemption: vi.fn(),
 }));
 
 import CartPage from "./page";

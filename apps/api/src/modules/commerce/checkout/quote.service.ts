@@ -1,6 +1,7 @@
 import type { Cart, CartItem, FulfillmentMethod } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { validateCouponForRedemption } from "../coupons/coupons.service";
+import { computeRedemptionDiscountCents, getAccountSummary } from "../loyalty/loyalty.service";
 import { countActiveDriverAssignments } from "../fulfillment/fulfillment.service";
 import { getConfig } from "../delivery-rules/delivery-config.service";
 import { resolveDeliveryFeeCents, resolveServiceFeeCents } from "../delivery-rules/fee-rules.service";
@@ -141,6 +142,18 @@ export async function computeCheckoutQuote(
       // it does not block checkout; placeOrder re-validates independently.
       discountCents = 0;
     }
+  }
+
+  // Same "stops applying rather than blocking checkout" treatment as the
+  // coupon above — placeOrder re-validates the actual balance atomically
+  // immediately before charging. Guests (no customerId) never have a
+  // redeemable balance, so this is a no-op for them regardless of what
+  // the cart field says.
+  if (cart.customerId && cart.loyaltyPointsToRedeem) {
+    const { program, pointsBalance } = await getAccountSummary(cart.customerId, cart.restaurantId);
+    const points = Math.min(cart.loyaltyPointsToRedeem, pointsBalance);
+    const remainingAfterCoupon = Math.max(0, subtotalCents - discountCents);
+    discountCents += Math.min(computeRedemptionDiscountCents(program, points), remainingAfterCoupon);
   }
 
   const totalCents = Math.max(

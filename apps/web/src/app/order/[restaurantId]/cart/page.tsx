@@ -5,17 +5,21 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   applyCoupon,
+  applyLoyaltyRedemption,
   createAddress,
   customerMe,
   getCart,
+  getLoyaltyBalance,
   listAddresses,
   removeCartItem,
   removeCoupon,
+  removeLoyaltyRedemption,
   setCartFulfillment,
   updateCartItemQuantity,
   type Cart,
   type CustomerAddress,
   type FulfillmentType,
+  type LoyaltyAccountSummary,
   type PublicCustomer,
 } from "@/lib/commerce-api";
 import { getStoredCartId } from "@/lib/cart-storage";
@@ -45,6 +49,9 @@ export default function CartPage() {
   const [addressError, setAddressError] = useState<string | null>(null);
   const [newAddress, setNewAddress] = useState({ line1: "", city: "", state: "", postalCode: "", country: "US" });
 
+  const [loyalty, setLoyalty] = useState<LoyaltyAccountSummary | null>(null);
+  const [redeemPoints, setRedeemPoints] = useState("");
+
   useEffect(() => {
     if (!cartId) {
       router.replace(`/order/${restaurantId}`);
@@ -63,6 +70,13 @@ export default function CartPage() {
       .catch(() => undefined)
       .finally(() => setAuthChecked(true));
   }, []);
+
+  useEffect(() => {
+    if (!customer) return;
+    getLoyaltyBalance(restaurantId)
+      .then(setLoyalty)
+      .catch(() => undefined);
+  }, [customer, restaurantId]);
 
   function refresh(id: string) {
     return getCart(id)
@@ -143,6 +157,24 @@ export default function CartPage() {
   async function handleRemoveCoupon() {
     if (!cartId) return;
     await removeCoupon(cartId);
+    refresh(cartId);
+  }
+
+  async function handleApplyLoyaltyRedemption() {
+    if (!cartId || !redeemPoints) return;
+    try {
+      await applyLoyaltyRedemption(cartId, Number(redeemPoints));
+      setError(null);
+      refresh(cartId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not redeem those points");
+    }
+  }
+
+  async function handleRemoveLoyaltyRedemption() {
+    if (!cartId) return;
+    await removeLoyaltyRedemption(cartId);
+    setRedeemPoints("");
     refresh(cartId);
   }
 
@@ -350,6 +382,43 @@ export default function CartPage() {
             </div>
           )}
         </div>
+
+        {authChecked && customer && loyalty?.program?.isActive && (
+          <div className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Loyalty points — you have {loyalty.pointsBalance}
+            </span>
+            {cart.loyaltyPointsToRedeem ? (
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Redeeming {cart.loyaltyPointsToRedeem} points</span>
+                <button type="button" onClick={handleRemoveLoyaltyRedemption} className="text-sm text-red-600">
+                  Remove
+                </button>
+              </div>
+            ) : (
+              loyalty.pointsBalance > 0 && (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max={loyalty.pointsBalance}
+                    value={redeemPoints}
+                    onChange={(e) => setRedeemPoints(e.target.value)}
+                    placeholder="Points to redeem"
+                    className="flex-1 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyLoyaltyRedemption}
+                    className="rounded-full bg-foreground px-4 py-2 text-sm text-background"
+                  >
+                    Redeem
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
 
         <div className="flex items-center justify-between rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Subtotal</span>

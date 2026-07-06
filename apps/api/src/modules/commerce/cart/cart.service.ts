@@ -206,6 +206,11 @@ export async function setCartCoupon(cartId: string, code: string | null): Promis
   return prisma.cart.update({ where: { id: cartId }, data: { couponCode: code } });
 }
 
+export async function setCartLoyaltyRedemption(cartId: string, points: number | null): Promise<Cart> {
+  await getCartWithItems(cartId);
+  return prisma.cart.update({ where: { id: cartId }, data: { loyaltyPointsToRedeem: points } });
+}
+
 /**
  * The sole path by which a Cart is ever associated with a Table — always
  * via a scanned QR token resolved server-side (resolveTableByToken), never

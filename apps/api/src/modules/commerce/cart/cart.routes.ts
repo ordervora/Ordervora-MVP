@@ -3,11 +3,13 @@ import { publicCommerceRateLimiter } from "../../../middleware/rate-limit";
 import {
   addCartItemHandler,
   applyCouponHandler,
+  applyLoyaltyRedemptionHandler,
   bindTableHandler,
   createCartHandler,
   getCartHandler,
   removeCartItemHandler,
   removeCouponHandler,
+  removeLoyaltyRedemptionHandler,
   setFulfillmentHandler,
   updateCartItemHandler,
 } from "./cart.controller";
@@ -25,3 +27,5 @@ publicCartRouter.patch("/cart/:cartId/fulfillment", publicCommerceRateLimiter, s
 publicCartRouter.post("/cart/:cartId/bind-table", publicCommerceRateLimiter, bindTableHandler);
 publicCartRouter.post("/cart/:cartId/coupon", publicCommerceRateLimiter, applyCouponHandler);
 publicCartRouter.delete("/cart/:cartId/coupon", publicCommerceRateLimiter, removeCouponHandler);
+publicCartRouter.post("/cart/:cartId/loyalty", publicCommerceRateLimiter, applyLoyaltyRedemptionHandler);
+publicCartRouter.delete("/cart/:cartId/loyalty", publicCommerceRateLimiter, removeLoyaltyRedemptionHandler);

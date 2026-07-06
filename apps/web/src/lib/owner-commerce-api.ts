@@ -337,3 +337,22 @@ export function updateCoupon(id: string, input: Partial<CreateCouponInput>) {
 export function deleteCoupon(id: string) {
   return apiFetch<void>(`/api/restaurants/me/coupons/${id}`, { method: "DELETE" });
 }
+
+export interface LoyaltyProgram {
+  id: string;
+  restaurantId: string;
+  pointsPerDollarCents: number;
+  redemptionRateCentsPerPoint: number;
+  isActive: boolean;
+}
+
+export function getLoyaltyProgram() {
+  return apiFetch<{ program: LoyaltyProgram }>("/api/restaurants/me/loyalty-program");
+}
+
+export function updateLoyaltyProgram(input: Partial<Pick<LoyaltyProgram, "pointsPerDollarCents" | "redemptionRateCentsPerPoint" | "isActive">>) {
+  return apiFetch<{ program: LoyaltyProgram }>("/api/restaurants/me/loyalty-program", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}

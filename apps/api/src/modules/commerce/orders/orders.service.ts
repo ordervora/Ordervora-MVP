@@ -2,6 +2,7 @@ import type { Order, OrderEvent, OrderTimeline, Prisma, RefundReason } from "@pr
 import { bestEffort } from "../../../lib/best-effort";
 import { prisma } from "../../../lib/prisma";
 import { emitOrderEvent, writeOrderEvent } from "../events/record-order-event";
+import { earnPointsForCompletedOrder } from "../loyalty/loyalty.service";
 import { refundOrderPayment } from "../payments/orchestrator";
 import {
   sendOrderDeliveredNotification,
@@ -98,6 +99,7 @@ export async function markOutForDelivery(restaurantId: string, orderId: string):
 
 export async function completeOrder(restaurantId: string, orderId: string): Promise<Order> {
   const order = await transition(restaurantId, orderId, "COMPLETED", "ORDER_COMPLETED", "COMPLETED", { completedAt: new Date() });
+  await bestEffort(() => earnPointsForCompletedOrder(order));
   const email = await resolveCustomerEmail(order);
   if (email) {
     await bestEffort(() => sendOrderDeliveredNotification(order.id, restaurantId, email, order.orderNumber));

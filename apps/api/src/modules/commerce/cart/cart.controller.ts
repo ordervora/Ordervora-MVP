@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { CouponInvalidError, CouponNotFoundError } from "../coupons/coupons.errors";
 import { validateCouponForRedemption } from "../coupons/coupons.service";
+import { getAccountSummary } from "../loyalty/loyalty.service";
 import { InvalidQrTokenError } from "../qr-ordering/qr-ordering.errors";
 import { assertCartOwnership, resolveCartIdentity } from "./cart-identity";
 import {
@@ -20,11 +21,13 @@ import {
   removeCartItem,
   setCartCoupon,
   setCartFulfillment,
+  setCartLoyaltyRedemption,
   updateCartItemQuantity,
 } from "./cart.service";
 import {
   addCartItemSchema,
   applyCouponSchema,
+  applyLoyaltyRedemptionSchema,
   bindTableSchema,
   createCartSchema,
   setFulfillmentSchema,
@@ -210,6 +213,64 @@ export async function removeCouponHandler(req: Request, res: Response): Promise<
     const existing = await getCartWithItems(req.params.cartId as string);
     assertCartOwnership(existing, resolveCartIdentity(req, res));
     const cart = await setCartCoupon(req.params.cartId as string, null);
+    res.status(200).json({ cart });
+  } catch (err) {
+    if (err instanceof CartNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Guests can't redeem (no LoyaltyAccount identity to debit) — this is a
+ * 422, not a 404/401, since the cart itself is perfectly valid for guest
+ * checkout, just not for this one action. The actual balance debit is
+ * re-validated atomically inside placeOrder's transaction
+ * (loyalty.service.ts redeemPointsInTransaction); this handler's balance
+ * check is a non-authoritative UX check only, mirroring applyCouponHandler.
+ */
+export async function applyLoyaltyRedemptionHandler(req: Request, res: Response): Promise<void> {
+  const parsed = applyLoyaltyRedemptionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const cart = await getCartWithItems(req.params.cartId as string);
+    const identity = resolveCartIdentity(req, res);
+    assertCartOwnership(cart, identity);
+    if (!identity.customerId) {
+      res.status(422).json({ error: "Log in to redeem loyalty points" });
+      return;
+    }
+    const { program, pointsBalance } = await getAccountSummary(identity.customerId, cart.restaurantId);
+    if (!program || !program.isActive) {
+      res.status(422).json({ error: "This restaurant's loyalty program isn't active" });
+      return;
+    }
+    if (parsed.data.points > pointsBalance) {
+      res.status(422).json({ error: "Not enough loyalty points for this redemption" });
+      return;
+    }
+    const updated = await setCartLoyaltyRedemption(cart.id, parsed.data.points);
+    res.status(200).json({ cart: updated, discountCents: parsed.data.points * program.redemptionRateCentsPerPoint });
+  } catch (err) {
+    if (err instanceof CartNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function removeLoyaltyRedemptionHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const existing = await getCartWithItems(req.params.cartId as string);
+    assertCartOwnership(existing, resolveCartIdentity(req, res));
+    const cart = await setCartLoyaltyRedemption(req.params.cartId as string, null);
     res.status(200).json({ cart });
   } catch (err) {
     if (err instanceof CartNotFoundError) {

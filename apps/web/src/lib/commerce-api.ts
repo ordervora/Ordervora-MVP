@@ -71,6 +71,7 @@ export interface Cart {
   deliveryAddressId: string | null;
   tableId: string | null;
   couponCode: string | null;
+  loyaltyPointsToRedeem: number | null;
   notes: string | null;
   items: CartItem[];
 }
@@ -260,6 +261,26 @@ export function applyCoupon(cartId: string, code: string) {
 
 export function removeCoupon(cartId: string) {
   return apiFetch<{ cart: Cart }>(`/api/public/cart/${cartId}/coupon`, { method: "DELETE" });
+}
+
+export interface LoyaltyAccountSummary {
+  program: { isActive: boolean; pointsPerDollarCents: number; redemptionRateCentsPerPoint: number } | null;
+  pointsBalance: number;
+}
+
+export function getLoyaltyBalance(restaurantId: string) {
+  return apiFetch<LoyaltyAccountSummary>(`/api/customer/loyalty/${restaurantId}`);
+}
+
+export function applyLoyaltyRedemption(cartId: string, points: number) {
+  return apiFetch<{ cart: Cart; discountCents: number }>(`/api/public/cart/${cartId}/loyalty`, {
+    method: "POST",
+    body: JSON.stringify({ points }),
+  });
+}
+
+export function removeLoyaltyRedemption(cartId: string) {
+  return apiFetch<{ cart: Cart }>(`/api/public/cart/${cartId}/loyalty`, { method: "DELETE" });
 }
 
 // --- Checkout ------------------------------------------------------------------
