@@ -2121,12 +2121,11 @@ verified present at Namecheap immediately after being added.
 
 ## Remaining for M4
 
-- Update the `FRONTEND_URL` environment variable on the backend Vercel
-  project to `https://www.ordervora.com` (currently still the
-  `.vercel.app` URL) — needed so password-reset emails
-  (`customers.service.ts`) link to the real domain. Requires the user's
-  own action in the Vercel dashboard (no env-var-write tool available
-  through this session's Vercel MCP connection).
+- ~~Update the `FRONTEND_URL` environment variable on the backend Vercel
+  project to `https://www.ordervora.com`~~ — done. Verified live: logged
+  into `ordervora.com` directly and confirmed the session persists
+  (dashboard shows the authenticated user and role).
 - Email deliverability DNS (SPF/DKIM/DMARC) — deferred until an SMTP
   provider is chosen (RC-1 M5), since those records depend on which
-  provider is sending mail.
+  provider is sending mail. This is the only remaining M4 item, and it's
+  blocked on the M5 provider decision rather than anything domain-side.
