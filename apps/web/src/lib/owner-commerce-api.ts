@@ -93,6 +93,24 @@ export interface Coupon {
   type: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY";
   value: number;
   isActive: boolean;
+  minOrderCents: number | null;
+  maxDiscountCents: number | null;
+  startsAt: string | null;
+  expiresAt: string | null;
+  maxRedemptions: number | null;
+  maxRedemptionsPerCustomer: number | null;
+}
+
+export interface CreateCouponInput {
+  code: string;
+  type: string;
+  value: number;
+  isActive?: boolean;
+  minOrderCents?: number;
+  maxDiscountCents?: number;
+  expiresAt?: string;
+  maxRedemptions?: number;
+  maxRedemptionsPerCustomer?: number;
 }
 
 export interface FulfillmentProvider {
@@ -302,14 +320,14 @@ export function listCoupons() {
   return apiFetch<{ coupons: Coupon[] }>("/api/restaurants/me/coupons");
 }
 
-export function createCoupon(input: { code: string; type: string; value: number; isActive?: boolean }) {
+export function createCoupon(input: CreateCouponInput) {
   return apiFetch<{ coupon: Coupon }>("/api/restaurants/me/coupons", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
-export function updateCoupon(id: string, input: Partial<{ isActive: boolean; value: number }>) {
+export function updateCoupon(id: string, input: Partial<CreateCouponInput>) {
   return apiFetch<{ coupon: Coupon }>(`/api/restaurants/me/coupons/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),

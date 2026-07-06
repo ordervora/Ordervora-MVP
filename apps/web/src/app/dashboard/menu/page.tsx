@@ -1,12 +1,18 @@
 import { DashboardNav } from "@/components/dashboard-nav";
-import type { MenuCategory } from "@/lib/api";
+import type { MenuCategory, ModifierGroup } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { AddCategoryForm, DeleteCategoryButton } from "./category-form";
 import { AddItemForm, ItemRow } from "./menu-item-form";
+import { ModifierGroupsManager } from "./modifier-groups-manager";
 
 export default async function MenuPage() {
   const result = await serverFetch<{ categories: MenuCategory[] }>("/api/menu/categories");
   const categories = result.ok ? result.data.categories : [];
+
+  const modifierGroupsResult = result.ok
+    ? await serverFetch<{ modifierGroups: ModifierGroup[] }>("/api/restaurants/me/modifier-groups")
+    : null;
+  const modifierGroups = modifierGroupsResult?.ok ? modifierGroupsResult.data.modifierGroups : [];
 
   return (
     <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
@@ -38,13 +44,15 @@ export default async function MenuPage() {
 
                 <ul className="flex flex-col divide-y divide-black/[.08] dark:divide-white/[.145]">
                   {category.items.map((item) => (
-                    <ItemRow key={item.id} item={item} />
+                    <ItemRow key={item.id} item={item} modifierGroups={modifierGroups} />
                   ))}
                 </ul>
 
                 <AddItemForm categoryId={category.id} />
               </div>
             ))}
+
+            <ModifierGroupsManager modifierGroups={modifierGroups} />
           </>
         )}
       </div>

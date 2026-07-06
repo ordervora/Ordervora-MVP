@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteItem, updateItem, createItem, type MenuItem } from "@/lib/api";
+import { deleteItem, updateItem, createItem, type MenuItem, type ModifierGroup } from "@/lib/api";
+import { ItemDetailEditor } from "./item-detail-editor";
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -74,9 +75,10 @@ export function AddItemForm({ categoryId }: { categoryId: string }) {
   );
 }
 
-export function ItemRow({ item }: { item: MenuItem }) {
+export function ItemRow({ item, modifierGroups }: { item: MenuItem; modifierGroups: ModifierGroup[] }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   async function toggleAvailable() {
     setSubmitting(true);
@@ -91,18 +93,24 @@ export function ItemRow({ item }: { item: MenuItem }) {
   }
 
   return (
-    <li className="flex items-center justify-between gap-4 py-1 text-sm">
-      <span className={item.isAvailable ? "" : "text-zinc-400 line-through"}>
-        {item.name} — ${formatPrice(item.priceCents)}
-      </span>
-      <span className="flex gap-3">
-        <button type="button" onClick={toggleAvailable} disabled={submitting} className="text-zinc-600 dark:text-zinc-400">
-          {item.isAvailable ? "Mark unavailable" : "Mark available"}
-        </button>
-        <button type="button" onClick={handleDelete} disabled={submitting} className="text-red-600">
-          Delete
-        </button>
-      </span>
+    <li className="flex flex-col gap-2 py-1 text-sm">
+      <div className="flex items-center justify-between gap-4">
+        <span className={item.isAvailable ? "" : "text-zinc-400 line-through"}>
+          {item.name} — ${formatPrice(item.priceCents)}
+        </span>
+        <span className="flex gap-3">
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="text-zinc-600 dark:text-zinc-400">
+            {expanded ? "Hide options" : "Variants & modifiers"}
+          </button>
+          <button type="button" onClick={toggleAvailable} disabled={submitting} className="text-zinc-600 dark:text-zinc-400">
+            {item.isAvailable ? "Mark unavailable" : "Mark available"}
+          </button>
+          <button type="button" onClick={handleDelete} disabled={submitting} className="text-red-600">
+            Delete
+          </button>
+        </span>
+      </div>
+      {expanded && <ItemDetailEditor item={item} modifierGroups={modifierGroups} />}
     </li>
   );
 }

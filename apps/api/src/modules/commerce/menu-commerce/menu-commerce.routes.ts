@@ -11,6 +11,7 @@ import {
   deleteModifierGroupHandler,
   deleteModifierOptionHandler,
   detachModifierGroupHandler,
+  listItemModifierGroupsHandler,
   listModifierGroupsHandler,
   updateModifierGroupHandler,
   updateModifierOptionHandler,
@@ -44,6 +45,14 @@ menuCommerceRouter.delete(
   staffOrOwner,
   staffActionRateLimiter,
   detachModifierGroupHandler,
+);
+
+menuCommerceRouter.get(
+  "/me/menu-items/:itemId/modifier-groups",
+  requireAuth,
+  staffOrOwner,
+  staffActionRateLimiter,
+  listItemModifierGroupsHandler,
 );
 
 menuCommerceRouter.get("/me/menu-items/:itemId/inventory", requireAuth, staffOrOwner, staffActionRateLimiter, getInventoryHandler);

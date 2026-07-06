@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { ModifierGroup, ModifierOption } from "@prisma/client";
+import type { ModifierGroup, ModifierOption, MenuItemModifierGroup } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import {
   MenuItemNotFoundError,
@@ -15,10 +15,15 @@ import type {
   UpdateModifierOptionInput,
 } from "./menu-commerce.validation";
 
+export type ModifierGroupWithOptions = ModifierGroup & { options: ModifierOption[] };
+
 // --- ModifierGroup ------------------------------------------------------------
 
-export async function listModifierGroups(restaurantId: string): Promise<ModifierGroup[]> {
-  return prisma.modifierGroup.findMany({ where: { restaurantId } });
+export async function listModifierGroups(restaurantId: string): Promise<ModifierGroupWithOptions[]> {
+  return prisma.modifierGroup.findMany({
+    where: { restaurantId },
+    include: { options: { orderBy: { sortOrder: "asc" } } },
+  });
 }
 
 export async function createModifierGroup(
@@ -130,6 +135,11 @@ export async function detachModifierGroupFromItem(
 ): Promise<void> {
   await findOwnMenuItem(restaurantId, menuItemId);
   await prisma.menuItemModifierGroup.deleteMany({ where: { menuItemId, modifierGroupId } });
+}
+
+export async function listItemModifierGroups(restaurantId: string, menuItemId: string): Promise<MenuItemModifierGroup[]> {
+  await findOwnMenuItem(restaurantId, menuItemId);
+  return prisma.menuItemModifierGroup.findMany({ where: { menuItemId }, orderBy: { sortOrder: "asc" } });
 }
 
 /** Returns attached groups with their options nested, ordered by sortOrder — used by checkout to validate selections. */

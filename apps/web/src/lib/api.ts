@@ -198,6 +198,137 @@ export function deleteItem(id: string) {
   return apiFetch<void>(`/api/menu/items/${id}`, { method: "DELETE" });
 }
 
+// --- Variants -----------------------------------------------------------------
+
+export interface MenuItemVariant {
+  id: string;
+  menuItemId: string;
+  name: string;
+  priceDeltaCents: number;
+  sortOrder: number;
+  isDefault: boolean;
+}
+
+export interface VariantInput {
+  name: string;
+  priceDeltaCents?: number;
+  sortOrder?: number;
+  isDefault?: boolean;
+}
+
+export function listVariants(itemId: string) {
+  return apiFetch<{ variants: MenuItemVariant[] }>(`/api/restaurants/me/menu-items/${itemId}/variants`);
+}
+
+export function createVariant(itemId: string, input: VariantInput) {
+  return apiFetch<{ variant: MenuItemVariant }>(`/api/restaurants/me/menu-items/${itemId}/variants`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateVariant(itemId: string, variantId: string, input: Partial<VariantInput>) {
+  return apiFetch<{ variant: MenuItemVariant }>(`/api/restaurants/me/menu-items/${itemId}/variants/${variantId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteVariant(itemId: string, variantId: string) {
+  return apiFetch<void>(`/api/restaurants/me/menu-items/${itemId}/variants/${variantId}`, { method: "DELETE" });
+}
+
+// --- Modifier groups & options --------------------------------------------------
+
+export type ModifierSelectionType = "SINGLE" | "MULTI";
+
+export interface ModifierOption {
+  id: string;
+  modifierGroupId: string;
+  name: string;
+  priceDeltaCents: number;
+  isAvailable: boolean;
+  sortOrder: number;
+}
+
+export interface ModifierGroup {
+  id: string;
+  restaurantId: string;
+  name: string;
+  selectionType: ModifierSelectionType;
+  isRequired: boolean;
+  minSelections: number;
+  maxSelections: number | null;
+  options: ModifierOption[];
+}
+
+export interface ModifierGroupInput {
+  name: string;
+  selectionType: ModifierSelectionType;
+  isRequired?: boolean;
+  minSelections?: number;
+  maxSelections?: number;
+}
+
+export interface ModifierOptionInput {
+  name: string;
+  priceDeltaCents?: number;
+  isAvailable?: boolean;
+  sortOrder?: number;
+}
+
+export function listModifierGroups() {
+  return apiFetch<{ modifierGroups: ModifierGroup[] }>("/api/restaurants/me/modifier-groups");
+}
+
+export function createModifierGroup(input: ModifierGroupInput) {
+  return apiFetch<{ modifierGroup: ModifierGroup }>("/api/restaurants/me/modifier-groups", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteModifierGroup(id: string) {
+  return apiFetch<void>(`/api/restaurants/me/modifier-groups/${id}`, { method: "DELETE" });
+}
+
+export function createModifierOption(groupId: string, input: ModifierOptionInput) {
+  return apiFetch<{ modifierOption: ModifierOption }>(`/api/restaurants/me/modifier-groups/${groupId}/options`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteModifierOption(groupId: string, optionId: string) {
+  return apiFetch<void>(`/api/restaurants/me/modifier-groups/${groupId}/options/${optionId}`, { method: "DELETE" });
+}
+
+export interface MenuItemModifierGroupAttachment {
+  id: string;
+  menuItemId: string;
+  modifierGroupId: string;
+  sortOrder: number;
+}
+
+export function listItemModifierGroups(itemId: string) {
+  return apiFetch<{ attachments: MenuItemModifierGroupAttachment[] }>(
+    `/api/restaurants/me/menu-items/${itemId}/modifier-groups`,
+  );
+}
+
+export function attachModifierGroup(itemId: string, modifierGroupId: string) {
+  return apiFetch<{ ok: true }>(`/api/restaurants/me/menu-items/${itemId}/modifier-groups`, {
+    method: "POST",
+    body: JSON.stringify({ modifierGroupId }),
+  });
+}
+
+export function detachModifierGroup(itemId: string, modifierGroupId: string) {
+  return apiFetch<void>(`/api/restaurants/me/menu-items/${itemId}/modifier-groups/${modifierGroupId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function createImportJob(
   sourceType: ImportSourceType,
   source: { file: File } | { url: string },

@@ -20,6 +20,7 @@ import {
   deleteModifierGroup,
   deleteModifierOption,
   detachModifierGroupFromItem,
+  listItemModifierGroups,
   listModifierGroups,
   updateModifierGroup,
   updateModifierOption,
@@ -188,6 +189,21 @@ export async function detachModifierGroupHandler(req: Request, res: Response): P
     await detachModifierGroupFromItem(restaurantId, paramItemId(req), paramModifierGroupId(req));
     revalidateInBackground(restaurantId);
     res.status(204).send();
+  } catch (err) {
+    if (err instanceof MenuItemNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function listItemModifierGroupsHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  try {
+    res.status(200).json({ attachments: await listItemModifierGroups(restaurantId, paramItemId(req)) });
   } catch (err) {
     if (err instanceof MenuItemNotFoundError) {
       res.status(404).json({ error: err.message });
