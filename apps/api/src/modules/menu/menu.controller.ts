@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import type { Request, Response } from "express";
 import { NoRestaurantError } from "../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../restaurants/restaurant.service";
@@ -33,9 +34,13 @@ async function requireOwnRestaurantId(req: Request, res: Response): Promise<stri
  * no published site. Errors are swallowed rather than surfaced to the
  * menu-edit response, since revalidation failing shouldn't fail the edit
  * itself (acceptance criterion #8: price change live within 60s).
+ *
+ * `waitUntil` (not a bare `void`) — same reasoning as job-runner.ts:
+ * Vercel can freeze this invocation shortly after the HTTP response is
+ * sent, killing a detached promise before revalidation finishes.
  */
 function revalidateInBackground(restaurantId: string): void {
-  void revalidatePublishedSite(restaurantId).catch(() => undefined);
+  waitUntil(revalidatePublishedSite(restaurantId).catch(() => undefined));
 }
 
 export async function listCategoriesHandler(req: Request, res: Response): Promise<void> {

@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import type { Request, Response } from "express";
 import { revalidatePublishedSite } from "../sites/site.service";
 import { NoRestaurantError, RestaurantAlreadyExistsError } from "./restaurant.errors";
@@ -6,7 +7,7 @@ import { createRestaurantSchema, updateRestaurantSchema } from "./restaurant.val
 
 /** §19.4 profile-change revalidation — see menu.controller.ts's revalidateInBackground for the same rationale. */
 function revalidateInBackground(restaurantId: string): void {
-  void revalidatePublishedSite(restaurantId).catch(() => undefined);
+  waitUntil(revalidatePublishedSite(restaurantId).catch(() => undefined));
 }
 
 export async function create(req: Request, res: Response): Promise<void> {

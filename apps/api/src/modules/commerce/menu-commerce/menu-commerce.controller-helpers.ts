@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import type { Request, Response } from "express";
 import { NoRestaurantError } from "../../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../../restaurants/restaurant.service";
@@ -15,8 +16,10 @@ export async function requireOwnRestaurantId(req: Request, res: Response): Promi
 /**
  * Fire-and-forget so menu-commerce edits never wait on re-rendering a
  * published site — mirrors menu.controller.ts's revalidateInBackground
- * exactly (Sprint 06 acceptance criterion #8: change live within 60s).
+ * exactly (Sprint 06 acceptance criterion #8: change live within 60s),
+ * including its use of `waitUntil` to survive Vercel's post-response
+ * execution freeze.
  */
 export function revalidateInBackground(restaurantId: string): void {
-  void revalidatePublishedSite(restaurantId).catch(() => undefined);
+  waitUntil(revalidatePublishedSite(restaurantId).catch(() => undefined));
 }

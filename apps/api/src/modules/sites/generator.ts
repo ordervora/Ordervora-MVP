@@ -1,4 +1,5 @@
 import type { GenerationStage, Prisma } from "@prisma/client";
+import { waitUntil } from "@vercel/functions";
 import { prisma } from "../../lib/prisma";
 import { getAssetSummary } from "./asset-summary";
 import { buildSiteDefinition } from "./assemble";
@@ -32,10 +33,17 @@ export interface GenerationJobRunner {
  * function only fails the whole batch on a genuine infrastructure error
  * (e.g. the database itself is unreachable), in which case there would be
  * nothing safe to persist anyway.
+ *
+ * `waitUntil` (not a bare `void`) — see job-runner.ts's identical
+ * comment: Vercel's serverless runtime can freeze a function shortly
+ * after its HTTP response is sent, pausing a detached promise mid-run
+ * and never resuming it. `waitUntil` extends the invocation's lifetime
+ * until this promise settles; off Vercel it's a no-op passthrough, so
+ * behavior is unchanged there.
  */
 class InProcessGenerationJobRunner implements GenerationJobRunner {
   enqueue(jobId: string, siteId: string, batchId: string, createdById: string): void {
-    void this.run(jobId, siteId, batchId, createdById);
+    waitUntil(this.run(jobId, siteId, batchId, createdById));
   }
 
   private async run(jobId: string, siteId: string, batchId: string, createdById: string): Promise<void> {

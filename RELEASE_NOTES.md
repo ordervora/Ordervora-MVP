@@ -1971,3 +1971,66 @@ into the deployed `apps/web`, attempted a real image upload through
 Import with the newly-configured `OPENAI_API_KEY`, and got the exact
 runtime error from Vercel's logs. Root-caused directly from the stack
 trace rather than guessed.
+
+# Release Notes — RC-1: Background Jobs Stuck Forever on Vercel
+
+## Summary
+
+Immediately after the previous fix unblocked uploads, a real live import
+(a menu image) got stuck at `PROCESSING` forever — direct inspection of
+the `ImportJob` row via Supabase showed `updatedAt` never advanced past
+`createdAt`, proving the extraction work never progressed at all, rather
+than just running slowly.
+
+## Root Cause
+
+`job-runner.ts`'s `enqueue()` fired its async extraction work
+fire-and-forget (`void this.run(...)`) so the `POST /api/imports` request
+could return `202` immediately without waiting for extraction. That
+pattern is safe on a long-running process (Docker/Render/local), where
+the event loop keeps executing detached promises regardless of whether
+an HTTP response was already sent. It is **not** safe on Vercel:
+serverless functions can freeze shortly after the response is flushed,
+pausing a detached promise mid-run and never resuming it — so the job
+was silently abandoned partway through, permanently stuck at
+`PROCESSING`. The exact same fire-and-forget pattern existed in
+`generator.ts` (the AI Website Builder's batch-generation orchestrator),
+so both flagship AI features shared this bug.
+
+## Fix
+
+Replaced `void this.run(...)` with `@vercel/functions`'s
+`waitUntil(this.run(...))` in both `job-runner.ts` and `generator.ts`.
+`waitUntil` extends a Vercel invocation's lifetime until the given
+promise settles; off Vercel (Docker/Render/local/tests) it's a
+documented no-op passthrough, and since the promise argument is already
+an in-flight, eagerly-executing async call, behavior off-Vercel is
+unchanged from before.
+
+While auditing for the same pattern elsewhere, found three more
+fire-and-forget call sites sharing the identical root cause — all
+calling `revalidatePublishedSite` after a menu/restaurant-profile edit,
+in `menu.controller.ts`, `menu-commerce.controller-helpers.ts`, and
+`restaurant.controller.ts`. Applied the same `waitUntil` fix to all
+three for consistency, since a killed revalidation means a published
+site silently never picks up a price/profile change until the next edit
+triggers it again.
+
+A fourth instance, `event-bus.ts`'s generic subscriber-dispatch
+fire-and-forget, was deliberately left unchanged — it has no real
+production subscribers yet (only a debug logger), and adding real
+subscribers is already gated on separate durability work (H-11,
+outbox-backed event delivery) documented in-file.
+
+## Testing
+
+- Full suite: 998 passing, 5 skipped, lint/typecheck/build clean across
+  both apps — no test changes were needed since `waitUntil`'s behavior
+  off-Vercel is identical to the previous `void` pattern.
+
+## Verification
+
+Found via a real, live test against production: a real image import
+got stuck at `PROCESSING`, confirmed via a direct Supabase query showing
+zero progress on the job row. Deploying this fix and re-running the same
+upload is the live verification step.
