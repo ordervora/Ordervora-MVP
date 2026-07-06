@@ -2424,3 +2424,24 @@ Vercel's serverless deploy doesn't run `prisma migrate deploy`.
 
 **Sprint 15 is now complete.** Next: Sprint 16 (kitchen display upgrades,
 admin platform).
+
+## Sprint 16, Part 1 — Kitchen Display Upgrades
+
+**Per-order elapsed timers, colour escalation, sound alert, and
+auto-refresh (done):** the kitchen queue previously required a manual
+"Refresh" click and gave no sense of how long an order had been
+sitting. Each order card now shows a live `M:SS` timer since the order
+was placed, ticking every second, colour-coded normal/amber/red at the
+10- and 20-minute marks so an aging order is visible at a glance across
+a busy kitchen. The queue also polls automatically every 15 seconds, and
+plays a short tone (generated client-side via the Web Audio API — no
+audio asset file) the moment a new order lands in the queue, with a
+sound on/off toggle persisted per-browser. The timer/colour/new-order
+logic is pure and unit-tested (`lib/kitchen-display.ts`); the sound
+itself isn't (thin browser API wrapper) but fails silently rather than
+breaking the page if audio is unavailable (e.g. autoplay-restricted
+browsers). No backend or schema changes — this is entirely a frontend
+upgrade to the existing `/dashboard/kitchen` page.
+
+**Next in Sprint 16:** admin platform (restaurant management actions +
+audit log).

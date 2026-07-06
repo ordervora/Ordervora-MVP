@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardNav } from "@/components/dashboard-nav";
 import { completeOrder, listOwnOrders, markOutForDelivery, markReady, startPreparing, type OwnerOrder } from "@/lib/owner-commerce-api";
+import { detectNewOrderIds, formatElapsed, getElapsedSeverity } from "@/lib/kitchen-display";
 
 const QUEUE_STATUSES = ["CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY"];
+const AUTO_REFRESH_MS = 15_000;
+const SOUND_PREFERENCE_KEY = "ordervora-kitchen-sound-enabled";
+
+const SEVERITY_CLASSES: Record<string, string> = {
+  normal: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  warning: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  critical: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+};
 
 // Mirrors dashboard/orders/[id]/page.tsx's (correct) NEXT_ACTIONS — the
 // order state machine (order-state-machine.ts) only allows
@@ -25,37 +34,75 @@ const NEXT_ACTIONS: Record<string, { label: string; action: (id: string) => Prom
   OUT_FOR_DELIVERY: [{ label: "Complete", action: completeOrder }],
 };
 
-/** Minimal staff-facing kitchen queue (Sprint 07 §22) — the same order data as /dashboard/orders, filtered to active kitchen work, with one-tap status advances and dine-in table labels. */
+function playAlertBeep(): void {
+  try {
+    const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const ctx = new AudioContextCtor();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.4);
+    oscillator.onended = () => ctx.close();
+  } catch {
+    // Audio isn't essential to kitchen operation — the visual queue and
+    // timers still work without it (e.g. autoplay-restricted browsers).
+  }
+}
+
+/** Staff-facing kitchen queue (Sprint 07 §22; Sprint 16 timers/sound/auto-refresh) — the same order data as /dashboard/orders, filtered to active kitchen work, with one-tap status advances, dine-in table labels, per-order elapsed timers, a new-order sound alert, and periodic auto-refresh. */
 export default function KitchenQueuePage() {
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [soundEnabled, setSoundEnabled] = useState(
+    () => typeof window === "undefined" || window.localStorage.getItem(SOUND_PREFERENCE_KEY) !== "false",
+  );
+  const seenOrderIdsRef = useRef<Set<string>>(new Set());
 
-  function refresh() {
+  function toggleSound() {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(SOUND_PREFERENCE_KEY, String(next));
+      return next;
+    });
+  }
+
+  const refresh = useCallback(() => {
     return Promise.all(QUEUE_STATUSES.map((status) => listOwnOrders({ status })))
       .then((results) => {
         const all = results.flatMap((r) => r.orders);
         all.sort((a, b) => new Date(a.placedAt).getTime() - new Date(b.placedAt).getTime());
+
+        const newOrderIds = detectNewOrderIds(
+          seenOrderIdsRef.current,
+          all.map((o) => o.id),
+        );
+        if (newOrderIds.length > 0 && soundEnabled) {
+          playAlertBeep();
+        }
+        seenOrderIdsRef.current = new Set(all.map((o) => o.id));
+
         setOrders(all);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load queue"));
-  }
+  }, [soundEnabled]);
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all(QUEUE_STATUSES.map((status) => listOwnOrders({ status })))
-      .then((results) => {
-        if (cancelled) return;
-        const all = results.flatMap((r) => r.orders);
-        all.sort((a, b) => new Date(a.placedAt).getTime() - new Date(b.placedAt).getTime());
-        setOrders(all);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load queue");
-      });
+    refresh();
+    const pollInterval = setInterval(refresh, AUTO_REFRESH_MS);
+    const tickInterval = setInterval(() => setNow(Date.now()), 1000);
     return () => {
-      cancelled = true;
+      clearInterval(pollInterval);
+      clearInterval(tickInterval);
     };
-  }, []);
+  }, [refresh]);
 
   async function handleAdvance(order: OwnerOrder, action: (id: string) => Promise<unknown>) {
     try {
@@ -72,9 +119,14 @@ export default function KitchenQueuePage() {
         <DashboardNav />
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Kitchen queue</h1>
-          <button type="button" onClick={refresh} className="text-sm text-zinc-600 dark:text-zinc-400">
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={toggleSound} className="text-sm text-zinc-600 dark:text-zinc-400">
+              {soundEnabled ? "🔔 Sound on" : "🔕 Sound off"}
+            </button>
+            <button type="button" onClick={refresh} className="text-sm text-zinc-600 dark:text-zinc-400">
+              Refresh
+            </button>
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -82,17 +134,20 @@ export default function KitchenQueuePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {orders.map((order) => {
             const actions = NEXT_ACTIONS[order.status] ?? [];
+            const severity = getElapsedSeverity(order.placedAt, now);
             return (
               <div key={order.id} className="flex flex-col gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-black dark:text-zinc-50">
                     #{order.orderNumber} {order.tableId && <span className="text-xs text-zinc-500">(table)</span>}
                   </span>
-                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                    {order.status}
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${SEVERITY_CLASSES[severity]}`}>
+                    {formatElapsed(order.placedAt, now)}
                   </span>
                 </div>
-                <span className="text-xs text-zinc-500">{order.fulfillmentType} · {order.source}</span>
+                <span className="text-xs text-zinc-500">
+                  {order.status} · {order.fulfillmentType} · {order.source}
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {actions.map((next) => (
                     <button
