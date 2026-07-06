@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 /**
  * Production Hardening Phase 9 — the first direct integration test
@@ -58,5 +58,43 @@ describe("createApp", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/plain/);
     expect(res.text).toContain("http_request_duration_seconds");
+  });
+
+  describe("CORS apex/www equivalence", () => {
+    const originalFrontendUrl = process.env.FRONTEND_URL;
+
+    afterEach(async () => {
+      process.env.FRONTEND_URL = originalFrontendUrl;
+      const { __resetEnvCacheForTests } = await import("./config/env.js");
+      __resetEnvCacheForTests();
+    });
+
+    it("allows both the apex and www origin when FRONTEND_URL is the www host", async () => {
+      process.env.FRONTEND_URL = "https://www.ordervora.com";
+      const { __resetEnvCacheForTests } = await import("./config/env.js");
+      __resetEnvCacheForTests();
+      const { createApp } = await import("./app.js");
+      const request = (await import("supertest")).default;
+      const app = createApp();
+
+      const apex = await request(app).get("/health").set("Origin", "https://ordervora.com");
+      const www = await request(app).get("/health").set("Origin", "https://www.ordervora.com");
+
+      expect(apex.headers["access-control-allow-origin"]).toBe("https://ordervora.com");
+      expect(www.headers["access-control-allow-origin"]).toBe("https://www.ordervora.com");
+    });
+
+    it("rejects an unrelated origin", async () => {
+      process.env.FRONTEND_URL = "https://www.ordervora.com";
+      const { __resetEnvCacheForTests } = await import("./config/env.js");
+      __resetEnvCacheForTests();
+      const { createApp } = await import("./app.js");
+      const request = (await import("supertest")).default;
+      const app = createApp();
+
+      const res = await request(app).get("/health").set("Origin", "https://evil.example.com");
+
+      expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+    });
   });
 });

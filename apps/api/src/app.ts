@@ -65,6 +65,36 @@ function requestCorrelationMiddleware(req: Request, res: Response, next: NextFun
 }
 
 /**
+ * Treats FRONTEND_URL's apex and `www.` hosts as interchangeable, so
+ * setting FRONTEND_URL to either `https://ordervora.com` or
+ * `https://www.ordervora.com` allows both — Vercel's "redirect apex to
+ * www" domain option means real traffic can legitimately arrive from
+ * either host, and requiring an exact string match would silently break
+ * whichever one isn't configured. Falls back to an exact string compare
+ * if FRONTEND_URL isn't a parseable URL (e.g. a bare hostname in a local
+ * dev override).
+ */
+function corsOriginValidator(frontendUrl: string): cors.CorsOptions["origin"] {
+  let allowedHost: string;
+  try {
+    allowedHost = new URL(frontendUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return frontendUrl;
+  }
+  return (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    try {
+      callback(null, new URL(origin).hostname.replace(/^www\./, "") === allowedHost);
+    } catch {
+      callback(null, false);
+    }
+  };
+}
+
+/**
  * Production Hardening Phase 7 — explicit public-asset serving strategy
  * (master spec Phase 7 item 6), one of three mutually exclusive paths
  * depending on configuration:
@@ -148,7 +178,7 @@ export function createApp() {
   );
   app.use(
     cors({
-      origin: getEnv().FRONTEND_URL,
+      origin: corsOriginValidator(getEnv().FRONTEND_URL),
       credentials: true,
     }),
   );

@@ -2079,3 +2079,54 @@ dedicated `apps/web` deployment). Root-caused directly from the
 project topology (two separate Vercel domains) and the auth cookie
 configuration, then confirmed the CORS side was already correct via the
 live `/health` response headers before deploying the cookie fix.
+
+# Release Notes — RC-1 M4: Custom Domain (ordervora.com)
+
+## Summary
+
+Connected the production deployment to the real domain: `ordervora.com`
+(redirecting to `www.ordervora.com`) for the frontend, and
+`api.ordervora.com` for the backend. Both are Vercel custom domains on
+top of the existing Vercel-managed TLS certificates (issued
+automatically on verification, no manual cert work required).
+
+## What Changed
+
+- Added `ordervora.com` / `www.ordervora.com` as custom domains on the
+  frontend Vercel project, and `api.ordervora.com` on the backend
+  project (`ordervoravip`), each via a DNS record at the registrar
+  (Namecheap): an `A` record for the apex and two `CNAME` records for
+  the `www` and `api` subdomains, per Vercel's per-domain instructions.
+- `app.ts`'s CORS configuration now treats the apex and `www` host as
+  interchangeable (`corsOriginValidator`): setting `FRONTEND_URL` to
+  either `https://ordervora.com` or `https://www.ordervora.com` allows
+  both, since Vercel's "redirect apex to www" option means real traffic
+  legitimately arrives from either host — an exact string match would
+  have silently broken whichever one wasn't configured as the env var's
+  value.
+
+## Testing
+
+- `app.test.ts` — new cases: an apex-origin request and a www-origin
+  request are both allowed when `FRONTEND_URL` is set to the www host;
+  an unrelated origin is still rejected.
+- Full suite: 1000 passing, lint/typecheck/build clean across both apps.
+
+## Verification
+
+DNS propagation and domain verification confirmed live: `ordervora.com`
+loads the real OrderVora landing page (confirmed via a live screenshot
+from the user's phone), and `api.ordervora.com`'s DNS record was
+verified present at Namecheap immediately after being added.
+
+## Remaining for M4
+
+- Update the `FRONTEND_URL` environment variable on the backend Vercel
+  project to `https://www.ordervora.com` (currently still the
+  `.vercel.app` URL) — needed so password-reset emails
+  (`customers.service.ts`) link to the real domain. Requires the user's
+  own action in the Vercel dashboard (no env-var-write tool available
+  through this session's Vercel MCP connection).
+- Email deliverability DNS (SPF/DKIM/DMARC) — deferred until an SMTP
+  provider is chosen (RC-1 M5), since those records depend on which
+  provider is sending mail.
