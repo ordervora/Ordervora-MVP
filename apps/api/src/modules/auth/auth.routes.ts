@@ -3,7 +3,7 @@ import { authRateLimiter } from "../../middleware/rate-limit";
 import { requireAuth } from "../../middleware/require-auth";
 import { requireRole } from "../../middleware/require-role";
 import { Role } from "@prisma/client";
-import { inviteStaff, login, logout, me, refresh, register } from "./auth.controller";
+import { inviteStaff, listStaffHandler, login, logout, me, refresh, register, setStaffActiveHandler } from "./auth.controller";
 
 export const authRouter = Router();
 
@@ -13,3 +13,5 @@ authRouter.post("/refresh", refresh);
 authRouter.post("/logout", logout);
 authRouter.get("/me", requireAuth, me);
 authRouter.post("/staff", requireAuth, requireRole(Role.RESTAURANT_OWNER), inviteStaff);
+authRouter.get("/staff", requireAuth, requireRole(Role.RESTAURANT_OWNER), listStaffHandler);
+authRouter.patch("/staff/:id", requireAuth, requireRole(Role.RESTAURANT_OWNER), setStaffActiveHandler);

@@ -2388,4 +2388,39 @@ toggle. No new database tables or columns — this reads entirely from
 the existing `Order`/`OrderItem` tables, so no manual SQL step is
 needed for this part of Sprint 15.
 
-**Next in Sprint 15:** staff roles/permissions management UI.
+## Sprint 15, Part 2 — Staff Management UI
+
+**Staff list + deactivation (done):** the owner-only `POST /auth/staff`
+invite endpoint has existed since Sprint 01, but there was never a way
+to see who'd been invited, or to revoke a staff account — once created,
+a staff login was permanent. Added a real owner-only staff management
+surface: `GET /auth/staff` lists everyone invited into the restaurant
+(name, email, phone, active/deactivated, invited-on date), and
+`PATCH /auth/staff/:id` lets the owner toggle a staff member's `isActive`
+flag (new `User.isActive` column, default `true`, one more manual SQL
+step in production — see below).
+
+Deactivation is enforced in two places, not just at the next login:
+`validateCredentials` rejects a deactivated account's password check
+outright, and `rotateRefreshToken` checks the same flag on every
+refresh-token exchange and revokes all of that user's remaining
+sessions on the spot if it's off — so a deactivated staff member is
+logged out within one access-token lifetime, not just blocked from
+logging back in. This mirrors the existing token-theft-reuse detection
+path (`revokeAllRefreshTokensForUser`), the same mechanism, a different
+trigger. Deactivating/reactivating only ever targets a `RESTAURANT_STAFF`
+account already tied to the calling owner's own restaurant — never
+another restaurant's staff, and never the owner's own account.
+
+New dashboard page at `/dashboard/staff`: an invite form (name/email/
+temporary password) plus a list of existing staff with an Active/
+Deactivated badge and a toggle button.
+
+Requires one new `User` column in production:
+`apps/api/prisma/migrations/20260706100000_sprint15_staff_isactive/migration.sql`
+(`ALTER TABLE "User" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;`)
+— same manual-SQL-editor step as every schema change this session, since
+Vercel's serverless deploy doesn't run `prisma migrate deploy`.
+
+**Sprint 15 is now complete.** Next: Sprint 16 (kitchen display upgrades,
+admin platform).

@@ -7,7 +7,9 @@ const name = z.string().min(1).max(128);
 export const registerSchema = z.object({ email, password, name });
 export const loginSchema = z.object({ email, password });
 export const createStaffSchema = z.object({ email, password, name });
+export const setStaffActiveSchema = z.object({ isActive: z.boolean() });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CreateStaffInput = z.infer<typeof createStaffSchema>;
+export type SetStaffActiveInput = z.infer<typeof setStaffActiveSchema>;

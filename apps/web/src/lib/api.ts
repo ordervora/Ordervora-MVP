@@ -127,6 +127,33 @@ export function logout() {
   return apiFetch<{ ok: true }>("/api/auth/logout", { method: "POST" });
 }
 
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export function inviteStaff(email: string, password: string, name: string) {
+  return apiFetch<{ user: PublicUser }>("/api/auth/staff", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  });
+}
+
+export function listStaff() {
+  return apiFetch<{ staff: StaffMember[] }>("/api/auth/staff");
+}
+
+export function setStaffActive(id: string, isActive: boolean) {
+  return apiFetch<{ staff: StaffMember }>(`/api/auth/staff/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
+  });
+}
+
 export function createRestaurant(input: RestaurantInput) {
   return apiFetch<{ restaurant: Restaurant }>("/api/restaurants", {
     method: "POST",

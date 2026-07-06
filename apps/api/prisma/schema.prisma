@@ -21,6 +21,12 @@ model User {
   // Staff-only, optional — SMS driver-assignment offers (Sprint 07.6 C-10)
   // are skipped (not an error) for staff with no phone on file.
   phone        String?
+  // Owner-controlled kill switch for a staff account (Sprint 15). Owners
+  // themselves are never deactivated through this flag — only staff they've
+  // invited. Enforced at login and at refresh-token rotation, not on every
+  // request, since access tokens are short-lived and this mirrors the
+  // existing token-theft revocation check's granularity.
+  isActive     Boolean  @default(true)
 
   invitedById String?
   invitedBy   User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])

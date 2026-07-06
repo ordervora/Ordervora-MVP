@@ -45,6 +45,9 @@ export function DashboardNav() {
       <Link href="/dashboard/analytics" className="hover:text-black dark:hover:text-zinc-50">
         Analytics
       </Link>
+      <Link href="/dashboard/staff" className="hover:text-black dark:hover:text-zinc-50">
+        Staff
+      </Link>
       <Link href="/dashboard/kitchen" className="hover:text-black dark:hover:text-zinc-50">
         Kitchen queue
       </Link>

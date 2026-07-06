@@ -1,17 +1,25 @@
 import type { Request, Response } from "express";
 import { REFRESH_TOKEN_COOKIE, clearAuthCookies, setAccessTokenCookie, setRefreshTokenCookie } from "./cookies";
-import { EmailInUseError, InvalidCredentialsError, InvalidRefreshTokenError } from "./auth.errors";
+import {
+  AccountDeactivatedError,
+  EmailInUseError,
+  InvalidCredentialsError,
+  InvalidRefreshTokenError,
+  StaffNotFoundError,
+} from "./auth.errors";
 import {
   createStaff,
   getUserById,
   issueTokenPair,
+  listStaff,
   registerOwner,
   rotateRefreshToken,
   revokeRefreshToken,
+  setStaffActive,
   toPublicUser,
   validateCredentials,
 } from "./auth.service";
-import { createStaffSchema, loginSchema, registerSchema } from "./auth.validation";
+import { createStaffSchema, loginSchema, registerSchema, setStaffActiveSchema } from "./auth.validation";
 
 function issueAndSetCookies(res: Response, user: Parameters<typeof issueTokenPair>[0]) {
   return issueTokenPair(user).then((tokens) => {
@@ -56,6 +64,10 @@ export async function login(req: Request, res: Response): Promise<void> {
       res.status(401).json({ error: err.message });
       return;
     }
+    if (err instanceof AccountDeactivatedError) {
+      res.status(403).json({ error: err.message });
+      return;
+    }
     throw err;
   }
 }
@@ -73,7 +85,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     setRefreshTokenCookie(res, tokens.refreshToken, tokens.refreshExpiresAt);
     res.status(200).json({ ok: true });
   } catch (err) {
-    if (err instanceof InvalidRefreshTokenError) {
+    if (err instanceof InvalidRefreshTokenError || err instanceof AccountDeactivatedError) {
       clearAuthCookies(res);
       res.status(401).json({ error: err.message });
       return;
@@ -113,6 +125,30 @@ export async function inviteStaff(req: Request, res: Response): Promise<void> {
   } catch (err) {
     if (err instanceof EmailInUseError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function listStaffHandler(req: Request, res: Response): Promise<void> {
+  const staff = await listStaff(req.user!.id);
+  res.status(200).json({ staff });
+}
+
+export async function setStaffActiveHandler(req: Request, res: Response): Promise<void> {
+  const parsed = setStaffActiveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const staff = await setStaffActive(req.user!.id, req.params.id as string, parsed.data.isActive);
+    res.status(200).json({ staff });
+  } catch (err) {
+    if (err instanceof StaffNotFoundError) {
+      res.status(404).json({ error: err.message });
       return;
     }
     throw err;

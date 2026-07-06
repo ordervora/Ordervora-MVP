@@ -15,3 +15,15 @@ export class InvalidRefreshTokenError extends Error {
     super("Invalid or expired refresh token");
   }
 }
+
+export class AccountDeactivatedError extends Error {
+  constructor() {
+    super("This account has been deactivated. Contact your restaurant owner.");
+  }
+}
+
+export class StaffNotFoundError extends Error {
+  constructor() {
+    super("Staff member not found");
+  }
+}
