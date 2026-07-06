@@ -12,6 +12,7 @@ import {
   requestPasswordResetHandler,
 } from "./customers.controller";
 import { createFavoriteHandler, deleteFavoriteHandler, listFavoritesHandler } from "./favorites.controller";
+import { listCustomerOrdersHandler } from "./order-history.controller";
 import { createPaymentMethodHandler, deletePaymentMethodHandler, listPaymentMethodsHandler } from "./payment-methods.controller";
 import { requireCustomerAuth } from "./require-customer-auth";
 
@@ -42,9 +43,13 @@ paymentMethodsRouter.get("/", requireCustomerAuth, listPaymentMethodsHandler);
 paymentMethodsRouter.post("/", requireCustomerAuth, createPaymentMethodHandler);
 paymentMethodsRouter.delete("/:id", requireCustomerAuth, deletePaymentMethodHandler);
 
+const ordersRouter = Router();
+ordersRouter.get("/", requireCustomerAuth, listCustomerOrdersHandler);
+
 // Mounted at "/api/customer" myself.
 export const customerRouter = Router();
 customerRouter.use("/auth", authRouter);
 customerRouter.use("/addresses", addressesRouter);
 customerRouter.use("/favorites", favoritesRouter);
 customerRouter.use("/payment-methods", paymentMethodsRouter);
+customerRouter.use("/orders", ordersRouter);

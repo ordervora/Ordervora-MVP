@@ -141,6 +141,34 @@ export function updateRestaurant(input: RestaurantInput) {
   });
 }
 
+export type HoursDayOfWeek = "SUNDAY" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY";
+
+export interface RestaurantHoursRow {
+  id: string;
+  dayOfWeek: HoursDayOfWeek;
+  opensAt: number;
+  closesAt: number;
+  isClosed: boolean;
+}
+
+export interface HoursRowInput {
+  dayOfWeek: HoursDayOfWeek;
+  opensAt: number;
+  closesAt: number;
+  isClosed: boolean;
+}
+
+export function listRestaurantHours() {
+  return apiFetch<{ hours: RestaurantHoursRow[] }>("/api/restaurants/me/hours");
+}
+
+export function setRestaurantHours(hours: HoursRowInput[]) {
+  return apiFetch<{ hours: RestaurantHoursRow[] }>("/api/restaurants/me/hours", {
+    method: "PUT",
+    body: JSON.stringify({ hours }),
+  });
+}
+
 export function createCategory(name: string) {
   return apiFetch<{ category: MenuCategory }>("/api/menu/categories", {
     method: "POST",

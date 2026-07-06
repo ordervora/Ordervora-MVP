@@ -1,10 +1,17 @@
-import type { CustomerFavorite } from "@prisma/client";
+import type { CustomerFavorite, MenuItem } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { CustomerFavoriteNotFoundError } from "./customers.errors";
 import type { CreateFavoriteInput } from "./customers.validation";
 
-export async function listFavorites(customerId: string): Promise<CustomerFavorite[]> {
-  return prisma.customerFavorite.findMany({ where: { customerId } });
+export type CustomerFavoriteWithItem = CustomerFavorite & {
+  menuItem: Pick<MenuItem, "id" | "name" | "priceCents" | "isAvailable">;
+};
+
+export async function listFavorites(customerId: string): Promise<CustomerFavoriteWithItem[]> {
+  return prisma.customerFavorite.findMany({
+    where: { customerId },
+    include: { menuItem: { select: { id: true, name: true, priceCents: true, isAvailable: true } } },
+  });
 }
 
 export async function createFavorite(customerId: string, input: CreateFavoriteInput): Promise<CustomerFavorite> {

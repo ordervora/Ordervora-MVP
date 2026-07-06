@@ -162,6 +162,12 @@ export interface CustomerFavorite {
   customerId: string;
   restaurantId: string;
   menuItemId: string;
+  menuItem: {
+    id: string;
+    name: string;
+    priceCents: number;
+    isAvailable: boolean;
+  };
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -370,4 +376,35 @@ export function createFavorite(restaurantId: string, menuItemId: string) {
 
 export function deleteFavorite(id: string) {
   return apiFetch<void>(`/api/customer/favorites/${id}`, { method: "DELETE" });
+}
+
+export interface CustomerSavedPaymentMethod {
+  id: string;
+  providerId: string;
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+}
+
+export function listPaymentMethods() {
+  return apiFetch<{ paymentMethods: CustomerSavedPaymentMethod[] }>("/api/customer/payment-methods");
+}
+
+export function deletePaymentMethod(id: string) {
+  return apiFetch<void>(`/api/customer/payment-methods/${id}`, { method: "DELETE" });
+}
+
+export interface CustomerOrderSummary {
+  id: string;
+  orderNumber: number;
+  status: string;
+  totalCents: number;
+  createdAt: string;
+  restaurant: { id: string; name: string };
+}
+
+export function listCustomerOrders() {
+  return apiFetch<{ orders: CustomerOrderSummary[] }>("/api/customer/orders");
 }
