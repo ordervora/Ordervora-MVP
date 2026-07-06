@@ -2329,3 +2329,36 @@ minimum order amount, an expiry date, and total/per-customer redemption
 limits, but the dashboard's coupon-creation form only exposed the
 discount type and value. All four fields are now settable from the
 dashboard.
+
+**Loyalty program (done):** `LoyaltyProgram`/`LoyaltyAccount`/
+`LoyaltyTransaction` existed since Sprint 07 with zero application code
+— the product audit's clearest example of a fully dead feature. Built
+end to end: an owner dashboard page to configure points-per-dollar and
+the redemption rate; automatic, idempotent point accrual on order
+completion; and customer redemption at checkout, applied as an
+independent atomic step inside `placeOrder`'s existing transaction (a
+WHERE-guarded balance UPDATE, the same compare-and-swap pattern already
+used for this session's refund/cash-payment race fixes — deliberately
+not layered onto the coupon path's Serializable isolation, since it
+doesn't need it). Requires one new `Cart` column in production — see
+the note above the deployment log for the one-line SQL to run.
+
+**Customer reviews/ratings (done):** one review per completed order,
+enforced by a real unique constraint on `Review.orderId` (not just an
+application-level check, so a concurrent double-submit can't create
+two). The order-tracking page prompts for a star rating + optional
+comment once an order is completed; the public storefront menu page
+shows the restaurant's average rating and review count. Public review
+listings expose only the reviewing customer's first name. Also
+requires the new `Review` table — same SQL note applies.
+
+**A note on schema changes and this deployment**: `apps/api` deploys to
+Vercel as a serverless function, which — unlike the Docker/container
+path documented in `docs/runbooks/deployment-architecture.md` — does
+not run `prisma migrate deploy` on boot. Every schema change from this
+point in the session (the loyalty program's `Cart.loyaltyPointsToRedeem`
+column and the reviews feature's `Review` table) needs to be applied to
+the live Supabase database by hand, the same way the original schema
+was: via Supabase's SQL editor. The exact `ALTER TABLE`/`CREATE TABLE`
+statements are in `apps/api/prisma/migrations/20260706090000_sprint14_loyalty_redemption/migration.sql`
+and `apps/api/prisma/migrations/20260706093000_sprint14_reviews/migration.sql`.
