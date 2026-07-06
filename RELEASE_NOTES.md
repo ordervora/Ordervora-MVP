@@ -2303,10 +2303,29 @@ order, starting with items with zero external-account dependency:
   UI — an owner had no way to actually set their hours. Added a weekly
   hours editor to `/dashboard/restaurant`.
 
-Remaining backlog (marketing website, menu variant/modifier dashboard
-UI, loyalty program, customer reviews, analytics/reporting, staff
-permissions, kitchen display upgrades, a real admin console, and
-OrderVora's own billing/subscription model) is tracked and being
-worked through continuously; items requiring a third-party account
-(additional payment/delivery/POS providers, SMS) are deferred until
-those credentials exist.
+Remaining backlog (loyalty program, customer reviews,
+analytics/reporting, staff permissions, kitchen display upgrades, a
+real admin console, and OrderVora's own billing/subscription model) is
+tracked and being worked through continuously; items requiring a
+third-party account (additional payment/delivery/POS providers, SMS)
+are deferred until those credentials exist.
+
+**Marketing website (done):** the root page was previously a bare
+login/dashboard splash with no hero, feature sections, SEO metadata,
+sitemap, or robots.txt. Replaced with a real marketing page and added
+Next.js `sitemap.ts`/`robots.ts` routes; fixed the page metadata, which
+had never been updated from the Next.js starter template's default
+"Create Next App" title/description.
+
+**Menu variant/modifier dashboard UI (done):** the menu-commerce
+backend already fully supported item variants and modifier groups/
+options, but the dashboard could only edit an item's name/price/86
+toggle — variants and modifiers could previously only reach the menu
+via AI import, never manual entry. Added a per-item "Variants &
+modifiers" panel plus a page-level modifier-groups manager.
+
+**Coupon rules UI (done):** the coupon backend already enforced a
+minimum order amount, an expiry date, and total/per-customer redemption
+limits, but the dashboard's coupon-creation form only exposed the
+discount type and value. All four fields are now settable from the
+dashboard.
