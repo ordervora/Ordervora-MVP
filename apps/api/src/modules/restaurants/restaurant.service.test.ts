@@ -9,8 +9,8 @@ vi.mock("../../lib/prisma", () => ({
 }));
 
 import { prisma } from "../../lib/prisma";
-import { RestaurantAlreadyExistsError } from "./restaurant.errors";
-import { createRestaurant, getOwnRestaurantId } from "./restaurant.service";
+import { RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
+import { createRestaurant, getOwnRestaurantId, suspendRestaurant, unsuspendRestaurant } from "./restaurant.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -64,6 +64,47 @@ describe("createRestaurant", () => {
     expect(txUserUpdate).toHaveBeenCalledWith({
       where: { id: "owner-1" },
       data: { restaurantId: "new-restaurant" },
+    });
+  });
+});
+
+describe("suspendRestaurant", () => {
+  it("throws RestaurantNotFoundError when the restaurant does not exist", async () => {
+    mockPrisma.restaurant.findUnique.mockResolvedValue(null);
+
+    await expect(suspendRestaurant("missing")).rejects.toBeInstanceOf(RestaurantNotFoundError);
+    expect(mockPrisma.restaurant.update).not.toHaveBeenCalled();
+  });
+
+  it("sets isSuspended and stores the reason", async () => {
+    mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "rest-1" } as never);
+    mockPrisma.restaurant.update.mockResolvedValue({ id: "rest-1", isSuspended: true } as never);
+
+    await suspendRestaurant("rest-1", "ToS violation");
+
+    expect(mockPrisma.restaurant.update).toHaveBeenCalledWith({
+      where: { id: "rest-1" },
+      data: { isSuspended: true, suspendedReason: "ToS violation" },
+    });
+  });
+});
+
+describe("unsuspendRestaurant", () => {
+  it("throws RestaurantNotFoundError when the restaurant does not exist", async () => {
+    mockPrisma.restaurant.findUnique.mockResolvedValue(null);
+
+    await expect(unsuspendRestaurant("missing")).rejects.toBeInstanceOf(RestaurantNotFoundError);
+  });
+
+  it("clears isSuspended and the stored reason", async () => {
+    mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "rest-1" } as never);
+    mockPrisma.restaurant.update.mockResolvedValue({ id: "rest-1", isSuspended: false } as never);
+
+    await unsuspendRestaurant("rest-1");
+
+    expect(mockPrisma.restaurant.update).toHaveBeenCalledWith({
+      where: { id: "rest-1" },
+      data: { isSuspended: false, suspendedReason: null },
     });
   });
 });

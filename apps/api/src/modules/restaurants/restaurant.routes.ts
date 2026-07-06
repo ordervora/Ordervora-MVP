@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Role } from "@prisma/client";
 import { requireAuth } from "../../middleware/require-auth";
 import { requireRole } from "../../middleware/require-role";
-import { create, getMine, listAll, updateMine } from "./restaurant.controller";
+import { create, getMine, listAll, suspend, unsuspend, updateMine } from "./restaurant.controller";
 
 export const restaurantRouter = Router();
 
@@ -13,3 +13,5 @@ restaurantRouter.patch("/me", requireAuth, requireRole(Role.RESTAURANT_OWNER), u
 export const adminRestaurantRouter = Router();
 
 adminRestaurantRouter.get("/", requireAuth, requireRole(Role.ADMIN), listAll);
+adminRestaurantRouter.patch("/:id/suspend", requireAuth, requireRole(Role.ADMIN), suspend);
+adminRestaurantRouter.patch("/:id/unsuspend", requireAuth, requireRole(Role.ADMIN), unsuspend);

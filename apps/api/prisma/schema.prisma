@@ -44,6 +44,7 @@ model User {
   driverAssignments    DriverAssignment[]
   refundsInitiated     Refund[]
   fraudSignalsResolved FraudSignal[]
+  adminAuditLogEntries AdminAuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -78,6 +79,13 @@ model Restaurant {
   lng         Float?
   phone       String?
   isPublished Boolean  @default(false)
+  // Platform-admin kill switch (Sprint 16) — distinct from isPublished,
+  // which the owner controls for their own storefront. A suspended
+  // restaurant is blocked at checkout (quote.service.ts) regardless of
+  // isPublished, for platform-level enforcement (e.g. a ToS violation)
+  // that the owner themselves can't toggle back on.
+  isSuspended     Boolean @default(false)
+  suspendedReason String?
 
   members    User[]         @relation("RestaurantMembers")
   categories MenuCategory[]
@@ -1871,4 +1879,25 @@ model FraudSignal {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+}
+
+/**
+ * Platform-admin action trail (Sprint 16). targetType/targetId are plain
+ * strings rather than a typed relation — an audit log is meant to
+ * outlive and span whatever entity types admin actions touch (today
+ * just Restaurant; potentially Users, Sites, etc. later) without a
+ * schema change or a relation to every possible target model.
+ */
+model AdminAuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      User     @relation(fields: [adminId], references: [id])
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }

@@ -43,6 +43,9 @@ export async function computeCheckoutQuote(
   if (!restaurant) {
     return { eligible: false, reason: "Restaurant not found", subtotalCents: 0, taxCents: 0, tipCents: 0, deliveryFeeCents: 0, serviceFeeCents: 0, discountCents: 0, totalCents: 0 };
   }
+  if (restaurant.isSuspended) {
+    return { eligible: false, reason: "This restaurant is temporarily unavailable", subtotalCents: 0, taxCents: 0, tipCents: 0, deliveryFeeCents: 0, serviceFeeCents: 0, discountCents: 0, totalCents: 0 };
+  }
 
   const subtotalCents = cartSubtotalCents(cart.items);
 

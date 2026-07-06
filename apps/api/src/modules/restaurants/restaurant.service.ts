@@ -1,6 +1,6 @@
 import type { Restaurant } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { NoRestaurantError, RestaurantAlreadyExistsError } from "./restaurant.errors";
+import { NoRestaurantError, RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
 import type { CreateRestaurantInput, UpdateRestaurantInput } from "./restaurant.validation";
 
 /**
@@ -51,4 +51,23 @@ export async function updateOwnRestaurant(userId: string, input: UpdateRestauran
 
 export async function listAllRestaurants(): Promise<Restaurant[]> {
   return prisma.restaurant.findMany({ orderBy: { createdAt: "desc" } });
+}
+
+async function setSuspended(restaurantId: string, isSuspended: boolean, reason?: string): Promise<Restaurant> {
+  const existing = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
+  if (!existing) {
+    throw new RestaurantNotFoundError();
+  }
+  return prisma.restaurant.update({
+    where: { id: restaurantId },
+    data: { isSuspended, suspendedReason: isSuspended ? (reason ?? null) : null },
+  });
+}
+
+export function suspendRestaurant(restaurantId: string, reason?: string): Promise<Restaurant> {
+  return setSuspended(restaurantId, true, reason);
+}
+
+export function unsuspendRestaurant(restaurantId: string): Promise<Restaurant> {
+  return setSuspended(restaurantId, false);
 }

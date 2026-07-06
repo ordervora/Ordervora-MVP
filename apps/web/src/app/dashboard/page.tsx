@@ -1,51 +1,28 @@
-import type { PublicUser, Restaurant } from "@/lib/api";
+import type { AuditLogEntry, PublicUser, Restaurant } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DashboardNav } from "@/components/dashboard-nav";
 import { LogoutButton } from "./logout-button";
+import { AdminPanel } from "./admin-panel";
 
 // Platform Admin has no dedicated dashboard section elsewhere in the app —
 // this reuses the existing, already-tested GET /api/admin/restaurants
-// endpoint (restaurant.routes.ts) to give the ADMIN role a platform-wide
-// overview here. No new backend endpoint or business logic.
+// endpoint (restaurant.routes.ts), plus Sprint 16's suspend/unsuspend +
+// audit log endpoints, to give the ADMIN role a platform-wide management
+// surface here rather than a separate route.
 async function AdminOverview() {
-  const result = await serverFetch<{ restaurants: Restaurant[] }>("/api/admin/restaurants");
-  if (!result.ok) {
+  const [restaurantsResult, auditLogResult] = await Promise.all([
+    serverFetch<{ restaurants: Restaurant[] }>("/api/admin/restaurants"),
+    serverFetch<{ entries: AuditLogEntry[] }>("/api/admin/audit-log"),
+  ]);
+  if (!restaurantsResult.ok) {
     return <p className="text-sm text-red-600 dark:text-red-400">Could not load restaurants.</p>;
   }
-  const { restaurants } = result.data;
 
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-black dark:text-zinc-50">
-        Platform overview — {restaurants.length} restaurant{restaurants.length === 1 ? "" : "s"}
-      </h2>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-black/[.08] text-zinc-500 dark:border-white/[.145] dark:text-zinc-400">
-              <th className="py-1.5 pr-4 font-medium">Restaurant</th>
-              <th className="py-1.5 pr-4 font-medium">Address</th>
-              <th className="py-1.5 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {restaurants.map((restaurant) => (
-              <tr key={restaurant.id} className="border-b border-black/[.04] dark:border-white/[.08]">
-                <td className="py-1.5 pr-4 text-black dark:text-zinc-50">{restaurant.name}</td>
-                <td className="py-1.5 pr-4 text-zinc-600 dark:text-zinc-400">{restaurant.address ?? "—"}</td>
-                <td className="py-1.5">
-                  {restaurant.isPublished ? (
-                    <span className="text-green-600 dark:text-green-400">Published</span>
-                  ) : (
-                    <span className="text-zinc-500 dark:text-zinc-400">Unpublished</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <AdminPanel
+      initialRestaurants={restaurantsResult.data.restaurants}
+      initialAuditLog={auditLogResult.ok ? auditLogResult.data.entries : []}
+    />
   );
 }
 

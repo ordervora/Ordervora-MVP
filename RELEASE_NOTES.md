@@ -2445,3 +2445,42 @@ upgrade to the existing `/dashboard/kitchen` page.
 
 **Next in Sprint 16:** admin platform (restaurant management actions +
 audit log).
+
+## Sprint 16, Part 2 — Admin Platform (Restaurant Actions + Audit Log)
+
+**Platform-admin suspend/unsuspend + audit trail (done):** the ADMIN
+role previously had a read-only list of every restaurant on the
+platform and no way to act on one. Added a real management action:
+`PATCH /api/admin/restaurants/:id/suspend` (with an optional reason)
+and `.../unsuspend`, backed by a new `Restaurant.isSuspended` /
+`suspendedReason` pair of columns. This is deliberately a separate
+switch from the owner-controlled `isPublished` — a restaurant an admin
+suspends (e.g. for a ToS violation) stays suspended even if its own
+owner tries to re-publish it, since the enforcement point is
+`computeCheckoutQuote` (`quote.service.ts`), which now rejects a
+suspended restaurant's checkout before any hours/capacity/delivery
+checks run, the same way it already blocks checkout for a permanently
+closed or over-capacity kitchen.
+
+Every suspend/unsuspend action is written to a new `AdminAuditLog`
+table (admin, action, target type/id, optional metadata, timestamp),
+exposed read-only at `GET /api/admin/audit-log`. This is the platform's
+first real audit trail — before this, no admin action anywhere left a
+record of who did what and when.
+
+The existing admin platform-overview screen (on `/dashboard` for the
+ADMIN role) is upgraded from a static read-only table into an
+interactive panel: each restaurant row gets a Suspend/Unsuspend button
+(prompting for an optional reason on suspend), and a new audit log
+list underneath shows the running history, refreshing after every
+action.
+
+Requires two new columns and one new table in production:
+`apps/api/prisma/migrations/20260706110000_sprint16_admin_platform/migration.sql`
+(`Restaurant.isSuspended`/`suspendedReason`, and the `AdminAuditLog`
+table) — same manual Supabase SQL-editor step as every other schema
+change this session.
+
+**Sprint 16 is now complete.** Next: Sprint 17 (billing/subscription
+model — blocked on the user's own Stripe Connect setup for pieces of
+it; website builder editor + referral program are not blocked).

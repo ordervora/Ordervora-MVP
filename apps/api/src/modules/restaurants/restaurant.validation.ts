@@ -18,5 +18,10 @@ export const updateRestaurantSchema = z.object({
   isPublished: z.boolean().optional(),
 });
 
+export const suspendRestaurantSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
 export type CreateRestaurantInput = z.infer<typeof createRestaurantSchema>;
 export type UpdateRestaurantInput = z.infer<typeof updateRestaurantSchema>;
+export type SuspendRestaurantInput = z.infer<typeof suspendRestaurantSchema>;

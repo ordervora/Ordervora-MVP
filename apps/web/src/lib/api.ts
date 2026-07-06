@@ -13,6 +13,8 @@ export interface Restaurant {
   address: string | null;
   phone: string | null;
   isPublished: boolean;
+  isSuspended: boolean;
+  suspendedReason: string | null;
 }
 
 export interface RestaurantInput {
@@ -653,4 +655,31 @@ export function listMessages(siteId: string) {
 /** §18 Preview System — a short-lived, site-scoped token for building a /preview/:token URL (proxied by next.config.ts). */
 export function getPreviewToken(siteId: string) {
   return apiFetch<{ token: string }>(`/api/sites/${siteId}/preview-token`);
+}
+
+// --- Platform admin (Sprint 16) ------------------------------------------------
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: unknown;
+  createdAt: string;
+  adminName: string;
+}
+
+export function suspendRestaurant(id: string, reason?: string) {
+  return apiFetch<{ restaurant: Restaurant }>(`/api/admin/restaurants/${id}/suspend`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function unsuspendRestaurant(id: string) {
+  return apiFetch<{ restaurant: Restaurant }>(`/api/admin/restaurants/${id}/unsuspend`, { method: "PATCH" });
+}
+
+export function listAuditLog(limit = 50) {
+  return apiFetch<{ entries: AuditLogEntry[] }>(`/api/admin/audit-log?limit=${limit}`);
 }

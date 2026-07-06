@@ -84,6 +84,13 @@ describe("computeCheckoutQuote", () => {
     expect(quote.eligible).toBe(false);
   });
 
+  it("is ineligible when the restaurant is suspended by a platform admin, regardless of hours/capacity", async () => {
+    mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "r1", lat: 41.8, lng: -87.6, isSuspended: true } as never);
+    const quote = await computeCheckoutQuote(cart(), 0);
+    expect(quote.eligible).toBe(false);
+    expect(quote.reason).toMatch(/temporarily unavailable/i);
+  });
+
   it("computes subtotal correctly from cart items", async () => {
     const quote = await computeCheckoutQuote(cart(), 0);
     expect(quote.subtotalCents).toBe(2000);
