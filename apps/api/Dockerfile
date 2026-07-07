@@ -57,6 +57,7 @@ COPY pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/api/prisma ./apps/api/prisma
 COPY apps/api/prisma.config.ts ./apps/api/prisma.config.ts
+COPY apps/api/scripts ./apps/api/scripts
 RUN pnpm install --frozen-lockfile --filter api... --prod
 RUN pnpm --filter api exec prisma generate
 
