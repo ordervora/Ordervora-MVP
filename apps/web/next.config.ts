@@ -1,7 +1,9 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 
-const apiUrl = process.env.API_URL ?? "http://localhost:4000";
+const apiUrl =
+  process.env.API_URL ??
+  (process.env.NODE_ENV === "production" ? "https://api.ordervora.com" : "http://localhost:4000");
 
 const nextConfig: NextConfig = {
   // Production Hardening Phase 4 — emits .next/standalone, a self-contained
