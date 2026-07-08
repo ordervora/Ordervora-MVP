@@ -19,4 +19,12 @@ import { createApp } from "../src/app";
  */
 assertStartupEnv();
 
-export default createApp();
+const app = createApp();
+
+// Vercel terminates TLS and forwards the original client address through
+// proxy headers. Trust exactly one proxy hop so Express and
+// express-rate-limit derive stable client IPs without accepting arbitrary
+// multi-hop forwarded chains from callers.
+app.set("trust proxy", 1);
+
+export default app;
