@@ -27,4 +27,7 @@ const app = createApp();
 // multi-hop forwarded chains from callers.
 app.set("trust proxy", 1);
 
+// Keep the exported handler explicit: Vercel expects a function/server from
+// this serverless entrypoint, while the shared Express app remains reusable
+// by the Docker and Render deployment paths.
 export default app;
