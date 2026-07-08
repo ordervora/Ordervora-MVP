@@ -1,525 +1,250 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect } from "react";
 
-const FEATURES = [
-  {
-    icon: "✦",
-    title: "AI business setup",
-    description:
-      "Upload a menu, paste a website, or share a Google Maps listing. OrderVora turns what you already have into a launch-ready digital business.",
-  },
-  {
-    icon: "↗",
-    title: "Your brand. Your customers.",
-    description:
-      "Own the website, customer relationship, offers, and ordering experience instead of renting them from a marketplace.",
-  },
-  {
-    icon: "◎",
-    title: "Orders without commission",
-    description:
-      "Accept pickup, delivery, and QR orders from one branded storefront without surrendering a percentage of every sale.",
-  },
-  {
-    icon: "⌁",
-    title: "Operations in one place",
-    description:
-      "Menu, orders, kitchen, delivery, payments, coupons, tables, and your website stay connected in a single operating system.",
-  },
-  {
-    icon: "◇",
-    title: "Built to convert",
-    description:
-      "Fast mobile checkout, focused calls to action, smart upsells, loyalty, and campaigns designed to turn visitors into repeat customers.",
-  },
-  {
-    icon: "◈",
-    title: "AI that keeps working",
-    description:
-      "Use AI to generate copy, structure menus, build pages, surface opportunities, and help operate the business after launch.",
-  },
+const businessTypes = ["Restaurant", "Cafe", "Deli", "Vape Shop", "Convenience", "Retail"];
+const plans = [
+  { name: "Basic", price: "$99", note: "Start direct", featured: false },
+  { name: "Pro", price: "$179", note: "Grow faster", featured: true },
+  { name: "Premium", price: "$299", note: "Run everything", featured: false },
 ];
 
-const STEPS = [
-  {
-    number: "01",
-    title: "Bring one source",
-    copy: "A menu photo, PDF, website, or Google Maps listing is enough to begin.",
-  },
-  {
-    number: "02",
-    title: "OrderVora builds",
-    copy: "AI structures your menu, prepares your brand, and assembles the storefront and operating setup.",
-  },
-  {
-    number: "03",
-    title: "Review and launch",
-    copy: "Approve the result, publish your branded ordering site, and start sending every customer to something you own.",
-  },
-];
-
-const PROOF = [
-  { value: "0%", label: "marketplace commission" },
-  { value: "10 min", label: "from source to first draft" },
-  { value: "1 OS", label: "website, orders and operations" },
-];
-
-function ArrowIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path
-        d="M5 12h14M13 6l6 6-6 6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+function Arrow() {
+  return <span aria-hidden="true">↗</span>;
 }
 
-function PhoneMockup({ variant }: { variant: "store" | "ops" | "ai" }) {
-  const content = {
-    store: {
-      eyebrow: "LIVE STOREFRONT",
-      title: "Noma House",
-      body: "Order direct. Earn rewards.",
-    },
-    ops: {
-      eyebrow: "TODAY",
-      title: "$4,820",
-      body: "+18.4% this week",
-    },
-    ai: {
-      eyebrow: "ORDERVORA AI",
-      title: "Store ready",
-      body: "Menu · Brand · Website",
-    },
-  }[variant];
-
+function PhoneShell({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="relative mx-auto w-[220px] rounded-[2.6rem] border border-black/10 bg-[#11100f] p-2.5 shadow-[0_30px_80px_rgba(48,36,18,0.18)] sm:w-[250px]">
-      <div className="relative min-h-[470px] overflow-hidden rounded-[2.1rem] bg-[#f7f1e8] p-5 sm:min-h-[520px]">
-        <div className="mx-auto mb-8 h-5 w-20 rounded-full bg-[#11100f]" />
-        <div className="rounded-3xl bg-[#1d1b18] p-5 text-white">
-          <div className="text-[10px] font-semibold tracking-[0.22em] text-[#d8b980]">
-            {content.eyebrow}
-          </div>
-          <div className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
-            {content.title}
-          </div>
-          <div className="mt-2 text-sm text-white/60">{content.body}</div>
-        </div>
-
-        {variant === "store" && (
-          <div className="mt-4 space-y-3">
-            {["Signature Burger", "Truffle Fries", "Citrus Fizz"].map(
-              (item, index) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white/75 p-3"
-                >
-                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[#e2caa3] to-[#a6743e]" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[#1d1b18]">
-                      {item}
-                    </div>
-                    <div className="mt-1 text-xs text-black/45">
-                      ${[16, 8, 6][index]}.00
-                    </div>
-                  </div>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1d1b18] text-white">
-                    +
-                  </div>
-                </div>
-              ),
-            )}
-          </div>
-        )}
-
-        {variant === "ops" && (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-white/80 p-4">
-              <div className="text-xs text-black/45">Orders</div>
-              <div className="mt-2 text-2xl font-semibold text-[#1d1b18]">
-                184
-              </div>
-            </div>
-            <div className="rounded-2xl bg-[#d8b980] p-4">
-              <div className="text-xs text-black/45">Repeat</div>
-              <div className="mt-2 text-2xl font-semibold text-[#1d1b18]">
-                42%
-              </div>
-            </div>
-            <div className="col-span-2 rounded-2xl bg-white/80 p-4">
-              <div className="flex items-end gap-2 pt-6">
-                {[34, 56, 42, 68, 52, 82, 74].map((height, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 rounded-t-md bg-[#1d1b18]"
-                    style={{ height }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {variant === "ai" && (
-          <div className="mt-4 space-y-3">
-            {[
-              "Menu structured",
-              "Brand direction created",
-              "Website generated",
-              "Ordering connected",
-            ].map((item, index) => (
-              <div
-                key={item}
-                className="flex items-center gap-3 rounded-2xl bg-white/80 p-4"
-              >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#d8b980] text-xs font-bold text-[#1d1b18]">
-                  ✓
-                </span>
-                <div>
-                  <div className="text-sm font-semibold text-[#1d1b18]">
-                    {item}
-                  </div>
-                  <div className="mt-0.5 text-xs text-black/40">
-                    Step {index + 1} complete
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+    <div className={`cinema-phone ${className}`}>
+      <div className="cinema-phone-screen">
+        <div className="cinema-island" />
+        {children}
       </div>
     </div>
   );
 }
 
-export default function Home() {
+function MiniOrderCard({ title, meta, accent = false }: { title: string; meta: string; accent?: boolean }) {
   return (
-    <div className="min-h-screen overflow-hidden bg-[#f4eee5] text-[#1b1916]">
-      <header className="relative z-50 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-10">
-        <Link href="/" className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#1b1916] text-lg font-semibold text-[#e3c58d]">
-            O
-          </span>
-          <span className="text-lg font-semibold tracking-[-0.03em]">
-            OrderVora
-          </span>
+    <div className={`cinema-order-card ${accent ? "accent" : ""}`}>
+      <div>
+        <strong>{title}</strong>
+        <span>{meta}</span>
+      </div>
+      <b>→</b>
+    </div>
+  );
+}
+
+export default function Home() {
+  useEffect(() => {
+    const scenes = Array.from(document.querySelectorAll<HTMLElement>("[data-cinematic-scene]"));
+    const reveals = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
+
+    const observer = new IntersectionObserver(
+      (entries) => entries.forEach((entry) => entry.target.classList.toggle("is-visible", entry.isIntersecting)),
+      { threshold: 0.18 },
+    );
+    reveals.forEach((el) => observer.observe(el));
+
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const vh = window.innerHeight;
+        scenes.forEach((scene) => {
+          const rect = scene.getBoundingClientRect();
+          const total = rect.height + vh;
+          const progress = Math.min(1, Math.max(0, (vh - rect.top) / total));
+          scene.style.setProperty("--scene-progress", progress.toFixed(4));
+        });
+      });
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return (
+    <div className="cinema-site">
+      <header className="cinema-nav">
+        <Link href="/" className="cinema-brand">
+          <span>O</span>
+          <b>OrderVora</b>
         </Link>
-
-        <nav className="hidden items-center gap-7 text-sm text-black/60 md:flex">
-          <a href="#platform" className="transition hover:text-black">
-            Platform
-          </a>
-          <a href="#how-it-works" className="transition hover:text-black">
-            How it works
-          </a>
-          <a href="#why" className="transition hover:text-black">
-            Why OrderVora
-          </a>
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <Link
-            href="/login"
-            className="hidden rounded-full px-4 py-2.5 text-sm font-medium sm:inline-flex"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="inline-flex items-center gap-2 rounded-full bg-[#1b1916] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5"
-          >
-            Start building <ArrowIcon />
-          </Link>
+        <div className="cinema-nav-actions">
+          <Link href="/login">Log in</Link>
+          <Link href="/register" className="cinema-pill cinema-pill-dark">Start free <Arrow /></Link>
         </div>
       </header>
 
       <main>
-        <section className="relative px-5 pb-20 pt-10 sm:px-8 sm:pt-16 lg:px-10 lg:pb-28 lg:pt-20">
-          <div className="pointer-events-none absolute left-1/2 top-[-180px] h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-[#e6cfa8]/40 blur-3xl" />
-          <div className="relative mx-auto max-w-7xl">
-            <div className="mx-auto max-w-5xl text-center">
-              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/45 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-black/55 backdrop-blur">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#b08243]" />
-                The business operating system for local commerce
-              </div>
-
-              <h1 className="mx-auto mt-7 max-w-5xl text-5xl font-semibold leading-[0.96] tracking-[-0.065em] sm:text-7xl lg:text-[92px]">
-                Turn your customers into{" "}
-                <span className="font-serif italic text-[#9b7040]">your</span>{" "}
-                customers.
-              </h1>
-
-              <p className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-black/58 sm:text-xl">
-                OrderVora turns a menu photo, website, or Google Maps listing
-                into a branded storefront and a complete operating system for
-                orders, kitchen, delivery, marketing, and growth.
-              </p>
-
-              <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link
-                  href="/register"
-                  className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#1b1916] px-7 text-sm font-semibold text-white shadow-[0_12px_40px_rgba(27,25,22,0.16)] transition hover:-translate-y-0.5 sm:w-auto"
-                >
-                  Build your business <ArrowIcon />
-                </Link>
-                <a
-                  href="#how-it-works"
-                  className="flex h-14 w-full items-center justify-center rounded-full border border-black/10 bg-white/55 px-7 text-sm font-semibold backdrop-blur transition hover:bg-white sm:w-auto"
-                >
-                  See how it works
-                </a>
-              </div>
-
-              <p className="mt-4 text-xs text-black/38">
-                No marketplace commission. No generic template. No lost customer
-                relationship.
-              </p>
+        <section className="cinema-scene cinema-hero" data-cinematic-scene>
+          <div className="cinema-ambient cinema-ambient-a" />
+          <div className="cinema-ambient cinema-ambient-b" />
+          <div className="cinema-hero-copy">
+            <div className="cinema-kicker" data-reveal>YOUR BUSINESS. YOUR CUSTOMERS. YOUR FUTURE.</div>
+            <h1 data-reveal>
+              Stop renting your customers.
+              <em>Own the relationship.</em>
+            </h1>
+            <p data-reveal>
+              From one menu photo or link to a complete branded storefront, online ordering system, operations hub, and growth engine.
+            </p>
+            <div className="cinema-hero-actions" data-reveal>
+              <Link href="/register" className="cinema-pill cinema-pill-dark">Build my business <Arrow /></Link>
+              <a href="#transformation" className="cinema-pill cinema-pill-light">Watch the transformation</a>
             </div>
+          </div>
 
-            <div className="relative mt-16 sm:mt-20 lg:mt-24">
-              <div className="absolute inset-x-0 bottom-0 h-48 rounded-[3rem] bg-[#d9c2a0]/35 blur-2xl" />
-              <div className="relative grid items-end gap-6 md:grid-cols-3 lg:gap-10">
-                <div className="hidden -rotate-3 md:block">
-                  <PhoneMockup variant="store" />
-                </div>
-                <div className="relative z-10 md:-translate-y-8">
-                  <PhoneMockup variant="ai" />
-                </div>
-                <div className="hidden rotate-3 md:block">
-                  <PhoneMockup variant="ops" />
+          <div className="cinema-hero-stage">
+            <PhoneShell className="phone-left">
+              <div className="phone-storefront">
+                <span className="eyebrow">LIVE STOREFRONT</span>
+                <h3>Noma House</h3>
+                <p>Order direct. Earn rewards.</p>
+                <MiniOrderCard title="Signature Burger" meta="$16 · Popular" />
+                <MiniOrderCard title="Truffle Fries" meta="$8 · Add-on" />
+              </div>
+            </PhoneShell>
+
+            <PhoneShell className="phone-center">
+              <div className="phone-ai">
+                <span className="ai-orbit">✦</span>
+                <small>ORDERVORA AI</small>
+                <h3>Your business is ready.</h3>
+                {["Menu understood", "Brand created", "Website built", "Ordering connected"].map((item) => (
+                  <div className="ai-check" key={item}><b>✓</b><span>{item}</span></div>
+                ))}
+              </div>
+            </PhoneShell>
+
+            <PhoneShell className="phone-right">
+              <div className="phone-ops">
+                <span className="eyebrow">TODAY</span>
+                <h3>$4,820</h3>
+                <p>+18.4% this week</p>
+                <div className="mini-grid">
+                  <MiniOrderCard title="184 orders" meta="All channels" accent />
+                  <MiniOrderCard title="42% repeat" meta="Owned customers" />
                 </div>
               </div>
+            </PhoneShell>
+          </div>
+        </section>
+
+        <section id="transformation" className="cinema-scene cinema-transform" data-cinematic-scene>
+          <div className="cinema-sticky">
+            <div className="cinema-section-copy" data-reveal>
+              <span className="cinema-kicker">01 — BUILD TO STOREFRONT</span>
+              <h2>Give us a source.<br /><em>Watch a business appear.</em></h2>
+              <p>Upload a menu photo, PDF, website, or Google Maps listing. OrderVora turns scattered information into a working customer experience.</p>
+            </div>
+            <div className="cinema-transform-stage">
+              <div className="source-card source-photo">MENU<br /><small>photo · pdf · url</small></div>
+              <div className="source-line"><span>AI reading</span><b>→</b></div>
+              <PhoneShell className="source-phone">
+                <div className="phone-storefront">
+                  <span className="eyebrow">YOUR BRAND</span>
+                  <h3>Open for orders.</h3>
+                  <p>Menu, story, checkout, loyalty.</p>
+                  <MiniOrderCard title="Best sellers" meta="Ready to order" accent />
+                  <MiniOrderCard title="Pickup & delivery" meta="Connected" />
+                </div>
+              </PhoneShell>
             </div>
           </div>
         </section>
 
-        <section className="border-y border-black/8 bg-[#1b1916] px-5 py-8 text-white sm:px-8 lg:px-10">
-          <div className="mx-auto grid max-w-7xl gap-7 sm:grid-cols-3 sm:gap-0">
-            {PROOF.map((item, index) => (
-              <div
-                key={item.label}
-                className={`text-center ${
-                  index > 0 ? "sm:border-l sm:border-white/12" : ""
-                }`}
-              >
-                <div className="text-3xl font-semibold tracking-[-0.04em] text-[#e3c58d]">
-                  {item.value}
-                </div>
-                <div className="mt-1 text-sm text-white/50">{item.label}</div>
+        <section className="cinema-scene cinema-control" data-cinematic-scene>
+          <div className="cinema-control-copy" data-reveal>
+            <span className="cinema-kicker">02 — OPERATIONS CONTROL ROOM</span>
+            <h2>Every moving part.<br /><em>One place.</em></h2>
+            <p>Orders, kitchen, delivery, customers, campaigns, analytics, and your website move together instead of living in separate tools.</p>
+          </div>
+          <div className="control-grid" data-reveal>
+            <div className="control-card control-card-wide"><span>LIVE ORDERS</span><strong>27 active</strong><div className="pulse-line" /></div>
+            <div className="control-card"><span>KITCHEN</span><strong>08:42 avg</strong><i>On pace</i></div>
+            <div className="control-card"><span>DELIVERY</span><strong>12 out</strong><i>4 arriving</i></div>
+            <div className="control-card"><span>CUSTOMERS</span><strong>2,841</strong><i>+126 this month</i></div>
+            <div className="control-card"><span>REVENUE</span><strong>$48.2K</strong><i>+18.4%</i></div>
+          </div>
+        </section>
+
+        <section className="cinema-scene cinema-growth" data-cinematic-scene>
+          <div className="growth-copy" data-reveal>
+            <span className="cinema-kicker">03 — CUSTOMER GROWTH LOOP</span>
+            <h2>Turn one order into<br /><em>the next ten.</em></h2>
+            <p>Own the journey after checkout. Rewards, campaigns, offers, reviews, referrals, and smart re-engagement keep the relationship with you.</p>
+          </div>
+          <div className="growth-loop" aria-hidden="true">
+            <div className="growth-core">OrderVora<br /><small>Customer OS</small></div>
+            {["Order", "Reward", "Review", "Return", "Refer"].map((item, index) => (
+              <div key={item} className={`growth-node node-${index + 1}`}>{item}</div>
+            ))}
+          </div>
+        </section>
+
+        <section className="cinema-scene cinema-business" data-cinematic-scene>
+          <div className="cinema-business-copy" data-reveal>
+            <span className="cinema-kicker">04 — CHOOSE YOUR BUSINESS</span>
+            <h2>Not just restaurants.<br /><em>A business operating system.</em></h2>
+          </div>
+          <div className="business-rail" data-reveal>
+            {businessTypes.map((type, index) => (
+              <div className={`business-card business-${index + 1}`} key={type}>
+                <span>0{index + 1}</span>
+                <h3>{type}</h3>
+                <p>Storefront · Orders · Operations · Growth</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section
-          id="platform"
-          className="px-5 py-20 sm:px-8 sm:py-28 lg:px-10"
-        >
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9b7040]">
-                  One platform, not six tools
-                </p>
-                <h2 className="mt-4 max-w-2xl text-4xl font-semibold leading-[1.02] tracking-[-0.05em] sm:text-6xl">
-                  Everything you need to run and grow direct business.
-                </h2>
-              </div>
-              <p className="max-w-xl text-lg leading-8 text-black/55 lg:justify-self-end">
-                Stop stitching together a website builder, ordering link,
-                kitchen screen, delivery dashboard, coupons tool, and analytics.
-                OrderVora connects the whole customer journey.
-              </p>
-            </div>
-
-            <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {FEATURES.map((feature) => (
-                <article
-                  key={feature.title}
-                  className="group min-h-[250px] rounded-[2rem] border border-black/8 bg-white/50 p-7 transition duration-300 hover:-translate-y-1 hover:bg-white/75 hover:shadow-[0_20px_60px_rgba(72,54,30,0.08)]"
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#1b1916] text-lg text-[#e3c58d]">
-                    {feature.icon}
-                  </div>
-                  <h3 className="mt-8 text-2xl font-semibold tracking-[-0.035em]">
-                    {feature.title}
-                  </h3>
-                  <p className="mt-3 text-[15px] leading-7 text-black/52">
-                    {feature.description}
-                  </p>
-                </article>
-              ))}
-            </div>
+        <section className="cinema-scene cinema-pricing" data-cinematic-scene>
+          <div className="cinema-pricing-copy" data-reveal>
+            <span className="cinema-kicker">05 — SIMPLE PRICING</span>
+            <h2>Replace commission with<br /><em>predictable growth.</em></h2>
           </div>
-        </section>
-
-        <section
-          id="how-it-works"
-          className="px-5 py-20 sm:px-8 sm:py-28 lg:px-10"
-        >
-          <div className="mx-auto max-w-7xl overflow-hidden rounded-[2.5rem] bg-[#1b1916] px-6 py-10 text-white sm:px-10 sm:py-14 lg:px-14 lg:py-16">
-            <div className="grid gap-12 lg:grid-cols-[0.85fr_1.15fr]">
-              <div className="lg:sticky lg:top-8 lg:self-start">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#e3c58d]">
-                  From source to storefront
-                </p>
-                <h2 className="mt-4 text-4xl font-semibold leading-[1.03] tracking-[-0.05em] sm:text-6xl">
-                  Launch from what you already have.
-                </h2>
-                <p className="mt-5 max-w-lg text-base leading-7 text-white/50">
-                  You do not need to rebuild your business from scratch to
-                  modernize it. Give OrderVora the source. Keep control of the
-                  result.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {STEPS.map((step) => (
-                  <article
-                    key={step.number}
-                    className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-6 sm:p-8"
-                  >
-                    <div className="text-sm font-semibold text-[#e3c58d]">
-                      {step.number}
-                    </div>
-                    <h3 className="mt-6 text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
-                      {step.title}
-                    </h3>
-                    <p className="mt-3 max-w-xl leading-7 text-white/50">
-                      {step.copy}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
+          <div className="pricing-grid" data-reveal>
+            {plans.map((plan) => (
+              <article key={plan.name} className={`pricing-card ${plan.featured ? "featured" : ""}`}>
+                {plan.featured && <span className="plan-badge">MOST POPULAR</span>}
+                <h3>{plan.name}</h3>
+                <strong>{plan.price}<small>/mo</small></strong>
+                <p>{plan.note}</p>
+                <ul>
+                  <li>Branded website</li>
+                  <li>Direct online ordering</li>
+                  <li>Customer ownership</li>
+                  <li>AI setup tools</li>
+                </ul>
+                <Link href="/register" className={`cinema-pill ${plan.featured ? "cinema-pill-gold" : "cinema-pill-light"}`}>Choose {plan.name}</Link>
+              </article>
+            ))}
           </div>
-        </section>
 
-        <section id="why" className="px-5 py-20 sm:px-8 sm:py-28 lg:px-10">
-          <div className="mx-auto max-w-7xl">
-            <div className="rounded-[2.5rem] border border-black/8 bg-[#ede2d2] p-6 sm:p-10 lg:p-14">
-              <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9b7040]">
-                    The direct relationship matters
-                  </p>
-                  <h2 className="mt-4 text-4xl font-semibold leading-[1.03] tracking-[-0.05em] sm:text-6xl">
-                    Marketplaces can bring an order. They should not own the
-                    relationship.
-                  </h2>
-                  <p className="mt-6 max-w-xl text-lg leading-8 text-black/55">
-                    OrderVora helps local businesses move repeat customers into
-                    a branded experience they control—without giving away
-                    margin every time the same customer comes back.
-                  </p>
-                  <Link
-                    href="/register"
-                    className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#1b1916] px-6 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5"
-                  >
-                    Build your direct channel <ArrowIcon />
-                  </Link>
-                </div>
-
-                <div className="rounded-[2rem] bg-[#f7f1e8] p-5 shadow-[0_24px_70px_rgba(72,54,30,0.10)] sm:p-7">
-                  <div className="flex items-center justify-between border-b border-black/8 pb-5">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-black/40">
-                        Customer journey
-                      </div>
-                      <div className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
-                        From discovery to loyalty
-                      </div>
-                    </div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1b1916] text-[#e3c58d]">
-                      ↗
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    {[
-                      "Discover your brand",
-                      "Order on your website",
-                      "Receive directly",
-                      "Earn rewards",
-                      "Come back to you",
-                    ].map((item, index) => (
-                      <div
-                        key={item}
-                        className="flex items-center gap-4 rounded-2xl border border-black/5 bg-white/70 p-4"
-                      >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e3c58d] text-xs font-bold">
-                          {index + 1}
-                        </div>
-                        <div className="text-sm font-semibold">{item}</div>
-                        <div className="ml-auto text-black/25">→</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="px-5 pb-20 pt-8 sm:px-8 sm:pb-28 lg:px-10">
-          <div className="mx-auto max-w-7xl rounded-[2.75rem] bg-[#1b1916] px-6 py-14 text-center text-white sm:px-10 sm:py-20 lg:px-16 lg:py-24">
-            <div className="mx-auto max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#e3c58d]">
-                Build what belongs to you
-              </p>
-              <h2 className="mt-5 text-4xl font-semibold leading-[1.02] tracking-[-0.055em] sm:text-6xl">
-                Your website. Your orders. Your customer relationship.
-              </h2>
-              <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-white/50">
-                Start with the menu, link, or listing you already have.
-                OrderVora helps turn it into a business system built for direct
-                growth.
-              </p>
-              <div className="mt-9 flex justify-center">
-                <Link
-                  href="/register"
-                  className="flex h-14 items-center gap-2 rounded-full bg-[#e3c58d] px-7 text-sm font-semibold text-[#1b1916] transition hover:-translate-y-0.5"
-                >
-                  Start building now <ArrowIcon />
-                </Link>
-              </div>
-            </div>
+          <div className="cinema-final" data-reveal>
+            <span className="cinema-kicker">THE NEXT ORDER</span>
+            <h2>Your next direct order<br /><em>should belong to you.</em></h2>
+            <p>Build the customer experience, operations system, and growth engine that your business actually owns.</p>
+            <Link href="/register" className="cinema-pill cinema-pill-gold">Build OrderVora now <Arrow /></Link>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-black/8 px-5 py-10 sm:px-8 lg:px-10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b1916] text-sm font-semibold text-[#e3c58d]">
-              O
-            </span>
-            <div>
-              <div className="font-semibold tracking-[-0.02em]">OrderVora</div>
-              <div className="mt-0.5 text-xs text-black/40">
-                The operating system for direct business.
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-5 text-sm text-black/50">
-            <Link href="/login" className="transition hover:text-black">
-              Log in
-            </Link>
-            <Link href="/register" className="transition hover:text-black">
-              Get started
-            </Link>
-          </div>
-        </div>
+      <footer className="cinema-footer">
+        <div className="cinema-brand"><span>O</span><b>OrderVora</b></div>
+        <p>Business Operating System</p>
+        <div><Link href="/login">Log in</Link><Link href="/register">Get started</Link></div>
       </footer>
     </div>
   );
