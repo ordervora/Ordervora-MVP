@@ -1,251 +1,198 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect } from "react";
 
-const businessTypes = ["Restaurant", "Cafe", "Deli", "Vape Shop", "Convenience", "Retail"];
-const plans = [
-  { name: "Basic", price: "$99", note: "Start direct", featured: false },
-  { name: "Pro", price: "$179", note: "Grow faster", featured: true },
-  { name: "Premium", price: "$299", note: "Run everything", featured: false },
-];
+const industries = [
+  ["Restaurant", "Menu · Orders · Kitchen"],
+  ["Coffee Shop", "Pickup · Loyalty · Drinks"],
+  ["Deli", "Fast checkout · Catering"],
+  ["Vape Shop", "Age gate · Brands · Flavors"],
+  ["Convenience", "Categories · Inventory"],
+  ["Bakery", "Preorders · Seasonal drops"],
+] as const;
 
-function Arrow() {
-  return <span aria-hidden="true">↗</span>;
-}
+const aiModules = [
+  ["Website Builder", "Themes, live preview, sections, publish"],
+  ["Brand Builder", "Name, logo direction, colors, fonts"],
+  ["Menu AI", "Import, structure, rewrite, optimize"],
+  ["Image Studio", "Product imagery, banners, cleanup"],
+  ["Marketing AI", "Offers, campaigns, copy, SEO"],
+  ["Business Insights", "Forecasts, opportunities, next actions"],
+] as const;
 
-function PhoneShell({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+const metrics = [
+  ["New orders", "8"],
+  ["Preparing", "5"],
+  ["Ready", "3"],
+  ["At risk", "1"],
+] as const;
+
+function PrimaryButton({ children, href }: { children: React.ReactNode; href: string }) {
   return (
-    <div className={`cinema-phone ${className}`}>
-      <div className="cinema-phone-screen">
-        <div className="cinema-island" />
-        {children}
-      </div>
-    </div>
+    <Link href={href} className="inline-flex min-h-13 items-center justify-center rounded-2xl bg-[#171512] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-black/10 transition hover:-translate-y-0.5">
+      {children}
+    </Link>
   );
 }
 
-function MiniOrderCard({ title, meta, accent = false }: { title: string; meta: string; accent?: boolean }) {
-  return (
-    <div className={`cinema-order-card ${accent ? "accent" : ""}`}>
-      <div>
-        <strong>{title}</strong>
-        <span>{meta}</span>
-      </div>
-      <b>→</b>
-    </div>
-  );
+function SectionLabel({ children, light = false }: { children: React.ReactNode; light?: boolean }) {
+  return <p className={`text-xs font-bold uppercase tracking-[0.16em] ${light ? "text-[#E1B56F]" : "text-[#A9681F]"}`}>{children}</p>;
 }
 
 export default function Home() {
-  useEffect(() => {
-    const scenes = Array.from(document.querySelectorAll<HTMLElement>("[data-cinematic-scene]"));
-    const reveals = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
-
-    const observer = new IntersectionObserver(
-      (entries) => entries.forEach((entry) => entry.target.classList.toggle("is-visible", entry.isIntersecting)),
-      { threshold: 0.18 },
-    );
-    reveals.forEach((el) => observer.observe(el));
-
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const vh = window.innerHeight;
-        scenes.forEach((scene) => {
-          const rect = scene.getBoundingClientRect();
-          const total = rect.height + vh;
-          const progress = Math.min(1, Math.max(0, (vh - rect.top) / total));
-          scene.style.setProperty("--scene-progress", progress.toFixed(4));
-        });
-      });
-    };
-
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, []);
-
   return (
-    <div className="cinema-site">
-      <header className="cinema-nav">
-        <Link href="/" className="cinema-brand">
-          <span>O</span>
-          <b>OrderVora</b>
-        </Link>
-        <div className="cinema-nav-actions">
-          <Link href="/login">Log in</Link>
-          <Link href="/register" className="cinema-pill cinema-pill-dark">Start free <Arrow /></Link>
+    <main className="min-h-screen overflow-x-hidden bg-[#F7F0E5] text-[#171512]">
+      <header className="sticky top-0 z-50 border-b border-[#E7DDCF]/80 bg-[#F7F0E5]/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-10">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-2xl border border-[#E7DDCF] bg-white/80 px-4 py-3 shadow-sm">
+          <Link href="/" className="text-xl font-bold tracking-tight text-[#B97824]">OrderVora</Link>
+          <nav className="hidden items-center gap-7 text-sm font-semibold text-[#756B5D] md:flex">
+            <a href="#how">Product</a>
+            <a href="#studio">AI Studio</a>
+            <a href="#industries">Industries</a>
+            <a href="#pricing">Pricing</a>
+          </nav>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="rounded-xl px-3 py-2 text-sm font-bold text-[#171512]">Log in</Link>
+            <Link href="/register" className="rounded-xl bg-[#171512] px-4 py-2.5 text-sm font-bold text-white">Start free</Link>
+          </div>
         </div>
       </header>
 
-      <main>
-        <section className="cinema-scene cinema-hero" data-cinematic-scene>
-          <div className="cinema-ambient cinema-ambient-a" />
-          <div className="cinema-ambient cinema-ambient-b" />
-          <div className="cinema-hero-copy">
-            <div className="cinema-kicker" data-reveal>YOUR BUSINESS. YOUR CUSTOMERS. YOUR FUTURE.</div>
-            <h1 data-reveal>
-              Stop renting your customers.
-              <em>Own the relationship.</em>
-            </h1>
-            <p data-reveal>
-              From one menu photo or link to a complete branded storefront, online ordering system, operations hub, and growth engine.
-            </p>
-            <div className="cinema-hero-actions" data-reveal>
-              <Link href="/register" className="cinema-pill cinema-pill-dark">Build my business <Arrow /></Link>
-              <a href="#transformation" className="cinema-pill cinema-pill-light">Watch the transformation</a>
+      <section className="px-4 pb-20 pt-10 sm:px-6 lg:px-10 lg:pb-28 lg:pt-16">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[1.05fr_.95fr]">
+          <div>
+            <SectionLabel>Business Operating System</SectionLabel>
+            <h1 className="mt-5 max-w-3xl text-5xl font-bold tracking-[-0.04em] sm:text-6xl lg:text-7xl">Own your customers. Run your business. Keep every dollar.</h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-[#756B5D]">Turn a menu photo, website, or POS into a branded ordering website—then manage orders, kitchen, customers, marketing, and growth from one calm system.</p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <PrimaryButton href="/register">Build my business</PrimaryButton>
+              <a href="#how" className="inline-flex min-h-13 items-center justify-center rounded-2xl border border-[#E7DDCF] bg-white px-6 py-3 text-sm font-bold text-[#171512]">Watch how it works</a>
             </div>
           </div>
 
-          <div className="cinema-hero-stage">
-            <PhoneShell className="phone-left">
-              <div className="phone-storefront">
-                <span className="eyebrow">LIVE STOREFRONT</span>
-                <h3>Noma House</h3>
-                <p>Order direct. Earn rewards.</p>
-                <MiniOrderCard title="Signature Burger" meta="$16 · Popular" />
-                <MiniOrderCard title="Truffle Fries" meta="$8 · Add-on" />
-              </div>
-            </PhoneShell>
-
-            <PhoneShell className="phone-center">
-              <div className="phone-ai">
-                <span className="ai-orbit">✦</span>
-                <small>ORDERVORA AI</small>
-                <h3>Your business is ready.</h3>
-                {["Menu understood", "Brand created", "Website built", "Ordering connected"].map((item) => (
-                  <div className="ai-check" key={item}><b>✓</b><span>{item}</span></div>
-                ))}
-              </div>
-            </PhoneShell>
-
-            <PhoneShell className="phone-right">
-              <div className="phone-ops">
-                <span className="eyebrow">TODAY</span>
-                <h3>$4,820</h3>
-                <p>+18.4% this week</p>
-                <div className="mini-grid">
-                  <MiniOrderCard title="184 orders" meta="All channels" accent />
-                  <MiniOrderCard title="42% repeat" meta="Owned customers" />
-                </div>
-              </div>
-            </PhoneShell>
-          </div>
-        </section>
-
-        <section id="transformation" className="cinema-scene cinema-transform" data-cinematic-scene>
-          <div className="cinema-sticky">
-            <div className="cinema-section-copy" data-reveal>
-              <span className="cinema-kicker">01 — BUILD TO STOREFRONT</span>
-              <h2>Give us a source.<br /><em>Watch a business appear.</em></h2>
-              <p>Upload a menu photo, PDF, website, or Google Maps listing. OrderVora turns scattered information into a working customer experience.</p>
-            </div>
-            <div className="cinema-transform-stage">
-              <div className="source-card source-photo">MENU<br /><small>photo · pdf · url</small></div>
-              <div className="source-line"><span>AI reading</span><b>→</b></div>
-              <PhoneShell className="source-phone">
-                <div className="phone-storefront">
-                  <span className="eyebrow">YOUR BRAND</span>
-                  <h3>Open for orders.</h3>
-                  <p>Menu, story, checkout, loyalty.</p>
-                  <MiniOrderCard title="Best sellers" meta="Ready to order" accent />
-                  <MiniOrderCard title="Pickup & delivery" meta="Connected" />
-                </div>
-              </PhoneShell>
+          <div className="relative">
+            <img
+              src="https://images.squarespace-cdn.com/content/v1/67a2417cd8e77b2184ad206a/eb5963bd-4bee-4c6c-bff9-070b5115ad37/chefs-group-smiling.png"
+              alt="Restaurant team"
+              className="h-[420px] w-full rounded-[32px] object-cover shadow-2xl shadow-black/10 sm:h-[520px]"
+            />
+            <div className="absolute -bottom-8 left-5 right-5 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-2xl sm:left-[-40px] sm:right-auto sm:w-[360px]">
+              <div className="flex items-center justify-between"><strong>AI Business Studio</strong><span className="text-sm font-bold text-[#B97824]">80%</span></div>
+              <p className="mt-3 text-sm font-semibold text-emerald-700">Menu imported</p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EEE5D9]"><div className="h-full w-4/5 rounded-full bg-[#B97824]" /></div>
+              <p className="mt-3 text-sm font-semibold text-[#A9681F]">Website building…</p>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="cinema-scene cinema-control" data-cinematic-scene>
-          <div className="cinema-control-copy" data-reveal>
-            <span className="cinema-kicker">02 — OPERATIONS CONTROL ROOM</span>
-            <h2>Every moving part.<br /><em>One place.</em></h2>
-            <p>Orders, kitchen, delivery, customers, campaigns, analytics, and your website move together instead of living in separate tools.</p>
+      <section id="how" className="px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-8 lg:grid-cols-2 lg:items-end">
+            <div><SectionLabel>From menu to business in minutes</SectionLabel><h2 className="mt-4 text-4xl font-bold tracking-[-0.03em] sm:text-5xl">One simple start. A complete operating system.</h2></div>
+            <p className="text-lg leading-8 text-[#756B5D]">Upload what you already have. OrderVora turns it into structure, brand, storefront, and operations.</p>
           </div>
-          <div className="control-grid" data-reveal>
-            <div className="control-card control-card-wide"><span>LIVE ORDERS</span><strong>27 active</strong><div className="pulse-line" /></div>
-            <div className="control-card"><span>KITCHEN</span><strong>08:42 avg</strong><i>On pace</i></div>
-            <div className="control-card"><span>DELIVERY</span><strong>12 out</strong><i>4 arriving</i></div>
-            <div className="control-card"><span>CUSTOMERS</span><strong>2,841</strong><i>+126 this month</i></div>
-            <div className="control-card"><span>REVENUE</span><strong>$48.2K</strong><i>+18.4%</i></div>
-          </div>
-        </section>
-
-        <section className="cinema-scene cinema-growth" data-cinematic-scene>
-          <div className="growth-copy" data-reveal>
-            <span className="cinema-kicker">03 — CUSTOMER GROWTH LOOP</span>
-            <h2>Turn one order into<br /><em>the next ten.</em></h2>
-            <p>Own the journey after checkout. Rewards, campaigns, offers, reviews, referrals, and smart re-engagement keep the relationship with you.</p>
-          </div>
-          <div className="growth-loop" aria-hidden="true">
-            <div className="growth-core">OrderVora<br /><small>Customer OS</small></div>
-            {["Order", "Reward", "Review", "Return", "Refer"].map((item, index) => (
-              <div key={item} className={`growth-node node-${index + 1}`}>{item}</div>
-            ))}
-          </div>
-        </section>
-
-        <section className="cinema-scene cinema-business" data-cinematic-scene>
-          <div className="cinema-business-copy" data-reveal>
-            <span className="cinema-kicker">04 — CHOOSE YOUR BUSINESS</span>
-            <h2>Not just restaurants.<br /><em>A business operating system.</em></h2>
-          </div>
-          <div className="business-rail" data-reveal>
-            {businessTypes.map((type, index) => (
-              <div className={`business-card business-${index + 1}`} key={type}>
-                <span>0{index + 1}</span>
-                <h3>{type}</h3>
-                <p>Storefront · Orders · Operations · Growth</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="cinema-scene cinema-pricing" data-cinematic-scene>
-          <div className="cinema-pricing-copy" data-reveal>
-            <span className="cinema-kicker">05 — SIMPLE PRICING</span>
-            <h2>Replace commission with<br /><em>predictable growth.</em></h2>
-          </div>
-          <div className="pricing-grid" data-reveal>
-            {plans.map((plan) => (
-              <article key={plan.name} className={`pricing-card ${plan.featured ? "featured" : ""}`}>
-                {plan.featured && <span className="plan-badge">MOST POPULAR</span>}
-                <h3>{plan.name}</h3>
-                <strong>{plan.price}<small>/mo</small></strong>
-                <p>{plan.note}</p>
-                <ul>
-                  <li>Branded website</li>
-                  <li>Direct online ordering</li>
-                  <li>Customer ownership</li>
-                  <li>AI setup tools</li>
-                </ul>
-                <Link href="/register" className={`cinema-pill ${plan.featured ? "cinema-pill-gold" : "cinema-pill-light"}`}>Choose {plan.name}</Link>
+          <div className="mt-12 grid gap-4 lg:grid-cols-3">
+            {[
+              ["01", "Import", "Photo, PDF, spreadsheet, website, Google Maps, POS."],
+              ["02", "Build", "AI creates menu structure, website, copy, and brand direction."],
+              ["03", "Launch", "Publish your store, QR, ordering flow, and live operations."],
+            ].map(([number, title, description]) => (
+              <article key={title} className="rounded-3xl border border-[#E7DDCF] bg-white p-6 shadow-[0_12px_36px_rgba(48,39,27,0.04)]">
+                <span className="text-sm font-bold text-[#B97824]">{number}</span>
+                <h3 className="mt-5 text-2xl font-bold">{title}</h3>
+                <p className="mt-3 leading-7 text-[#756B5D]">{description}</p>
               </article>
             ))}
           </div>
+        </div>
+      </section>
 
-          <div className="cinema-final" data-reveal>
-            <span className="cinema-kicker">THE NEXT ORDER</span>
-            <h2>Your next direct order<br /><em>should belong to you.</em></h2>
-            <p>Build the customer experience, operations system, and growth engine that your business actually owns.</p>
-            <Link href="/register" className="cinema-pill cinema-pill-gold">Build OrderVora now <Arrow /></Link>
+      <section id="industries" className="px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionLabel>One engine. Many businesses.</SectionLabel>
+          <div className="mt-4 grid gap-8 lg:grid-cols-2 lg:items-end">
+            <h2 className="text-4xl font-bold tracking-[-0.03em] sm:text-5xl">Start with restaurants. Expand everywhere.</h2>
+            <p className="text-lg leading-8 text-[#756B5D]">Templates change the experience—not the core system. One platform can serve food, retail, and local commerce.</p>
           </div>
-        </section>
-      </main>
+          <div className="mt-10 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {industries.map(([name, meta], index) => (
+              <article key={name} className={`rounded-3xl border p-5 sm:p-6 ${index === 0 ? "border-[#171512] bg-[#171512] text-white" : "border-[#E7DDCF] bg-white"}`}>
+                <h3 className="text-lg font-bold sm:text-2xl">{name}</h3>
+                <p className={`mt-3 text-sm ${index === 0 ? "text-white/65" : "text-[#756B5D]"}`}>{meta}</p>
+                <div className={`mt-6 text-xl ${index === 0 ? "text-[#E1B56F]" : "text-[#B97824]"}`}>→</div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      <footer className="cinema-footer">
-        <div className="cinema-brand"><span>O</span><b>OrderVora</b></div>
-        <p>Business Operating System</p>
-        <div><Link href="/login">Log in</Link><Link href="/register">Get started</Link></div>
+      <section id="studio" className="px-4 py-10 sm:px-6 lg:px-10">
+        <div className="mx-auto max-w-7xl rounded-[36px] bg-[#171512] p-6 text-white sm:p-10 lg:p-12">
+          <SectionLabel light>AI Business Studio</SectionLabel>
+          <h2 className="mt-4 text-4xl font-bold tracking-[-0.03em] sm:text-5xl">Build more than a website.</h2>
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-white/60">A single AI workspace for creating, launching, and improving your business.</p>
+          <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {aiModules.map(([name, description]) => (
+              <article key={name} className="rounded-3xl border border-white/10 bg-white/[.04] p-5">
+                <h3 className="text-xl font-bold">{name}</h3>
+                <p className="mt-3 text-sm leading-6 text-white/55">{description}</p>
+                <div className="mt-8 text-sm font-bold text-[#E1B56F]">Open →</div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionLabel>Not a dashboard. A daily operating system.</SectionLabel>
+          <h2 className="mt-4 max-w-3xl text-4xl font-bold tracking-[-0.03em] sm:text-5xl">Every order. Every customer. Every next move.</h2>
+          <div className="mt-10 grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
+            <img src="https://images.squarespace-cdn.com/content/v1/67a2417cd8e77b2184ad206a/eb5963bd-4bee-4c6c-bff9-070b5115ad37/chefs-group-smiling.png" alt="Restaurant operations" className="h-full min-h-[360px] w-full rounded-[32px] object-cover" />
+            <div className="rounded-[32px] border border-[#E7DDCF] bg-white p-6 sm:p-8">
+              <h3 className="text-2xl font-bold">Live operations</h3>
+              <p className="mt-2 text-[#756B5D]">A calm view of what needs attention now.</p>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                {metrics.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl bg-[#FBF7F0] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#756B5D]">{label}</p><strong className={`mt-3 block text-3xl ${label === "At risk" ? "text-red-700" : "text-[#171512]"}`}>{value}</strong></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pricing" className="px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionLabel>Why owners switch</SectionLabel>
+          <h2 className="mt-4 max-w-4xl text-4xl font-bold tracking-[-0.03em] sm:text-5xl">Stop renting your customer relationship.</h2>
+          <p className="mt-4 max-w-4xl text-lg leading-8 text-[#756B5D]">Marketplaces can bring discovery. OrderVora helps you turn those customers into your customers—with your brand, your data, and your repeat business.</p>
+          <div className="mt-10 grid gap-4 lg:grid-cols-3">
+            {[
+              ["0%", "Marketplace commission on direct orders"],
+              ["1 place", "Orders, menu, website, customers, AI"],
+              ["Minutes", "From menu upload to structured business setup"],
+            ].map(([value, label]) => (
+              <div key={value} className="rounded-3xl border border-[#E7DDCF] bg-white p-6"><strong className="text-4xl text-[#B97824]">{value}</strong><p className="mt-4 font-semibold leading-7">{label}</p></div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 pb-10 sm:px-6 lg:px-10 lg:pb-16">
+        <div className="mx-auto max-w-7xl rounded-[36px] bg-[#171512] p-6 text-white sm:p-10 lg:p-14">
+          <SectionLabel light>Your business. Your customers. Your system.</SectionLabel>
+          <h2 className="mt-5 max-w-4xl text-4xl font-bold tracking-[-0.03em] sm:text-6xl">Build your direct business before your next order arrives.</h2>
+          <p className="mt-5 max-w-3xl text-lg leading-8 text-white/60">Start with the menu you already have. Launch the business system you should have had all along.</p>
+          <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+            <Link href="/register" className="inline-flex min-h-13 items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-bold text-[#171512]">Start free</Link>
+            <span className="text-sm font-semibold text-white/55">No commission on direct orders</span>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#E7DDCF] px-4 py-8 sm:px-6 lg:px-10">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><strong className="text-xl text-[#B97824]">OrderVora</strong><span className="text-sm font-semibold text-[#756B5D]">Business Operating System</span></div>
       </footer>
-    </div>
+    </main>
   );
 }
