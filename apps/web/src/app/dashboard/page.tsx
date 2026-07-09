@@ -2,6 +2,7 @@ import type { AuditLogEntry, PublicUser, Restaurant } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DashboardOverview } from "./dashboard-overview";
 import { AdminPanel } from "./admin-panel";
+import { VerifyEmailBanner } from "./verify-email-banner";
 
 async function AdminOverview() {
   const [restaurantsResult, auditLogResult] = await Promise.all([
@@ -50,5 +51,10 @@ export default async function DashboardPage() {
     return <AdminOverview />;
   }
 
-  return <DashboardOverview userName={user.name} />;
+  return (
+    <>
+      {!user.emailVerified && <VerifyEmailBanner />}
+      <DashboardOverview userName={user.name} />
+    </>
+  );
 }

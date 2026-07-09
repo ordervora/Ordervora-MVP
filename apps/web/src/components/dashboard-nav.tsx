@@ -19,6 +19,7 @@ const DESKTOP_ITEMS = [
   ["Website", "/dashboard/website"],
   ["Analytics", "/dashboard/analytics"],
   ["Restaurant", "/dashboard/restaurant"],
+  ["Profile", "/dashboard/profile"],
 ] as const;
 
 export function DashboardNav() {

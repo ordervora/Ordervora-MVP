@@ -9,7 +9,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [keepSignedIn, setKeepSignedIn] = useState(true);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -18,7 +18,7 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, rememberMe);
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
@@ -92,7 +92,7 @@ export default function LoginPage() {
 
             <div className="flex items-center justify-between gap-3 text-sm">
               <label className="flex items-center gap-2 font-semibold text-[#756B5D]">
-                <input type="checkbox" checked={keepSignedIn} onChange={(e) => setKeepSignedIn(e.target.checked)} className="h-4 w-4 accent-[#B97824]" />
+                <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 accent-[#B97824]" />
                 Keep me signed in
               </label>
               <Link href="/forgot-password" className="font-bold text-[#A9681F]">Forgot?</Link>

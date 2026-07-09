@@ -2539,3 +2539,63 @@ this is the one piece of the full roadmap that needs the user to set up
 their own Stripe Connect (or equivalent) account before it can be
 built; will be surfaced as a discrete step when reached rather than
 assumed.
+
+## Sprint 18, Part 1 — Owner Auth Foundation
+
+**Rebuilt owner/staff authentication (done):** the `User` table gains a
+full password-reset, email-verification, and session-management story,
+mirroring the Sprint 07.7 customer-auth pattern:
+
+- **Forgot / reset password**: `POST /api/auth/forgot-password` always
+  resolves regardless of whether the email matches an account
+  (enumeration prevention), emailing a single-use, hashed, 1-hour token
+  when it does. `POST /api/auth/reset-password` consumes the token,
+  updates the password, and revokes every existing refresh token for
+  that account.
+- **Change password**: `POST /api/auth/change-password` (authenticated)
+  re-verifies the current password before accepting a new one, and also
+  revokes every other session.
+- **Email verification**: registering now fires a verification email
+  (`EmailVerificationToken`, same hashed/single-use/TTL shape as the
+  reset token, 24h). `emailVerified` is **not** enforced at login — it
+  only gates a dashboard banner ("Please verify your email") with a
+  resend button, the same soft-nag pattern most SaaS products use rather
+  than blocking sign-in.
+- **Remember Me / persistent sessions**: `RefreshToken` gains a
+  `rememberMe` column, set at login and carried forward through every
+  subsequent rotation (not just the first refresh) — so a session-only
+  login doesn't silently become persistent, or vice versa, just because
+  a silent token refresh happened while the tab stayed open. When
+  `rememberMe` is false, the refresh cookie is set without an `expires`
+  attribute, making it a true browser session cookie.
+- **Logout of all devices**: `POST /api/auth/logout-all` revokes every
+  active refresh token for the account and clears cookies — exposed as
+  a "Log out of all devices" button on the new `/dashboard/profile` page.
+- **Owner profile**: `PATCH /api/auth/profile` updates name/phone;
+  `/dashboard/profile` is the single page for profile edits, password
+  changes, resend-verification, and logout-all-devices.
+
+**Frontend**: new `/forgot-password`, `/reset-password`, and
+`/verify-email` pages (styled to match the existing login/register
+pages); the login page gained a Remember Me checkbox (defaults checked)
+and a Forgot Password link; the dashboard shows a verification banner
+when `emailVerified` is false.
+
+**Explicitly deferred (needs the user's own account setup):** Google
+Sign-In and Apple Sign-In require registering OAuth apps with each
+provider and supplying client ID/secret — not built this sprint since
+there's no working credential to wire up yet. Will be surfaced as a
+discrete step once the user is ready to register those apps.
+
+Requires one new migration in production:
+`apps/api/prisma/migrations/20260709000000_sprint18_owner_auth/migration.sql`
+— adds `User.emailVerified`, `RefreshToken.rememberMe`, two new tables
+(`PasswordResetToken`, `EmailVerificationToken`), and one new
+`NotificationType` enum value (`EMAIL_VERIFICATION_REQUESTED`) — same
+manual Supabase SQL-editor step as every other schema change this
+session.
+
+**Next in Sprint 18:** Business Setup Wizard, Launch Center, Test Order
+Flow, import-processing UX fix, website-preview UX fix, and a mobile
+responsive pass — the remaining six pieces of the Sprint 18 "Owner
+Experience Foundation" spec.

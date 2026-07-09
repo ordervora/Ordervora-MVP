@@ -3,6 +3,9 @@ export interface PublicUser {
   email: string;
   name: string;
   role: "ADMIN" | "RESTAURANT_OWNER" | "RESTAURANT_STAFF";
+  isActive: boolean;
+  emailVerified: boolean;
+  phone: string | null;
 }
 
 export interface Restaurant {
@@ -121,10 +124,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return data as T;
 }
 
-export function login(email: string, password: string) {
+export function login(email: string, password: string, rememberMe = true) {
   return apiFetch<{ user: PublicUser }>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, rememberMe }),
   });
 }
 
@@ -137,6 +140,53 @@ export function register(email: string, password: string, name: string) {
 
 export function logout() {
   return apiFetch<{ ok: true }>("/api/auth/logout", { method: "POST" });
+}
+
+export function logoutAllDevices() {
+  return apiFetch<{ ok: true }>("/api/auth/logout-all", { method: "POST" });
+}
+
+export function getMe() {
+  return apiFetch<{ user: PublicUser }>("/api/auth/me");
+}
+
+export function forgotPassword(email: string) {
+  return apiFetch<{ ok: true }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(token: string, newPassword: string) {
+  return apiFetch<{ ok: true }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
+}
+
+export function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<{ ok: true }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export function verifyEmail(token: string) {
+  return apiFetch<{ ok: true }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function resendVerification() {
+  return apiFetch<{ ok: true }>("/api/auth/resend-verification", { method: "POST" });
+}
+
+export function updateProfile(input: { name?: string; phone?: string | null }) {
+  return apiFetch<{ user: PublicUser }>("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export interface StaffMember {

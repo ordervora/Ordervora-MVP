@@ -28,11 +28,17 @@ export function setAccessTokenCookie(res: Response, token: string, expiresAt?: D
   });
 }
 
-export function setRefreshTokenCookie(res: Response, token: string, expiresAt: Date): void {
+/**
+ * When rememberMe is false, the `expires` attribute is omitted so the
+ * browser treats this as a session cookie (cleared on browser close) even
+ * though the underlying RefreshToken row still carries its normal
+ * expiresAt server-side (Sprint 18 — Remember Me).
+ */
+export function setRefreshTokenCookie(res: Response, token: string, expiresAt: Date, rememberMe = true): void {
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     ...baseOptions,
     path: "/api/auth",
-    expires: expiresAt,
+    ...(rememberMe ? { expires: expiresAt } : {}),
   });
 }
 
