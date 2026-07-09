@@ -20,8 +20,12 @@ const baseOptions: CookieOptions = {
   sameSite: isProduction ? "none" : "lax",
 };
 
-export function setAccessTokenCookie(res: Response, token: string): void {
-  res.cookie(ACCESS_TOKEN_COOKIE, token, { ...baseOptions, path: "/" });
+export function setAccessTokenCookie(res: Response, token: string, expiresAt?: Date): void {
+  res.cookie(ACCESS_TOKEN_COOKIE, token, {
+    ...baseOptions,
+    path: "/",
+    ...(expiresAt ? { expires: expiresAt } : {}),
+  });
 }
 
 export function setRefreshTokenCookie(res: Response, token: string, expiresAt: Date): void {
