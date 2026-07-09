@@ -14,11 +14,6 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Plain window.location (not useSearchParams) so this page can stay
-  // statically prerenderable — a referral link is only ever followed by
-  // a real browser, so a client-only read is sufficient. Stashed for the
-  // restaurant-creation step that follows, since a Restaurant (the
-  // referable entity) doesn't exist until then.
   useEffect(() => {
     const ref = new URLSearchParams(window.location.search).get("ref");
     if (ref) setStoredReferralCode(ref);
@@ -40,66 +35,46 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950"
-      >
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Register as a restaurant owner
-        </h1>
+    <main className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 py-8 text-[#171512] sm:px-6">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-10 flex items-center justify-between">
+          <div className="text-xl font-bold tracking-tight text-[#B97824]">OrderVora</div>
+          <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#756B5D] shadow-sm">Business OS</span>
+        </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <section className="rounded-[28px] border border-[#E7DDCF] bg-white p-5 shadow-[0_18px_50px_rgba(48,39,27,0.07)] sm:p-7">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">CREATE ACCOUNT</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">Start building your business.</h1>
+          <p className="mt-3 text-sm leading-6 text-[#756B5D]">Create your owner account, then import your menu and launch your website.</p>
 
-        <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-          Name
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
-          />
-        </label>
+          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
+            {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
-        <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-          Email
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
-          />
-        </label>
+            <label className="block text-sm font-semibold text-[#2A251F]">
+              Owner name
+              <input type="text" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} className="mt-2 min-h-14 w-full rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] px-4 text-base outline-none transition focus:border-[#B97824] focus:ring-4 focus:ring-[#B97824]/10" />
+            </label>
 
-        <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-          Password
-          <input
-            type="password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
-          />
-        </label>
+            <label className="block text-sm font-semibold text-[#2A251F]">
+              Email
+              <input type="email" required inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-2 min-h-14 w-full rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] px-4 text-base outline-none transition focus:border-[#B97824] focus:ring-4 focus:ring-[#B97824]/10" />
+            </label>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-2 rounded-full bg-foreground px-5 py-2 text-background disabled:opacity-50"
-        >
-          {submitting ? "Creating account..." : "Create account"}
-        </button>
+            <label className="block text-sm font-semibold text-[#2A251F]">
+              Password
+              <input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-2 min-h-14 w-full rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] px-4 text-base outline-none transition focus:border-[#B97824] focus:ring-4 focus:ring-[#B97824]/10" />
+            </label>
 
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Already have an account?{" "}
-          <Link href="/login" className="font-medium text-zinc-950 dark:text-zinc-50">
-            Log in
-          </Link>
-        </p>
-      </form>
-    </div>
+            <button type="submit" disabled={submitting} className="mt-2 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#171512] px-5 text-base font-bold text-white shadow-lg shadow-black/10 transition active:scale-[0.99] disabled:opacity-50">
+              {submitting ? "Creating account…" : "Create business account"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-[#756B5D]">
+            Already have an account? <Link href="/login" className="font-bold text-[#A9681F]">Log in</Link>
+          </p>
+        </section>
+      </div>
+    </main>
   );
 }
