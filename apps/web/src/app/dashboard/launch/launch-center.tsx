@@ -84,14 +84,12 @@ export function LaunchCenter({ restaurant }: { restaurant: Restaurant }) {
             <LinkRow label="Dashboard" href={dashboardUrl} />
           </div>
 
-          <a
-            href={websiteUrl}
-            target="_blank"
-            rel="noreferrer"
+          <Link
+            href="/dashboard/launch/test-order"
             className="mt-6 flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#171512] px-5 text-base font-bold text-white shadow-lg shadow-black/10 transition active:scale-[0.99]"
           >
             Test order flow
-          </a>
+          </Link>
           <Link
             href="/dashboard"
             className="mt-3 flex min-h-14 w-full items-center justify-center rounded-2xl border border-[#E7DDCF] bg-white px-5 text-base font-bold text-[#171512] transition active:scale-[0.99]"

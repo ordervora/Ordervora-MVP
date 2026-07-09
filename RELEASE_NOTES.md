@@ -2667,19 +2667,39 @@ in one place:
 - Copy/open rows for the customer ordering link, kitchen display (KDS),
   and dashboard, so an owner can hand off the right link to the right
   person (front counter, kitchen, themselves) without hunting for it.
-- A "Test order flow" action that opens the real ordering link in a new
-  tab so an owner can place a trial order before advertising it —
-  linking directly to `/order/{restaurantId}` today; a dedicated guided
-  test-order experience is deferred to Sprint 18 Part 4.
+- A "Test order flow" action that hands off to the guided Test Order
+  Flow (Sprint 18 Part 4, below).
 - A "Go to dashboard" fallback for owners who just want to skip ahead.
 
 Added a "Launch" entry to the desktop dashboard nav pointing at the new
 page. No schema or API changes — this part is presentation-only, built
 entirely on data the Business Setup Wizard (Part 2) already collects.
 
-**Explicitly out of scope this part:** the guided Test Order Flow itself
-(Sprint 18 Part 4), any visual redesign beyond the existing warm
+**Explicitly out of scope this part:** any visual redesign beyond the existing warm
 mobile-first design tokens.
 
 **Next in Sprint 18:** Test Order Flow, import-processing UX fix,
 website-preview UX fix, and a mobile responsive pass.
+
+## Sprint 18, Part 4 — Test Order Flow
+
+A guided `/dashboard/launch/test-order` page, reached from the Launch
+Center's "Test order flow" button, walks a newly-onboarded owner through
+placing one real order on their own storefront before sharing the link
+with actual customers:
+
+- A numbered 3-step checklist (open the live ordering page, complete a
+  real checkout, confirm it landed on Orders/Kitchen).
+- An "Open my ordering page" action that opens the real `/order/{id}`
+  storefront in a new tab.
+- A lightweight self-confirmation ("Did your test order go through?" →
+  "Yes, it worked") that surfaces a success message and a way back to
+  the Launch Center — no new database state; this is a one-time UX
+  nudge, not a gating requirement before an owner can share their link.
+
+No schema or API changes. **Explicitly out of scope:** persisting
+whether a test order was completed, and any visual redesign beyond the
+existing warm mobile-first design tokens.
+
+**Next in Sprint 18:** import-processing UX fix, website-preview UX
+fix, and a mobile responsive pass.
