@@ -18,7 +18,7 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password, { keepSignedIn });
+      await login(email, password);
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
