@@ -1,54 +1,54 @@
 import type { AuditLogEntry, PublicUser, Restaurant } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
-import { DashboardNav } from "@/components/dashboard-nav";
-import { LogoutButton } from "./logout-button";
+import { DashboardOverview } from "./dashboard-overview";
 import { AdminPanel } from "./admin-panel";
 
-// Platform Admin has no dedicated dashboard section elsewhere in the app —
-// this reuses the existing, already-tested GET /api/admin/restaurants
-// endpoint (restaurant.routes.ts), plus Sprint 16's suspend/unsuspend +
-// audit log endpoints, to give the ADMIN role a platform-wide management
-// surface here rather than a separate route.
 async function AdminOverview() {
   const [restaurantsResult, auditLogResult] = await Promise.all([
     serverFetch<{ restaurants: Restaurant[] }>("/api/admin/restaurants"),
     serverFetch<{ entries: AuditLogEntry[] }>("/api/admin/audit-log"),
   ]);
+
   if (!restaurantsResult.ok) {
-    return <p className="text-sm text-red-600 dark:text-red-400">Could not load restaurants.</p>;
+    return (
+      <div className="min-h-screen bg-[#F7F0E5] p-6 text-sm text-red-700">
+        Could not load restaurants.
+      </div>
+    );
   }
 
   return (
-    <AdminPanel
-      initialRestaurants={restaurantsResult.data.restaurants}
-      initialAuditLog={auditLogResult.ok ? auditLogResult.data.entries : []}
-    />
+    <div className="min-h-screen bg-[#F7F0E5] p-4 sm:p-6 lg:p-10">
+      <div className="mx-auto max-w-7xl rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-8">
+        <div className="mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9A6A2F]">Platform administration</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#171512]">OrderVora Admin</h1>
+          <p className="mt-2 text-sm text-[#756B5D]">Manage restaurants, suspension status, and audit activity.</p>
+        </div>
+        <AdminPanel
+          initialRestaurants={restaurantsResult.data.restaurants}
+          initialAuditLog={auditLogResult.ok ? auditLogResult.data.entries : []}
+        />
+      </div>
+    </div>
   );
 }
 
 export default async function DashboardPage() {
-  // layout.tsx already redirects to /login on an unauthenticated session,
-  // so a failure here would only ever be a genuine transient error.
   const result = await serverFetch<{ user: PublicUser }>("/api/auth/me");
   if (!result.ok) {
-    return <p className="text-sm text-red-600 dark:text-red-400">Could not load your account. Please refresh.</p>;
+    return (
+      <div className="min-h-screen bg-[#F7F0E5] p-6 text-sm text-red-700">
+        Could not load your account. Please refresh.
+      </div>
+    );
   }
 
   const { user } = result.data;
 
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 dark:bg-black">
-      <div className="flex w-full max-w-2xl flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950">
-        <DashboardNav />
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Welcome, {user.name}
-        </h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Role: <span className="font-mono">{user.role}</span>
-        </p>
-        {user.role === "ADMIN" && <AdminOverview />}
-        <LogoutButton />
-      </div>
-    </div>
-  );
+  if (user.role === "ADMIN") {
+    return <AdminOverview />;
+  }
+
+  return <DashboardOverview userName={user.name} />;
 }
