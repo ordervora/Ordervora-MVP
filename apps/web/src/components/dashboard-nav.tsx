@@ -1,62 +1,52 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const MOBILE_ITEMS = [
+  ["Overview", "/dashboard", "⌂"],
+  ["Orders", "/dashboard/orders", "▤"],
+  ["Menu", "/dashboard/menu", "▦"],
+  ["AI", "/dashboard/builder", "✦"],
+  ["More", "/dashboard/restaurant", "•••"],
+] as const;
+
+const DESKTOP_ITEMS = [
+  ["Overview", "/dashboard"],
+  ["Orders", "/dashboard/orders"],
+  ["Menu", "/dashboard/menu"],
+  ["Import", "/dashboard/import"],
+  ["Website", "/dashboard/website"],
+  ["Analytics", "/dashboard/analytics"],
+  ["Restaurant", "/dashboard/restaurant"],
+] as const;
 
 export function DashboardNav() {
+  const pathname = usePathname();
   return (
-    <nav className="flex flex-wrap gap-4 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-      <Link href="/dashboard" className="hover:text-black dark:hover:text-zinc-50">
-        Home
-      </Link>
-      <Link href="/dashboard/restaurant" className="hover:text-black dark:hover:text-zinc-50">
-        Restaurant
-      </Link>
-      <Link href="/dashboard/menu" className="hover:text-black dark:hover:text-zinc-50">
-        Menu
-      </Link>
-      <Link href="/dashboard/import" className="hover:text-black dark:hover:text-zinc-50">
-        Import
-      </Link>
-      <Link href="/dashboard/website" className="hover:text-black dark:hover:text-zinc-50">
-        Website
-      </Link>
-      <Link href="/dashboard/orders" className="hover:text-black dark:hover:text-zinc-50">
-        Orders
-      </Link>
-      <Link href="/dashboard/payments" className="hover:text-black dark:hover:text-zinc-50">
-        Payments
-      </Link>
-      <Link href="/dashboard/delivery" className="hover:text-black dark:hover:text-zinc-50">
-        Delivery
-      </Link>
-      <Link href="/dashboard/kitchen-capacity" className="hover:text-black dark:hover:text-zinc-50">
-        Kitchen capacity
-      </Link>
-      <Link href="/dashboard/pos" className="hover:text-black dark:hover:text-zinc-50">
-        POS
-      </Link>
-      <Link href="/dashboard/tables" className="hover:text-black dark:hover:text-zinc-50">
-        Tables
-      </Link>
-      <Link href="/dashboard/coupons" className="hover:text-black dark:hover:text-zinc-50">
-        Coupons
-      </Link>
-      <Link href="/dashboard/loyalty" className="hover:text-black dark:hover:text-zinc-50">
-        Loyalty
-      </Link>
-      <Link href="/dashboard/analytics" className="hover:text-black dark:hover:text-zinc-50">
-        Analytics
-      </Link>
-      <Link href="/dashboard/staff" className="hover:text-black dark:hover:text-zinc-50">
-        Staff
-      </Link>
-      <Link href="/dashboard/referrals" className="hover:text-black dark:hover:text-zinc-50">
-        Referrals
-      </Link>
-      <Link href="/dashboard/kitchen" className="hover:text-black dark:hover:text-zinc-50">
-        Kitchen queue
-      </Link>
-      <Link href="/dashboard/driver" className="hover:text-black dark:hover:text-zinc-50">
-        Driver
-      </Link>
-    </nav>
+    <>
+      <nav className="hidden items-center gap-2 overflow-x-auto rounded-2xl border border-[#E7DDCF] bg-white/90 p-2 text-sm font-semibold shadow-sm lg:flex">
+        {DESKTOP_ITEMS.map(([label, href]) => {
+          const active = pathname === href;
+          return (
+            <Link key={href} href={href} className={`whitespace-nowrap rounded-xl px-3 py-2 transition ${active ? "bg-[#171512] text-white" : "text-[#756B5D] hover:bg-[#F7F0E5] hover:text-[#171512]"}`}>
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-[#E7DDCF] bg-white/96 px-1 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl lg:hidden">
+        {MOBILE_ITEMS.map(([label, href, icon]) => {
+          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+          return (
+            <Link key={href} href={href} className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${active ? "text-[#A9681F]" : "text-[#756B5D]"}`}>
+              <span className="flex h-6 items-center justify-center text-lg leading-none" aria-hidden="true">{icon}</span>
+              <span className="truncate">{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+    </>
   );
 }
