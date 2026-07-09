@@ -13,51 +13,52 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const result = await serverFetch<{ job: ImportJob }>(`/api/imports/${id}`);
 
-  if (!result.ok) {
-    notFound();
-  }
+  if (!result.ok) notFound();
 
   const { job } = result.data;
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <DashboardNav />
 
-        <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <h1 className="text-lg font-semibold text-black dark:text-zinc-50">
-            Review import — {job.sourceType}
-          </h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Status: <span className="font-mono">{job.status}</span>
-          </p>
+        <header className="pt-2 lg:pt-0">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">MENU REVIEW</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">Review your imported menu</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#756B5D]">Check names and prices, make quick edits, then approve everything into your menu.</p>
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-bold text-[#756B5D] shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            {job.status.replaceAll("_", " ")}
+          </div>
+        </header>
 
-          {job.status !== "AWAITING_REVIEW" && (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              This import is not awaiting review.
-            </p>
-          )}
+        {job.status !== "AWAITING_REVIEW" && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">This import is not currently awaiting review.</div>
+        )}
 
-          {job.extractedData?.businessProfile && <BusinessProfilePreview profile={job.extractedData.businessProfile} />}
+        {job.extractedData?.businessProfile && <BusinessProfilePreview profile={job.extractedData.businessProfile} />}
 
-          {job.status === "AWAITING_REVIEW" ? (
-            <ReviewEditor job={job} />
-          ) : (
-            job.extractedData?.categories.map((category) => (
-              <div key={category.name} className="flex flex-col gap-1">
-                <h2 className="font-medium text-black dark:text-zinc-50">{category.name}</h2>
-                <ul className="flex flex-col gap-1 pl-4 text-sm text-zinc-700 dark:text-zinc-300">
+        {job.status === "AWAITING_REVIEW" ? (
+          <ReviewEditor job={job} />
+        ) : (
+          <div className="space-y-6">
+            {job.extractedData?.categories.map((category) => (
+              <section key={category.name}>
+                <h2 className="text-xl font-bold">{category.name}</h2>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {category.items.map((item) => (
-                    <li key={item.name}>
-                      {item.name} — ${formatPrice(item.priceCents)}
-                      {item.description && <span className="text-zinc-500"> · {item.description}</span>}
-                    </li>
+                    <article key={item.name} className="rounded-2xl border border-[#E7DDCF] bg-white p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0"><h3 className="font-bold">{item.name}</h3>{item.description && <p className="mt-1 text-sm leading-5 text-[#756B5D]">{item.description}</p>}</div>
+                        <strong className="shrink-0 text-[#9A5F17]">${formatPrice(item.priceCents)}</strong>
+                      </div>
+                    </article>
                   ))}
-                </ul>
-              </div>
-            ))
-          )}
-        </div>
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
