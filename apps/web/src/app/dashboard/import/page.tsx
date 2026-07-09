@@ -23,9 +23,61 @@ function statusTone(status: ImportJob["status"]) {
   return "bg-emerald-50 text-emerald-700";
 }
 
+function ImportProgress({ job }: { job: ImportJob }) {
+  const overall = progressForStatus(job.status);
+  const stages = [
+    ["Upload complete", overall >= 10 ? 100 : 0],
+    ["OCR reading menu", overall >= 25 ? 100 : Math.min(100, overall * 3)],
+    ["Detect categories", overall >= 45 ? 100 : Math.max(0, (overall - 25) * 5)],
+    ["Detect products", overall >= 65 ? 100 : Math.max(0, (overall - 45) * 5)],
+    ["Extract prices", overall >= 78 ? 100 : Math.max(0, (overall - 65) * 7)],
+    ["Generate descriptions", overall >= 88 ? 100 : Math.max(0, (overall - 78) * 10)],
+    ["Build menu structure", overall >= 100 ? 100 : Math.max(0, (overall - 88) * 8)],
+  ] as const;
+
+  return (
+    <section className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">AI IMPORT PROGRESS</p>
+          <h2 className="mt-1 text-2xl font-bold">OrderVora is building your menu</h2>
+        </div>
+        <span className="text-2xl font-bold text-[#B97824]">{overall}%</span>
+      </div>
+
+      <div className="mt-5 h-3 overflow-hidden rounded-full bg-[#EEE5D9]">
+        <div className="h-full rounded-full bg-[#B97824] transition-all" style={{ width: `${overall}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-[#8A7D6C]">Estimated progress based on the current backend job status.</p>
+
+      <div className="mt-6 space-y-5">
+        {stages.map(([label, value]) => (
+          <div key={label}>
+            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-[#2A251F]">{label}</span>
+              <span className="font-bold text-[#9A6A2F]">{Math.round(value)}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[#EEE5D9]">
+              <div className={`h-full rounded-full ${value >= 100 ? "bg-emerald-600" : value > 0 ? "bg-amber-500" : "bg-transparent"}`} style={{ width: `${Math.round(value)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 rounded-2xl bg-[#171512] p-4 text-white">
+        <p className="text-sm font-bold text-[#E1B56F]">Currently working…</p>
+        <p className="mt-1 text-sm leading-6 text-[#E9E0D4]">
+          {job.status === "PENDING" ? "Preparing the source for AI analysis." : job.status === "PROCESSING" ? "Reading menu content, detecting categories, products, and prices." : job.status === "AWAITING_REVIEW" ? "Extraction is complete. Your menu is ready for review." : "Import job finished."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export default async function ImportPage() {
   const result = await serverFetch<{ jobs: ImportJob[] }>("/api/imports");
   const jobs = result.ok ? result.data.jobs : [];
+  const activeJob = jobs.find((job) => job.status === "PENDING" || job.status === "PROCESSING" || job.status === "AWAITING_REVIEW");
 
   return (
     <div className="min-h-screen bg-[#F7F0E5] p-4 text-[#171512] sm:p-6 lg:p-10">
@@ -38,6 +90,7 @@ export default async function ImportPage() {
         </header>
 
         <UploadForm />
+        {activeJob && <ImportProgress job={activeJob} />}
 
         <section className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
           <div className="flex items-center justify-between gap-3">
@@ -70,7 +123,6 @@ export default async function ImportPage() {
                       </div>
                       <span className="w-10 text-right text-xs font-bold text-[#9A6A2F]">{progress}%</span>
                     </div>
-                    {(job.status === "PROCESSING" || job.status === "PENDING") && <p className="mt-2 text-xs text-[#8A7D6C]">Estimated progress based on the current import status.</p>}
                   </li>
                 );
               })}
