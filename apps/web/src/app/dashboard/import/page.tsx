@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DashboardNav } from "@/components/dashboard-nav";
 import type { ImportJob } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
+import { ImportAutoRefresh } from "./import-auto-refresh";
 import { RerunButton } from "./rerun-button";
 import { UploadForm } from "./upload-form";
 
@@ -46,9 +47,9 @@ function ImportProgress({ job }: { job: ImportJob }) {
       </div>
 
       <div className="mt-5 h-3 overflow-hidden rounded-full bg-[#EEE5D9]">
-        <div className="h-full rounded-full bg-[#B97824] transition-all" style={{ width: `${overall}%` }} />
+        <div className="h-full rounded-full bg-[#B97824] transition-all duration-700" style={{ width: `${overall}%` }} />
       </div>
-      <p className="mt-2 text-xs text-[#8A7D6C]">Estimated progress based on the current backend job status.</p>
+      <p className="mt-2 text-xs text-[#8A7D6C]">This page updates automatically while the import is running.</p>
 
       <div className="mt-6 space-y-5">
         {stages.map(([label, value]) => (
@@ -58,7 +59,7 @@ function ImportProgress({ job }: { job: ImportJob }) {
               <span className="font-bold text-[#9A6A2F]">{Math.round(value)}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-[#EEE5D9]">
-              <div className={`h-full rounded-full ${value >= 100 ? "bg-emerald-600" : value > 0 ? "bg-amber-500" : "bg-transparent"}`} style={{ width: `${Math.round(value)}%` }} />
+              <div className={`h-full rounded-full transition-all duration-700 ${value >= 100 ? "bg-emerald-600" : value > 0 ? "bg-amber-500" : "bg-transparent"}`} style={{ width: `${Math.round(value)}%` }} />
             </div>
           </div>
         ))}
@@ -78,12 +79,14 @@ export default async function ImportPage() {
   const result = await serverFetch<{ jobs: ImportJob[] }>("/api/imports");
   const jobs = result.ok ? result.data.jobs : [];
   const activeJob = jobs.find((job) => job.status === "PENDING" || job.status === "PROCESSING" || job.status === "AWAITING_REVIEW");
+  const pollingNeeded = jobs.some((job) => job.status === "PENDING" || job.status === "PROCESSING");
 
   return (
-    <div className="min-h-screen bg-[#F7F0E5] p-4 text-[#171512] sm:p-6 lg:p-10">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
+      <ImportAutoRefresh active={pollingNeeded} />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <DashboardNav />
-        <header>
+        <header className="pt-2 lg:pt-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">AI IMPORT HUB</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Bring your business from anywhere.</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#756B5D]">Upload a menu, paste a link, or connect a supported source. OrderVora turns it into structured menu data ready for review.</p>
@@ -119,7 +122,7 @@ export default async function ImportPage() {
                     </div>
                     <div className="mt-3 flex items-center gap-3">
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#EEE5D9]">
-                        <div className="h-full rounded-full bg-[#B97824]" style={{ width: `${progress}%` }} />
+                        <div className="h-full rounded-full bg-[#B97824] transition-all duration-700" style={{ width: `${progress}%` }} />
                       </div>
                       <span className="w-10 text-right text-xs font-bold text-[#9A6A2F]">{progress}%</span>
                     </div>
