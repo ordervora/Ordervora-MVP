@@ -106,6 +106,15 @@ model Restaurant {
   ownerId     String   @unique
   owner       User     @relation("RestaurantOwner", fields: [ownerId], references: [id])
   name        String
+  // Sprint 18 — Business Setup Wizard. "Business" is the umbrella term
+  // across every business type below (a coffee shop or retail store is
+  // still a "Restaurant" row internally — renaming the table platform-wide
+  // was out of scope; only user-facing copy says "Business").
+  businessType BusinessType @default(OTHER)
+  // Tracks which wizard step the owner should resume at if they close the
+  // tab mid-setup and log back in later (from any device) — DONE means
+  // the wizard has been completed and the owner sees the normal dashboard.
+  setupStep    SetupStep    @default(BUSINESS_TYPE)
   description String?
   address     String?
   // Geocoded restaurant location — required for the Smart Routing
@@ -209,6 +218,29 @@ model MenuItem {
 
   @@index([restaurantId])
   @@index([categoryId])
+}
+
+// Sprint 18 — Business Setup Wizard.
+enum BusinessType {
+  RESTAURANT
+  COFFEE_SHOP
+  DELI
+  VAPE_SHOP
+  CONVENIENCE_STORE
+  BAKERY
+  PIZZA
+  RETAIL
+  OTHER
+}
+
+enum SetupStep {
+  BUSINESS_TYPE
+  BUSINESS_INFO
+  LOCATION
+  PAYMENT_PROVIDER
+  MENU_IMPORT
+  WEBSITE_THEME
+  DONE
 }
 
 enum ImportSourceType {

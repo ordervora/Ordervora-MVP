@@ -2595,7 +2595,61 @@ Requires one new migration in production:
 manual Supabase SQL-editor step as every other schema change this
 session.
 
-**Next in Sprint 18:** Business Setup Wizard, Launch Center, Test Order
+## Sprint 18, Part 2 — Business Setup Wizard
+
+**Replaces the old "No restaurant found" flow (done):** an owner with no
+business (or one who closed the tab mid-setup) is now automatically sent
+to `/setup` — a 7-step wizard — by `dashboard/layout.tsx`, instead of
+ever landing on a dashboard page that assumes a business already exists,
+or having to manually visit `/dashboard/restaurant` from the "More" menu
+to create one.
+
+- **Business Type** (new step): pick from Restaurant, Coffee Shop, Deli,
+  Vape Shop, Convenience Store, Bakery, Pizza, Retail, or Other —
+  `Restaurant.businessType`, a new enum column. Picking a type creates
+  the business record immediately (name defaults to "My Business" until
+  step 2), so the wizard has something to attach progress to from the
+  very first step.
+- **Business Info**: name, phone, description.
+- **Location**: address (skippable).
+- **Payment Provider**: connect Stripe inline (reuses the existing
+  `connectPaymentProvider` endpoint) or skip and connect later from
+  Dashboard → Payments.
+- **Menu Import**: upload a photo/PDF (reuses the existing import
+  pipeline) or skip and add items manually later.
+- **Website Theme**: reuses the existing AI site generator
+  (`createSite` + `startGeneration`) to build a website immediately, or
+  skip for later.
+- **Finish**: hands off to the dashboard — Sprint 18 Part 3 (Launch
+  Center) will replace this destination with a dedicated page.
+
+**Resumable across logins/devices (done):** progress is tracked
+server-side via `Restaurant.setupStep` (`BUSINESS_TYPE` →
+`BUSINESS_INFO` → `LOCATION` → `PAYMENT_PROVIDER` → `MENU_IMPORT` →
+`WEBSITE_THEME` → `DONE`), not client-side storage — closing the tab and
+logging back in on any device resumes exactly where the owner left off.
+Existing restaurants (created before this wizard existed) are
+backfilled to `DONE` in the migration so they're never redirected into
+it.
+
+**New/changed API:** `POST /api/restaurants` now accepts `businessType`
+alone (name optional, defaulting server-side); `PATCH
+/api/restaurants/me` accepts `businessType`/`lat`/`lng`; new `PATCH
+/api/restaurants/me/setup-step` advances the resume point.
+
+Requires one new migration in production:
+`apps/api/prisma/migrations/20260709221300_sprint18_business_setup_wizard/migration.sql`
+— adds `Restaurant.businessType` and `Restaurant.setupStep` (with a
+data-backfill marking every existing restaurant `DONE`) — same manual
+Supabase SQL-editor step as every other schema change this session.
+
+**Explicitly out of scope this part** (per instruction — functionality
+over visual redesign): the wizard reuses the existing warm/mobile-first
+design tokens already shipped elsewhere in the app rather than
+introducing new visual design; it does not yet rename "Restaurant" to
+"Business" anywhere outside its own new screens.
+
+**Next in Sprint 18:** Launch Center, Test Order
 Flow, import-processing UX fix, website-preview UX fix, and a mobile
 responsive pass — the remaining six pieces of the Sprint 18 "Owner
 Experience Foundation" spec.

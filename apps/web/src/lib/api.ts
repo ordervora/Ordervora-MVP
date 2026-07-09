@@ -8,12 +8,36 @@ export interface PublicUser {
   phone: string | null;
 }
 
+export type BusinessType =
+  | "RESTAURANT"
+  | "COFFEE_SHOP"
+  | "DELI"
+  | "VAPE_SHOP"
+  | "CONVENIENCE_STORE"
+  | "BAKERY"
+  | "PIZZA"
+  | "RETAIL"
+  | "OTHER";
+
+export type SetupStep =
+  | "BUSINESS_TYPE"
+  | "BUSINESS_INFO"
+  | "LOCATION"
+  | "PAYMENT_PROVIDER"
+  | "MENU_IMPORT"
+  | "WEBSITE_THEME"
+  | "DONE";
+
 export interface Restaurant {
   id: string;
   ownerId: string;
   name: string;
+  businessType: BusinessType;
+  setupStep: SetupStep;
   description: string | null;
   address: string | null;
+  lat: number | null;
+  lng: number | null;
   phone: string | null;
   isPublished: boolean;
   isSuspended: boolean;
@@ -22,9 +46,12 @@ export interface Restaurant {
 }
 
 export interface RestaurantInput {
-  name: string;
+  name?: string;
+  businessType?: BusinessType;
   description?: string;
   address?: string;
+  lat?: number;
+  lng?: number;
   phone?: string;
   isPublished?: boolean;
   /** The *referrer's* code (from a ?ref= link) — only meaningful on creation. */
@@ -232,6 +259,13 @@ export function updateRestaurant(input: RestaurantInput) {
 
 export function getRestaurant() {
   return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me");
+}
+
+export function setSetupStep(setupStep: SetupStep) {
+  return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me/setup-step", {
+    method: "PATCH",
+    body: JSON.stringify({ setupStep }),
+  });
 }
 
 export function listReferrals() {

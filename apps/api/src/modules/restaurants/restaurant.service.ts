@@ -54,7 +54,7 @@ export async function createRestaurant(ownerId: string, input: CreateRestaurantI
   // this restaurant's own — an unknown/invalid code is silently ignored
   // rather than blocking signup, the same "don't let a bad referral
   // break the primary action" convention used for coupons elsewhere.
-  const { referralCode: referrerCode, ...rest } = input;
+  const { referralCode: referrerCode, name, ...rest } = input;
   const referrer = referrerCode
     ? await prisma.restaurant.findUnique({ where: { referralCode: referrerCode }, select: { id: true } })
     : null;
@@ -62,12 +62,27 @@ export async function createRestaurant(ownerId: string, input: CreateRestaurantI
   return prisma.$transaction(async (tx) => {
     const restaurant = await createWithUniqueReferralCode(tx, {
       ownerId,
+      // Sprint 18 Business Setup Wizard step 1 only collects businessType —
+      // the owner names their business in step 2 (Business Info).
+      name: name ?? "My Business",
       ...rest,
+      // Choosing a business type (or the wizard creating this row at all)
+      // completes step 1; the owner resumes at step 2 next.
+      setupStep: "BUSINESS_INFO",
       referredById: referrer?.id,
     });
     await tx.user.update({ where: { id: ownerId }, data: { restaurantId: restaurant.id } });
     return restaurant;
   });
+}
+
+/**
+ * Advances (or rewinds) which wizard step the owner should resume at —
+ * the single source of truth for "where was I" across logins/devices.
+ */
+export async function setSetupStep(userId: string, setupStep: Restaurant["setupStep"]): Promise<Restaurant> {
+  const restaurant = await getOwnRestaurant(userId);
+  return prisma.restaurant.update({ where: { id: restaurant.id }, data: { setupStep } });
 }
 
 export async function listReferrals(restaurantId: string): Promise<Pick<Restaurant, "id" | "name" | "isPublished" | "createdAt">[]> {
