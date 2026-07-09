@@ -13,6 +13,7 @@ const MOBILE_ITEMS = [
 
 const DESKTOP_ITEMS = [
   ["Overview", "/dashboard"],
+  ["Launch", "/dashboard/launch"],
   ["Orders", "/dashboard/orders"],
   ["Menu", "/dashboard/menu"],
   ["Import", "/dashboard/import"],

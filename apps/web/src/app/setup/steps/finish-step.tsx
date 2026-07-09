@@ -4,15 +4,14 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * The wizard's DONE state. Sprint 18 Part 3 (Launch Center) will replace
- * this destination with a dedicated /dashboard/launch page; until then,
- * finishing setup goes straight to the normal dashboard.
+ * The wizard's DONE state — hands off to the Launch Center, which shows
+ * the owner their live ordering link, QR code, and next steps.
  */
 export function FinishStep() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard");
+    router.replace("/dashboard/launch");
   }, [router]);
 
   return (

@@ -2620,8 +2620,8 @@ to create one.
 - **Website Theme**: reuses the existing AI site generator
   (`createSite` + `startGeneration`) to build a website immediately, or
   skip for later.
-- **Finish**: hands off to the dashboard — Sprint 18 Part 3 (Launch
-  Center) will replace this destination with a dedicated page.
+- **Finish**: hands off to the new Launch Center (`/dashboard/launch`,
+  Sprint 18 Part 3) instead of the plain dashboard.
 
 **Resumable across logins/devices (done):** progress is tracked
 server-side via `Restaurant.setupStep` (`BUSINESS_TYPE` →
@@ -2653,3 +2653,33 @@ introducing new visual design; it does not yet rename "Restaurant" to
 Flow, import-processing UX fix, website-preview UX fix, and a mobile
 responsive pass — the remaining six pieces of the Sprint 18 "Owner
 Experience Foundation" spec.
+
+## Sprint 18, Part 3 — Launch Center
+
+A new `/dashboard/launch` page is now the landing point right after setup
+finishes, replacing the plain dashboard as the wizard's `DONE` handoff.
+It gives a newly-onboarded owner everything needed to actually go live
+in one place:
+
+- A scannable QR code (`qrcode.react`) encoding the real customer
+  ordering link (`/order/{restaurantId}` — the functional storefront,
+  not the placeholder AI-generated "Site" module).
+- Copy/open rows for the customer ordering link, kitchen display (KDS),
+  and dashboard, so an owner can hand off the right link to the right
+  person (front counter, kitchen, themselves) without hunting for it.
+- A "Test order flow" action that opens the real ordering link in a new
+  tab so an owner can place a trial order before advertising it —
+  linking directly to `/order/{restaurantId}` today; a dedicated guided
+  test-order experience is deferred to Sprint 18 Part 4.
+- A "Go to dashboard" fallback for owners who just want to skip ahead.
+
+Added a "Launch" entry to the desktop dashboard nav pointing at the new
+page. No schema or API changes — this part is presentation-only, built
+entirely on data the Business Setup Wizard (Part 2) already collects.
+
+**Explicitly out of scope this part:** the guided Test Order Flow itself
+(Sprint 18 Part 4), any visual redesign beyond the existing warm
+mobile-first design tokens.
+
+**Next in Sprint 18:** Test Order Flow, import-processing UX fix,
+website-preview UX fix, and a mobile responsive pass.
