@@ -23,7 +23,9 @@ import { createStaffSchema, loginSchema, registerSchema, setStaffActiveSchema } 
 
 function issueAndSetCookies(res: Response, user: Parameters<typeof issueTokenPair>[0]) {
   return issueTokenPair(user).then((tokens) => {
-    setAccessTokenCookie(res, tokens.accessToken);
+    // Persist the access cookie until the refresh token expires so mobile Safari
+    // does not drop the session when the browser is closed and reopened.
+    setAccessTokenCookie(res, tokens.accessToken, tokens.refreshExpiresAt);
     setRefreshTokenCookie(res, tokens.refreshToken, tokens.refreshExpiresAt);
   });
 }
@@ -81,7 +83,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
   try {
     const { tokens } = await rotateRefreshToken(presentedToken);
-    setAccessTokenCookie(res, tokens.accessToken);
+    setAccessTokenCookie(res, tokens.accessToken, tokens.refreshExpiresAt);
     setRefreshTokenCookie(res, tokens.refreshToken, tokens.refreshExpiresAt);
     res.status(200).json({ ok: true });
   } catch (err) {
