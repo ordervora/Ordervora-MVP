@@ -9,6 +9,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,7 +18,7 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, { keepSignedIn });
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
@@ -25,6 +26,10 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function showComingSoon(provider: "Google" | "Apple") {
+    setError(`${provider} sign in is being prepared. Use email and password for now.`);
   }
 
   return (
@@ -40,8 +45,25 @@ export default function LoginPage() {
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Run your business from one calm place.</h1>
           <p className="mt-3 text-sm leading-6 text-[#756B5D]">Sign in to manage orders, menu, website, AI tools, customers, and operations.</p>
 
-          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
-            {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          <div className="mt-7 grid gap-3">
+            <button type="button" onClick={() => showComingSoon("Apple")} className="flex min-h-13 w-full items-center justify-center gap-3 rounded-2xl border border-[#E7DDCF] bg-[#171512] px-4 text-sm font-bold text-white shadow-sm">
+              <span className="text-lg" aria-hidden="true"></span>
+              Continue with Apple
+            </button>
+            <button type="button" onClick={() => showComingSoon("Google")} className="flex min-h-13 w-full items-center justify-center gap-3 rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] px-4 text-sm font-bold text-[#171512] shadow-sm">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm font-black text-[#B97824] shadow-sm" aria-hidden="true">G</span>
+              Continue with Google
+            </button>
+          </div>
+
+          <div className="my-6 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.16em] text-[#A3988A]">
+            <span className="h-px flex-1 bg-[#E7DDCF]" />
+            OR
+            <span className="h-px flex-1 bg-[#E7DDCF]" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p>}
 
             <label className="block text-sm font-semibold text-[#2A251F]">
               Email
@@ -68,6 +90,14 @@ export default function LoginPage() {
               />
             </label>
 
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <label className="flex items-center gap-2 font-semibold text-[#756B5D]">
+                <input type="checkbox" checked={keepSignedIn} onChange={(e) => setKeepSignedIn(e.target.checked)} className="h-4 w-4 accent-[#B97824]" />
+                Keep me signed in
+              </label>
+              <Link href="/forgot-password" className="font-bold text-[#A9681F]">Forgot?</Link>
+            </div>
+
             <button
               type="submit"
               disabled={submitting}
@@ -78,7 +108,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-sm text-[#756B5D]">
-            No account? <Link href="/register" className="font-bold text-[#A9681F]">Create your restaurant account</Link>
+            No account? <Link href="/register" className="font-bold text-[#A9681F]">Create your business account</Link>
           </p>
         </section>
       </div>
