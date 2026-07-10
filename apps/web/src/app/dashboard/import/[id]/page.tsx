@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { ImportJob } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { BusinessProfilePreview } from "./business-profile-preview";
@@ -25,10 +25,7 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
   const { job } = result.data;
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <DashboardNav />
-
+    <PageShell maxWidth="5xl">
         <header className="pt-2 lg:pt-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">MENU REVIEW</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Review your imported menu</h1>
@@ -66,7 +63,6 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
             ))}
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

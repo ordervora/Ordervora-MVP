@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import {
   connectPaymentProvider,
   disconnectPaymentProvider,
@@ -72,9 +72,7 @@ export default function PaymentsPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="2xl">
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Payment providers</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Connect one or more of your own payment provider accounts (BYOP). Orders automatically fail over to the
@@ -150,7 +148,6 @@ export default function PaymentsPage() {
             );
           })}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

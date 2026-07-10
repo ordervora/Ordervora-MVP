@@ -49,6 +49,7 @@ const mockSendEmailVerificationEmail = vi.mocked(sendEmailVerificationEmail);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSendEmailVerificationEmail.mockResolvedValue({ success: true });
   process.env.DATABASE_URL = "postgres://test";
   process.env.FRONTEND_URL = "https://test.example.com";
   process.env.JWT_ACCESS_SECRET = "test-secret-value-not-real";
@@ -227,12 +228,22 @@ describe("sendEmailVerification", () => {
   it("stores a token and emails a verify link when unverified", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", email: "a@b.com", emailVerified: false } as never);
 
-    await sendEmailVerification("u1");
+    const result = await sendEmailVerification("u1");
 
     expect(mockPrisma.emailVerificationToken.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ userId: "u1" }) }),
     );
     expect(mockSendEmailVerificationEmail).toHaveBeenCalledWith("a@b.com", expect.stringContaining("/verify-email?token="));
+    expect(result).toEqual({ sent: true, errorMessage: undefined });
+  });
+
+  it("reports sent: false with the underlying error when the email actually fails to send (e.g. SMTP misconfigured)", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", email: "a@b.com", emailVerified: false } as never);
+    mockSendEmailVerificationEmail.mockResolvedValue({ success: false, errorMessage: "SMTP connection refused" });
+
+    const result = await sendEmailVerification("u1");
+
+    expect(result).toEqual({ sent: false, errorMessage: "SMTP connection refused" });
   });
 });
 

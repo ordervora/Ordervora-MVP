@@ -251,11 +251,23 @@ export async function changePassword(userId: string, input: ChangePasswordInput)
   await revokeAllRefreshTokensForUser(userId);
 }
 
-/** Issues a fresh single-use email-verification token and emails the link. Never blocks login (Sprint 18 — emailVerified only gates a UI prompt). */
-export async function sendEmailVerification(userId: string): Promise<void> {
+export interface SendEmailVerificationResult {
+  sent: boolean;
+  errorMessage?: string;
+}
+
+/**
+ * Issues a fresh single-use email-verification token and emails the link.
+ * Never *throws* — a verification-email failure must never block
+ * registration/login (Sprint 18 — emailVerified only gates a UI prompt) —
+ * but callers that need to know whether the email actually went out (the
+ * explicit "Resend email" action) can check the returned result instead
+ * of assuming success.
+ */
+export async function sendEmailVerification(userId: string): Promise<SendEmailVerificationResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.emailVerified) {
-    return;
+    return { sent: true };
   }
   const token = randomBytes(32).toString("hex");
   const tokenHash = hashToken(token);
@@ -263,7 +275,8 @@ export async function sendEmailVerification(userId: string): Promise<void> {
   await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt } });
 
   const verifyLink = `${getStringEnv("FRONTEND_URL", "")}/verify-email?token=${token}`;
-  await sendEmailVerificationEmail(user.email, verifyLink);
+  const result = await sendEmailVerificationEmail(user.email, verifyLink);
+  return { sent: result.success, errorMessage: result.errorMessage };
 }
 
 export async function verifyEmail(presentedToken: string): Promise<void> {

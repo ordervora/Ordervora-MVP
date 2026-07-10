@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { DashboardDrawer } from "@/components/dashboard-drawer";
 
 const MOBILE_ITEMS = [
   ["Overview", "/dashboard", "⌂"],
@@ -43,6 +44,8 @@ export function DashboardNav() {
 
   return (
     <>
+      <DashboardDrawer />
+
       <nav className="hidden items-center gap-2 overflow-x-auto rounded-2xl border border-[#E7DDCF] bg-white/90 p-2 text-sm font-semibold shadow-sm lg:flex">
         {DESKTOP_ITEMS.map(([label, href]) => {
           const active = pathname === href;

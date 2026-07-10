@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import { completeOrder, listOwnOrders, markOutForDelivery, markReady, startPreparing, type OwnerOrder } from "@/lib/owner-commerce-api";
 import { detectNewOrderIds, formatElapsed, getElapsedSeverity } from "@/lib/kitchen-display";
 
@@ -114,9 +114,7 @@ export default function KitchenQueuePage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-3xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="3xl">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Kitchen queue</h1>
           <div className="flex items-center gap-3">
@@ -165,7 +163,6 @@ export default function KitchenQueuePage() {
           })}
           {orders.length === 0 && <p className="text-sm text-zinc-500">No active orders.</p>}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

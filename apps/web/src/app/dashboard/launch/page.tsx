@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PageShell } from "@/components/ui";
 import { getRestaurant, type Restaurant } from "@/lib/api";
 import { LaunchCenter } from "./launch-center";
 
@@ -25,9 +26,9 @@ export default function LaunchCenterPage() {
 
   if (loading || !restaurant) {
     return (
-      <main className="flex min-h-screen w-full items-center justify-center bg-[#F7F0E5] text-sm text-[#756B5D]">
-        Loading…
-      </main>
+      <PageShell maxWidth="lg">
+        <p className="text-sm text-[#756B5D]">Loading…</p>
+      </PageShell>
     );
   }
 

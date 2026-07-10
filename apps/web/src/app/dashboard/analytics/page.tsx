@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import {
   getRevenueByDay,
   getRevenueSummary,
@@ -55,10 +55,7 @@ export default function AnalyticsPage() {
   const maxDayRevenue = Math.max(1, ...byDay.map((d) => d.revenueCents));
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-4xl flex-col gap-6">
-        <DashboardNav />
-
+    <PageShell maxWidth="4xl">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Analytics</h1>
           <div className="flex gap-2">
@@ -146,7 +143,6 @@ export default function AnalyticsPage() {
             </ol>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

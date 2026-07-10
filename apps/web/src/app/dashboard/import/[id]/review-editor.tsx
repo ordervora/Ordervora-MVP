@@ -201,7 +201,7 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
                 />
                 <h2 className="text-lg font-bold tracking-tight sm:text-xl">{categoryName}</h2>
               </label>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#756B5D] shadow-sm">{categoryItems.length} items</span>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#756B5D] shadow-sm">{`${categoryItems.length} item${categoryItems.length === 1 ? "" : "s"}`}</span>
             </div>
 
             <div className="mt-3 overflow-hidden rounded-2xl border border-[#E7DDCF] bg-white shadow-[0_8px_24px_rgba(48,39,27,0.04)]">

@@ -4,6 +4,7 @@ import confetti from "canvas-confetti";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { DashboardDrawer } from "@/components/dashboard-drawer";
 import { DevicePreview } from "../website/variations/[id]/device-preview";
 import { usePrefersReducedMotion } from "./use-prefers-reduced-motion";
 
@@ -92,6 +93,9 @@ export function FinaleReveal({
 
   return (
     <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-8 overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-8 text-[#171512] sm:px-6 lg:p-10">
+      <div className="w-full">
+        <DashboardDrawer />
+      </div>
       <div className="flex w-full max-w-3xl flex-col items-center gap-2 text-center">
         <button
           type="button"

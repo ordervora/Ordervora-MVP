@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DashboardDrawer } from "@/components/dashboard-drawer";
 import {
   BUILD_STEPS,
   overallProgressPercent,
@@ -69,6 +70,7 @@ export function LiveBuildScreen({
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:px-10 lg:py-8">
+      <DashboardDrawer />
       <div className="mx-auto w-full max-w-5xl">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">

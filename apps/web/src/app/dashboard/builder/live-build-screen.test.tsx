@@ -1,6 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/dashboard/builder",
+}));
+
 import { LiveBuildScreen } from "./live-build-screen";
 
 describe("LiveBuildScreen", () => {

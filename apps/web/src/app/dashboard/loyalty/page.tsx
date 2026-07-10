@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import { getLoyaltyProgram, updateLoyaltyProgram, type LoyaltyProgram } from "@/lib/owner-commerce-api";
 
 export default function LoyaltyPage() {
@@ -51,16 +51,19 @@ export default function LoyaltyPage() {
   }
 
   if (!program) {
-    return <p className="p-8 text-sm text-zinc-600 dark:text-zinc-400">{error ?? "Loading…"}</p>;
+    return (
+      <PageShell maxWidth="xl">
+        <p className="text-sm text-[#756B5D]">{error ?? "Loading…"}</p>
+      </PageShell>
+    );
   }
 
   const exampleDollars = 20;
   const examplePoints = exampleDollars * program.pointsPerDollarCents;
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <form onSubmit={handleSave} className="flex w-full max-w-xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="xl">
+      <form onSubmit={handleSave} className="flex w-full flex-col gap-6">
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Loyalty program</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Reward customers with points on completed orders, redeemable for a discount on a future order.
@@ -112,6 +115,6 @@ export default function LoyaltyPage() {
           {saving ? "Saving…" : "Save"}
         </button>
       </form>
-    </div>
+    </PageShell>
   );
 }

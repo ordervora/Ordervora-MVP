@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { GenerationJob, SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { GenerationProgress } from "./generation-progress";
@@ -24,9 +24,7 @@ export default async function VariationsPage() {
   const bestScore = Math.max(0, ...variations.map((v) => v.scores?.[0]?.overall ?? 0));
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="5xl">
         <header className="pt-2 lg:pt-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">WEBSITE VARIATIONS</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Choose your website</h1>
@@ -94,7 +92,6 @@ export default async function VariationsPage() {
         {variations.length === 0 && !job && (
           <p className="rounded-2xl border border-[#E7DDCF] bg-white px-4 py-3 text-sm text-[#756B5D]">No variations yet — generate a website from the Website hub.</p>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

@@ -2953,3 +2953,404 @@ session against the dev server (screenshot delivered separately).
 **Next in Sprint 19:** Menu module, then Kitchen/Ops, Staff/Payments/
 Settings, Marketing/Analytics, and the remaining Website Hub pages —
 delivered as further verified parts.
+
+## Sprint 19 — Scope Change
+
+The broader page-by-page dashboard redesign above (Parts 1-2 shipped;
+Menu/Kitchen/Staff/etc. were next) was paused mid-flight per updated
+direction: finish the product to production quality first, in small,
+individually-approved milestones, rather than a continuous sweep.
+Sprint 19 now proceeds as **Sprint 19A, 19B, …** — each a scoped,
+explicitly-approved unit of work. The Part 1 design system foundation
+and Part 2 Orders module already shipped remain in place and in use.
+
+## Sprint 19A — AI Import Experience
+
+Full redesign of the AI Menu Import experience, approved and delivered
+exactly to spec (see approval decisions below):
+
+- **One unified import hub** — removed the old separated "AI import" /
+  "POS connections" / "delivery platforms" sections entirely. All 13
+  sources (Photo, PDF, Spreadsheet, Website, Google Maps, DoorDash,
+  Uber Eats, Grubhub, Toast, Clover, Square, SpotOn, Revel) now live
+  together in one compact 3-column grid.
+- **Real branded icons** (`source-icons.tsx`) — each source is a
+  colored tile + glyph evoking that brand's actual color and shape
+  language (DoorDash red, Uber Eats green bag, Grubhub red bite mark,
+  Toast orange, Clover green four-leaf, Square black, Google Maps'
+  red/blue pin, SpotOn teal pin, Revel blue), replacing the generic
+  beige placeholder icons. These are original marks, not reproductions
+  of trademarked logo files — no internet access in this environment
+  to source official brand assets.
+- **JSON merged into Spreadsheet** — no separate, unbacked JSON card;
+  the existing Spreadsheet source already covers CSV/Excel/JSON-shaped
+  data via the `xlsx`-based CSV adapter.
+- **Honest "Coming soon" / "Enterprise" labels, never a fake workflow**
+  — DoorDash/Uber Eats/Grubhub have stub backend adapters only
+  (`implemented: false`); Toast/Clover/Square are a separate, existing
+  POS-sync feature (`/dashboard/pos`), not import sources; SpotOn/Revel
+  don't exist in the backend at all. Tapping any of these shows an
+  inline note and does nothing else — no backend changes were made in
+  this milestone, per explicit instruction.
+- **No "Start Import" button** — selecting a file or submitting a URL
+  (Enter key, or the inline arrow button) starts the import
+  immediately.
+- **The upload card transforms in place** through picking → live AI
+  progress → completion — no separate progress section, no scrolling
+  required to find it. Live progress shows a real stage name (Uploading
+  / OCR Reading / AI Understanding / Building Categories / Building
+  Products / Generating Descriptions / Saving Database / Completed), a
+  percentage, an 8-dot stage stepper, and an "About Xs left" estimate —
+  all driven by a smooth interval-animated percentage that climbs
+  toward a ceiling set by the job's real status (PENDING/PROCESSING/
+  AWAITING_REVIEW), an honest "still working, getting closer" indicator
+  rather than a fake precise countdown (same accepted tradeoff pattern
+  as Sprint 18 Part 5, since the backend has no finer-grained stage
+  data than those three values).
+- **Completion state** — "✅ Menu Ready", product/category counts, and
+  a prominent Review Menu action, auto-navigating to the review page
+  after a short pause.
+- **Import History is strictly historical** — the job currently live in
+  the hub card is excluded from the history list below it; history
+  never duplicates or becomes the primary workflow.
+- **Bug found and fixed during live mobile verification**: a job that
+  failed before ever appearing in a server poll as active would leave
+  the card stuck showing fake "still processing" progress forever,
+  since `displayJob = activeJob ?? localJob` couldn't distinguish
+  "hasn't polled yet" from "polled and it's genuinely gone." Fixed with
+  a 7-second grace period (past the 6s poll interval) after which the
+  optimistic local job state is dropped if the server hasn't confirmed
+  it — verified against a real failing import in a live browser
+  session, with a regression test added.
+
+**Verified:** typecheck, lint, full test suite (103 passed — the
+previously-known pre-existing `live-build-screen.test.tsx` failures
+were independently fixed elsewhere on this branch and are now green
+too), full production build, and multiple live mobile-viewport
+(390×844) browser sessions covering the picker grid, coming-soon
+handling, URL/file auto-start, live progress, and the failure-fallback
+fix. 10 new tests in `import-hub.test.tsx`.
+
+**Explicitly out of scope this milestone** (per instruction): no
+backend changes, no new import adapters or POS integrations — the 8
+platforms without real backend support remain "Coming soon"/
+"Enterprise" until a future milestone adds real integration work.
+
+## Sprint 19A — UX Validation Pass
+
+A full manual review of the entire Import experience (first tap through
+final Review Menu) against a 20-point production-quality checklist,
+covering code review, live mobile-viewport (390×844) browser sessions,
+and edge-case testing (simulated upload failures, network interruptions,
+rapid double-submission, browser Back navigation). Found and fixed four
+real bugs; everything else on the checklist passed as-is.
+
+**Bugs found and fixed:**
+
+- **Layout shift on every transition.** The picker card (~730px on a
+  731px-tall grid of 13 sources) collapsed to the progress card (~150px)
+  instantly — measured live: a 580px snap with zero animation, the
+  single worst offender against "premium." Added `AnimatedHeightSwap`,
+  a small wrapper that measures content height via `ResizeObserver` and
+  animates the container's height across all three states (picker →
+  progress → completion) instead of an abrupt jump. Verified live: the
+  580px collapse now animates smoothly over ~380ms instead of snapping
+  instantly.
+- **Forced-redirect loop.** Landing on `/dashboard/import` with an
+  already-`AWAITING_REVIEW` job (e.g. the owner pressed Back after
+  reviewing, without approving or rejecting yet) force-navigated them
+  straight back to the review page ~2.2s later — confirmed live via a
+  simulated completed job, reproduced on the first fresh page load every
+  time. The auto-redirect now only fires on a genuine
+  PENDING/PROCESSING → AWAITING_REVIEW transition witnessed while the
+  component is mounted (tracked via a previous-status ref), not merely
+  "the active job happens to already be complete when this page loads."
+  Verified live: landing on an already-complete job now stays put; a
+  live completion still auto-redirects as designed.
+- **Silent partial failures in multi-photo batches.** Forcing 2 of 4
+  photo uploads to fail (via request interception) showed zero
+  in-the-moment feedback — the card just moved on to showing progress
+  for whichever photo succeeded first, with the failures visible only
+  by scrolling into Import History and noticing them. Restored a
+  batch-result summary (dropped during the original rewrite), now shown
+  inline on the progress card: "N photos started importing — M failed
+  to upload and won't appear below."
+- **No re-entrancy guard on submit.** `submitUrl`/`submitFiles` had no
+  guard against being invoked again while already in flight — a
+  real risk since the URL field's Enter-key handler had no debounce.
+  Added an `uploading` guard to both.
+
+**Also found and fixed while verifying the above live** (not on the
+original checklist, but real): three JSX text templates
+(`{count} label{count === 1 ? "" : "s"} more text`) rendered with a
+missing space in the actual Chromium/Turbopack production build —
+`"1failed"` instead of `"1 failed"` — despite passing in jsdom/vitest,
+which uses a different JSX transform than Next's Turbopack dev/build
+pipeline. Converted all three (plus one more of the same shape in
+`review-editor.tsx`'s per-category item count, which also lacked
+singular/plural handling entirely — "1 items" — found reviewing the
+full flow through to Review Menu as instructed) to explicit template
+literals, which are unambiguous regardless of JSX whitespace handling.
+Verified via real DOM `textContent` reads in the live browser, not just
+visual screenshot inspection, since this class of bug is easy to
+eyeball past.
+
+**Checklist items verified without changes needed:** no horizontal
+overflow at 390px or 375px (iPhone SE) widths; safe-area-inset CSS
+correct in `DashboardNav` (already covered by Sprint 18, unaffected
+here — real device notch behavior can't be simulated in Chromium
+automation, so this is a code-level check, not a rendered one); brand
+icon colors match each platform's real identity; spacing/typography
+consistent throughout; Import History correctly excludes the active
+job at every step, including through the redirect-loop fix; invalid
+files and network interruptions surface through the existing generic
+error path (already exercised live via real DNS/HTTP failures during
+Sprint 19A's original build).
+
+**Environment note:** `api.openai.com` is blocked by this sandbox's
+network egress policy, so real AI-processed completions (photo/PDF)
+could not be exercised end-to-end here — verified the completion state
+via a database-simulated `AWAITING_REVIEW` job instead, and the
+underlying AI call path is unchanged from Sprint 18 (already
+production-verified there). Not an application bug.
+
+**Verified:** typecheck, lint, full test suite (107 passed — 5 new
+regression tests for the redirect-loop, re-entrancy, and partial-failure
+fixes), full production build, and repeated live mobile-viewport browser
+sessions re-confirming each fix after implementation.
+
+## Sprint 19B-1 — Premium Header & Navigation
+
+UI-only sprint: replaced the absence of a mobile top nav with a premium
+slide-in-from-left drawer (Apple/Linear/Arc-Browser-inspired), triggered by
+a new ☰ hamburger button. No routing or backend changes; the existing
+bottom tab bar and "More" bottom sheet are untouched.
+
+**What was built:**
+
+- `DashboardDrawer` (`apps/web/src/components/dashboard-drawer.tsx`) — a
+  mobile-only (`lg:hidden`) header row (hamburger + "OrderVora" wordmark)
+  plus a slide-in drawer panel. The drawer stays mounted at all times and
+  is class-toggled (`translate-x-0` / `-translate-x-full`, backdrop
+  `opacity-100` / `opacity-0`) rather than conditionally rendered, so both
+  the open and close transitions animate smoothly (300ms ease-out) instead
+  of only the open direction.
+- Backdrop: `bg-black/40 backdrop-blur-sm`, dismisses the drawer on tap.
+- 9 menu items with `lucide-react` icons (Dashboard, Orders, Menu,
+  Customers, AI, Website, Marketing, Settings, Help). Dashboard, Orders,
+  Menu, AI, Website, and Settings map to existing routes (Settings →
+  `/dashboard/restaurant`, the closest existing settings surface).
+  Customers, Marketing, and Help have no corresponding page yet, so they
+  render as non-navigating rows with a "Soon" badge rather than linking
+  to a 404.
+- Active-page highlighting reuses the same `pathname === href ||
+  startsWith(href)` logic already used by `DashboardNav`'s desktop and
+  bottom-tab links.
+- `pt-[max(20px,env(safe-area-inset-top))]` on the drawer panel for iPhone
+  notch clearance.
+- Wired into `DashboardNav` (automatic coverage across every page that
+  renders it — ~25 owner dashboard routes) and separately into
+  `dashboard-overview.tsx`, which has its own hand-rolled header/nav
+  instead of using `DashboardNav`.
+
+**Bug found and fixed during implementation:** the new drawer's "Close
+menu" buttons (backdrop + explicit X) collided with the existing "More"
+bottom-sheet's "Close menu" button on accessible name, breaking an
+existing `dashboard-nav.test.tsx` test once both were mounted together.
+Renamed the drawer's close controls to "Close navigation menu" to keep
+both controls independently addressable.
+
+**Verified:** typecheck, lint, full test suite (107 passed), production
+build (all ~40 routes compiled clean), and live Playwright sessions at
+390×844 and 375×812 covering: drawer open/close animation, backdrop tap
+outside the panel, zero horizontal overflow before/after opening the
+drawer, active-page highlighting on both a `DashboardNav` page (Orders)
+and `dashboard-overview.tsx`, "Soon" items not navigating, and the
+existing bottom tab bar still present and unaffected. No console or page
+errors in any run.
+
+Stopping here per instruction — no further Sprint 19B parts started.
+
+## Sprint 19B-2 — Unified Mobile Layout Foundation
+
+UI-only sprint: unified the container/padding/background foundation
+across the owner dashboard and the surrounding auth screens. No new
+features, no backend changes, no visual-language redesign — every page's
+inner content (cards, forms, colors) is untouched; only the outer shell
+each page sits in was consolidated onto the shared `PageShell` component.
+
+**Audit findings:**
+
+- Only 2 of ~30 dashboard pages (Orders, Orders detail) used the shared
+  `PageShell`. Everything else hand-rolled its own copy of the wrapper.
+- 19 pages (menu, restaurant, profile, staff, analytics, coupons,
+  payments, pos, kitchen, kitchen-capacity, delivery, driver, referrals,
+  tables, loyalty, website + 3 website subpages) were still on a
+  pre-Sprint-19 `bg-zinc-50 ... dark:bg-black` shell — the "legacy
+  dark/zinc UI" CLAUDE.md calls out. In OS dark mode these pages rendered
+  with a black background while every other page stayed warm cream: a
+  real page-to-page jump, not just a stale color choice.
+- 4 pages (website/publish, website/variations, import, import/[id]) had
+  already moved to the cream palette but hand-copied the wrapper markup
+  instead of using `PageShell` — four independent copies free to drift.
+- `dashboard-overview.tsx` didn't use `PageShell`/`DashboardNav` at all;
+  its desktop padding (`lg:px-10 lg:pb-10 lg:pt-9`) was a near-miss of
+  `PageShell`'s `lg:p-10`.
+- `reset-password` and `verify-email` were never migrated off the
+  original Next.js starter template (no cream background, leftover
+  `dark:bg-black` scaffold classes) despite sitting in the same auth
+  journey as the already-correct `login`/`register`/`forgot-password`.
+- `dashboard/page.tsx`'s plain-user error fallback ("Could not load your
+  account") had different padding, no `overflow-x-hidden`, and no nav —
+  a layout jump and a dead end if it ever rendered.
+- The "More" bottom sheet was already pixel-consistent between
+  `DashboardNav` and `dashboard-overview.tsx`'s duplicate — verified, no
+  fix needed.
+
+**What was changed:**
+
+- Added `xl` to `PageShell`'s `maxWidth` map (several legacy pages used
+  `max-w-xl`, which the shared component didn't support yet) — additive,
+  no visual change to existing `PageShell` users.
+- Migrated all 23 pages onto `<PageShell maxWidth="...">`, preserving
+  each page's exact current max-width, deleting duplicated wrapper markup
+  and each page's individual `DashboardNav` import/usage. Three of these
+  (kitchen-capacity, delivery, loyalty) used a `<form>` element as their
+  own inner wrapper; restructured so the form sits inside `PageShell`'s
+  children instead of doubling as the shell, and gave their previously
+  bare, nav-less "Loading…" early-return states a `PageShell` wrapper too
+  (was a second, more severe layout jump on first paint).
+- Aligned `dashboard-overview.tsx`'s desktop padding to `lg:p-10`,
+  matching `PageShell` exactly. Its intentional desktop two-column
+  sidebar layout — a genuine structural difference from other pages, not
+  a foundation bug — was left as-is.
+- Rebuilt `reset-password` and `verify-email` on the established
+  `login`/`register`/`forgot-password` shell (branded header, cream
+  card), preserving all existing logic and copy.
+- Wrapped `dashboard/page.tsx`'s plain-user error fallback in `PageShell`
+  so a failed load still has navigation instead of stranding the user.
+
+**Deliberately left untouched** (flagged, not fixed, to respect "no
+redesign" and "no new features"): the AI Builder's full-screen cinematic
+flow, the Launch/test-order wizard, the Setup wizard (uses `max-w-lg` vs.
+the auth pages' `max-w-md` — different content, not a bug), and the
+customer-facing `/account/*` + `/order/*` checkout pages — none of these
+are part of the owner dashboard/onboarding surface this sprint targeted,
+and touching them risked exactly the redesign/feature creep ruled out.
+The bottom-tab item-set difference between `DashboardNav`
+(Overview/Orders/Menu/AI) and `dashboard-overview.tsx`'s own tabs
+(Home/Orders/Menu/Website) is a product/IA decision, not a layout-width
+bug — flagged, not changed.
+
+**Verified:** typecheck, lint, full test suite (111 passed, unchanged),
+production build (all 53 routes compiled clean), and live Playwright
+sessions at 375×812, 390×844, and 430×932 (iPhone Pro Max) across 22
+representative pages spanning every migrated family — zero horizontal
+overflow anywhere, zero console/page errors, and the shared container's
+left edge measured at an identical 16px on every single page checked
+(including `dashboard-overview.tsx`), confirming one shared horizontal
+padding system end to end.
+
+## Sprint 19B-3 — Production Readiness
+
+Full production-readiness pass: closed the last drawer-coverage gaps,
+found and fixed a real silent-failure bug in the email verification
+flow, and re-verified every primary action and dashboard/onboarding
+screen live. No new features, no backend architecture changes, no
+redesign.
+
+**1. Drawer coverage — 4 pages were still missing it:**
+
+- `builder/page.tsx` (the AI Restaurant Builder's cinematic full-screen
+  flow — loading, bootstrap-failed, live-build, and finale-reveal
+  phases) had no nav at all, by original design ("distraction-free").
+  Given every dashboard page must now have it, added `DashboardDrawer`
+  to all five phases without touching any of the existing
+  confetti/chime/rotating-caption cinematic behavior — verified live
+  that the hamburger is present and clickable through the confetti
+  overlay on the finale screen.
+- `dashboard/launch/page.tsx` and `launch/test-order/page.tsx`
+  (`LaunchCenter`/`TestOrderFlow`) had their own bespoke "OrderVora"
+  header with no hamburger/drawer and no bottom tab bar — a real
+  navigation dead end reachable only by browser Back. Migrated both onto
+  `PageShell`, moving their existing "Business Ready" badge and "Back"
+  link inline into the card header rather than dropping them.
+- `website/variations/[id]/page.tsx` had `DashboardNav` (so the drawer
+  technically worked) but was still hand-rolling the container markup
+  missed in Sprint 19B-2's audit — migrated onto `PageShell` for
+  consistency.
+- Also fixed three more bare, nav-less "Loading…" early-return states
+  (`launch/page.tsx`, `launch/test-order/page.tsx`, plus the two
+  `bg-zinc-50`/`dark:bg-black` loading/error states inside
+  `builder-experience.tsx`, recolored to the cream palette) — the same
+  jump-inducing gap class of bug fixed for other pages in 19B-2.
+- Confirmed via a scripted check across every `page.tsx` under
+  `/dashboard` that all now reference `PageShell`/`DashboardDrawer`/
+  `DashboardNav`, directly or through a component they render.
+
+**2. Email Verification / Resend Email — root cause found and fixed:**
+
+The resend flow was not a UI bug — it was a completely silent backend
+failure. `sendNotification()` (the shared notification dispatcher) never
+threw and never returned its result; it wrote a `NotificationLog` row
+and returned `void`. `resendVerificationHandler` always responded
+`{ ok: true }` regardless of whether the email actually sent, and the
+frontend's `VerifyEmailBanner` always showed "Verification email sent —
+check your inbox." — even when the SMTP send failed outright. Nothing
+surfaced the failure anywhere: no error to the user, no server log, only
+a `FAILED` row in a database table nobody was watching.
+
+Reproduced live end-to-end in this environment (this sandbox's
+`SMTP_HOST` is the placeholder `smtp.example.com`, which is expected for
+local dev but happens to reproduce the exact failure class this bug
+hides): before the fix, clicking "Resend email" against a dead SMTP host
+returned HTTP 200 and showed the false success message. After the fix,
+it correctly returns HTTP 502 with `Could not send the verification
+email. Please try again in a few minutes.`, and the server log now shows
+the real underlying error (`getaddrinfo ENOTFOUND smtp.example.com`).
+
+Fix, threaded end to end:
+- `sendNotification()` now returns the real `SendNotificationResult`
+  (`{success, errorMessage}`) instead of `void`, and logs a `warn` on
+  failure — existing fire-and-forget callers (order confirmations, etc.)
+  are unaffected since they already ignored the return value.
+- `sendEmailVerificationEmail`/`sendOwnerPasswordResetEmail`/
+  `sendPasswordResetEmail` forward that result instead of swallowing it.
+- `sendEmailVerification()` (auth service) now returns
+  `{ sent: boolean; errorMessage?: string }`; `register()` still ignores
+  it (a failed welcome email must never block account creation — the
+  banner is the recovery path), but `resendVerificationHandler` checks
+  it and returns a real 502 with a real message when the send fails.
+- `VerifyEmailBanner` now catches that error and displays it (with a
+  "Try again" retry button) instead of the try/finally previously
+  discarding it as an unhandled rejection.
+- Deliberately left `requestPasswordReset`/`forgotPassword` untouched:
+  it's intentionally enumeration-safe (always resolves identically
+  whether or not the email exists, per its own doc comment), and
+  surfacing SMTP failures there would open a timing/response oracle for
+  distinguishing valid from invalid emails during an SMTP outage — a
+  real security regression this sprint's "no production regressions"
+  requirement rules out. That flow's silence is by design, not a bug.
+
+**Note on scope:** this fixes the code-level bug — the flow now tells
+the truth about whether an email went out, in every environment. Verifying
+the *actual* production `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD` values
+requires access to the real deployment's environment configuration, which
+this sandbox does not have. If production email still doesn't arrive
+after this deploys, the fix guarantees it will now fail loudly (server
+log + 502 + a real on-screen error) instead of silently — that's the
+signal to check the production SMTP credentials next.
+
+**3–5. Full review pass:** live Playwright sweep across 21 dashboard
+pages at iPhone SE (375×667), iPhone 14/15 (390×844), and iPhone Pro Max
+(430×932) — zero horizontal overflow, zero missing hamburger buttons,
+zero console/page errors on any page at any width. Verified every listed
+primary action live: Login, Navigation Drawer (open + navigate), Logout,
+Forgot Password, and Verify Email/Resend (above) all work correctly
+end-to-end. Re-confirmed Import Hub, Launch Center, and Test Order Flow
+render correctly with no regressions from today's changes.
+
+**Verified:** typecheck, lint, full test suite (both apps — 113 web
+tests incl. 3 new, 1073 API tests incl. 2 new, all passing), production
+build (both apps, all routes clean), and the live verification described
+above.
