@@ -31,6 +31,13 @@ RUN pnpm fetch
 # stage's node_modules is NOT what ships in the runtime image — see the
 # prod-deps stage below for why.
 FROM fetch AS build
+# prisma.config.ts resolves DATABASE_URL while the Prisma CLI loads the
+# config, even for `prisma generate` (which does not connect to the DB).
+# Render runtime env vars are not available inside Docker build stages, so
+# provide a non-secret syntactically valid placeholder only for generation.
+# The real DATABASE_URL is still required at runtime and is supplied by
+# Render's environment configuration.
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY apps/api ./apps/api
 RUN pnpm install --frozen-lockfile --filter api...
@@ -53,6 +60,9 @@ RUN pnpm --filter api run build
 # `prisma migrate deploy` are available wherever only production
 # dependencies are installed.
 FROM fetch AS prod-deps
+# Same build-only placeholder as the build stage above. It is not copied as
+# an ENV setting into the runtime stage.
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 COPY pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/api/prisma ./apps/api/prisma
