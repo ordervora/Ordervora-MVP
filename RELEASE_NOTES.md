@@ -2798,40 +2798,82 @@ routed through.
 
 **Next in Sprint 18:** final mobile UX review.
 
-## Sprint 18, Part 7 — Mobile UX Pass (Orders page)
+## Sprint 18, Part 7 — Final Mobile UX Review
 
-A targeted mobile-responsiveness pass across owner screens, per instruction
-scoped to polish only — no visual redesign, no re-theming of pages still on
-the older dark/zinc styling.
+A sweep for the "improve navigation," "fix spacing," "fix overflow," and
+"improve responsive behavior" goals across the owner dashboard,
+targeting the two concrete, verified-in-browser bugs below rather than
+a full page-by-page redesign (out of scope — see Part 6's note on
+`/dashboard/website/*` vs `/dashboard/builder/*`):
 
-Audited every owner screen for the concrete bug classes in scope (horizontal
-overflow, unwrapped tables, missing loading states, cramped touch targets).
-`/dashboard/orders` (`apps/web/src/app/dashboard/orders/page.tsx`) was the one
-screen with real bugs:
+- **Fixed: five owner sections were completely unreachable on mobile.**
+  The mobile bottom tab bar's "More" tab was a plain link straight to
+  `/dashboard/restaurant`, which has no links onward — so Launch,
+  Import, Website (from most pages), Analytics, and Profile had no
+  mobile navigation path at all. `DashboardNav` (used by 25+ pages) and
+  the Overview page's separate, hand-rolled mobile nav (`dashboard-overview.tsx`,
+  which duplicates `DashboardNav`'s bottom bar with different tabs and
+  the same dead "More" link — a pre-existing duplication, not introduced
+  here) both now open a real sheet listing the missing sections when
+  "More" is tapped. Verified end-to-end in a real mobile-viewport
+  browser session (login → dashboard → open More → navigate).
+  `DashboardNav` gets its first test file (`dashboard-nav.test.tsx`,
+  4 tests) covering open/close/navigate; `dashboard-overview.tsx` has no
+  test file (pre-existing) and none was added — it's a single dense,
+  minified-style component that doesn't match this codebase's test
+  patterns for straightforward extraction.
+- **Fixed: content hidden behind the fixed mobile nav bar, and hidden
+  horizontal overflow.** 20 dashboard pages shared one identical shell
+  className with no bottom padding reserved for the fixed mobile tab bar
+  (content's last ~60px was tucked underneath it) and no
+  `overflow-x-hidden` guard. Mechanically corrected to the same
+  `pb-28`/`overflow-x-hidden` shell already used by every Sprint 18 page
+  (`import`, `launch`, `setup`, `builder/*`) — a structural fix only,
+  not a retheme (these pages' internal cards/colors are untouched and
+  still on the pre-warm-palette dark/zinc styling; the visual redesign
+  of these pages is separate, larger work).
+- **Fixed: `/dashboard/orders` mobile bugs**, found auditing every owner
+  screen for this class of bug (horizontal overflow, unwrapped tables,
+  missing loading states) after the shell fix above:
+  - The 9-item status-filter row had no wrap or scroll handling — on a
+    narrow viewport `READY`/`OUT_FOR_DELIVERY`/`CANCELLED`/`REFUNDED`
+    were pushed off-screen with no way to reach them (previously masked
+    by the whole *page* scrolling sideways to reveal them — itself a
+    bug, and one the `overflow-x-hidden` shell fix above would have
+    turned into "permanently unreachable" without this). Fixed with an
+    edge-to-edge horizontally-scrollable strip on mobile that becomes a
+    normal wrapping row at `sm:` and up.
+  - The orders `<table>` itself had no scroll wrapper, so its five
+    columns either squeezed illegibly or forced page-level horizontal
+    scroll on a narrow screen. Wrapped in its own `overflow-x-auto` with
+    a `min-w` floor — the same pattern `admin-panel.tsx` already uses.
+  - The list showed "No orders yet." during the initial fetch, not just
+    when a fetch actually returned zero orders — indistinguishable from
+    a real empty state. Added a genuine loading row.
+  
+  Other owner screens were checked for the same bug classes and found
+  already handled correctly — list/grid screens already use
+  `grid-cols-1 sm:grid-cols-N` responsive breakpoints, and no other
+  audited page had a multi-item horizontal row without wrap or scroll of
+  its own.
+- **Fixed:** `orders/[id]/page.test.tsx` — one of three known-stale
+  frontend tests flagged during environment setup, failing because its
+  `next/navigation` mock didn't include `usePathname` (needed by
+  `DashboardNav`, which the page renders). Directly relevant to this
+  part's navigation work, so fixed here; two-line mock fix, now passing.
 
-- The status-filter row (9 pills) had no wrap or scroll handling — on a
-  narrow viewport the later pills (`READY`, `OUT_FOR_DELIVERY`, `CANCELLED`,
-  `REFUNDED`, …) were pushed off-screen with no way to reach them. Fixed
-  with a horizontally-scrollable strip on mobile that becomes a wrapping
-  row at `sm:` and up.
-- The orders `<table>` had no scroll wrapper, so on a narrow screen it
-  either forced the whole page to scroll sideways or squeezed five columns
-  illegibly. Wrapped in its own `overflow-x-auto` with a `min-w` floor, the
-  established pattern already used by `admin-panel.tsx`.
-- The list showed "No orders yet." during the initial fetch, not just when
-  a fetch actually returned zero orders — indistinguishable from a real
-  empty state. Added a genuine loading row.
-- Added `overflow-x-hidden` on the page's outer container as a backstop
-  against any future overflow inside it forcing page-level horizontal
-  scroll on mobile.
+**Explicitly out of scope:** retheming the 20 structurally-fixed pages'
+internal cards/colors off dark/zinc onto the warm cream/gold system —
+a full visual pass, not a mobile-structure fix, and a much larger unit
+of work than this part's stated goals; `live-build-screen.test.tsx`'s
+3 pre-existing failing tests (a caption-timing assertion issue in the
+AI Builder flow, unrelated to navigation/spacing/overflow — confirmed
+pre-existing by diffing against the branch state before this part).
 
-Other owner screens were checked for the same bug classes (raw `<table>`
-without a scroll wrapper, unwrapped wide flex/grid rows, missing loading
-states) and found already handled correctly — most list/grid screens
-already use `grid-cols-1 sm:grid-cols-N` responsive breakpoints, and
-`admin-panel.tsx`'s table already wraps in `overflow-x-auto`.
+## Sprint 18 — Complete
 
-**Explicitly out of scope this part:** re-theming any of the still-dark/zinc
-owner screens to the newer warm cream/gold system — that is a visual
-redesign, not a UX polish pass, and was explicitly excluded from this part's
-instructions.
+All 7 parts of the "Owner Experience Foundation" are now done: owner
+auth foundation, Business Setup Wizard, Launch Center, Test Order Flow,
+Import Processing UX, Website Preview UX, and this mobile UX review.
+See `PROJECT_MEMORY.md` and `ROADMAP.md` for the updated current-state
+summary and what comes after Sprint 18.

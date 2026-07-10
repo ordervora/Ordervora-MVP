@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "order-1" }),
+  usePathname: () => "/dashboard/orders/order-1",
 }));
 
 const mockGetOwnOrder = vi.fn();

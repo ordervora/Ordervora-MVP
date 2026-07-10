@@ -61,7 +61,7 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
+    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <DashboardNav />
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Staff</h1>

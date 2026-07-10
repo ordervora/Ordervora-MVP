@@ -35,7 +35,7 @@ export default function OrdersPage() {
   }, [status]);
 
   return (
-    <div className="flex w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 p-4 sm:p-8 dark:bg-black">
+    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
       <div className="flex w-full max-w-4xl flex-col gap-6">
         <DashboardNav />
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Orders</h1>
@@ -48,7 +48,7 @@ export default function OrdersPage() {
               key={s || "all"}
               type="button"
               onClick={() => setStatus(s)}
-              className={`min-h-9 shrink-0 rounded-full px-3 py-1 text-xs ${
+              className={`min-h-9 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs ${
                 status === s
                   ? "bg-foreground text-background"
                   : "border border-black/[.08] text-zinc-700 dark:border-white/[.145] dark:text-zinc-300"
