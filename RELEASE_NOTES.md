@@ -2877,3 +2877,79 @@ auth foundation, Business Setup Wizard, Launch Center, Test Order Flow,
 Import Processing UX, Website Preview UX, and this mobile UX review.
 See `PROJECT_MEMORY.md` and `ROADMAP.md` for the updated current-state
 summary and what comes after Sprint 18.
+
+# Release Notes — Sprint 19: Premium Mobile Dashboard Redesign
+
+Sprint 19 goal: not a recolor — rebuild spacing, typography, hierarchy,
+cards, navigation, animations, loading states, empty states, and
+interactions across every remaining owner dashboard page still on the
+pre-Sprint-18 dark/zinc styling, mobile-first, on top of a shared,
+reusable component library instead of continuing the one-off-per-page
+approach.
+
+## Sprint 19, Part 1 — Design System Foundation
+
+New `apps/web/src/components/ui/` — a shared component library
+extracted from the warm cream/gold patterns Sprint 18 already proved
+out in `import`/`launch`/`setup`/`builder`, not invented from scratch:
+
+- **`PageShell`** — the standard page wrapper (`DashboardNav` + warm
+  background + `overflow-x-hidden` + `pb-28` mobile-nav clearance),
+  parameterized by max-width instead of every page hand-rolling the
+  same shell string.
+- **`PageHeader`** — eyebrow label + title + description + optional
+  trailing action, the `AI IMPORT HUB` / `BUSINESS OVERVIEW` header
+  pattern generalized.
+- **`Card`** — the white rounded-3xl bordered surface used everywhere,
+  with `default`/`compact`/`none` padding.
+- **`Badge`** — status pill with 5 semantic tones (success/warning/
+  danger/info/neutral) replacing every page's own ad hoc `statusTone()`/
+  `statusClass()` function.
+- **`Button`** — primary/secondary/danger/ghost variants, `md`/`sm`
+  sizes, consistent touch targets and tap feedback.
+- **`EmptyState`** — a real designed empty state (title + description +
+  optional action) instead of a bare "No X yet." string.
+- **`Skeleton`/`SkeletonRows`** — this codebase's first shared loading
+  primitive; previously every screen hand-rolled its own loading text
+  or pulse block.
+- **`FilterPills`** — the scrollable-on-mobile/wrapping-on-desktop
+  status-filter row pattern, generalized from the Orders page fix in
+  Sprint 18 Part 7.
+- **`ResponsiveTable`** — a `<table>` wrapper with its own horizontal
+  scroll and `min-width` floor, so a data table never forces the whole
+  page to scroll sideways.
+
+10 unit tests (`ui.test.tsx`) cover `Button`, `Badge`, `EmptyState`, and
+`FilterPills`'s interactive/branching behavior.
+
+## Sprint 19, Part 2 — Orders Module
+
+First page group rebuilt on the Part 1 foundation, chosen because it's
+the highest-traffic owner screen and already had its mobile structure
+(not visuals) fixed in Sprint 18 Part 7:
+
+- **`/dashboard/orders`**: real card-based list on mobile (tap target
+  per order: number, total, status badge, timestamp) instead of a
+  cramped 5-column table squeezed onto a phone screen; the table is
+  kept for `sm:` and up. Real `Skeleton` loading rows replace the
+  "Loading…" table cell; a real `EmptyState` replaces the bare "No
+  orders yet." text. Status text now renders as color-coded `Badge`s
+  instead of raw uppercase strings.
+- **`/dashboard/orders/[id]`**: status/payment/fulfillment now render
+  as `Badge`s in a summary card with the total prominently displayed;
+  items list, actions, refund, and driver-assignment sections rebuilt
+  on `Card`/`Button`; loading state is now `Skeleton` blocks instead of
+  plain "Loading…" text. All existing driver-assignment behavior and
+  test-covered text (`Order #{n}`, `Driver` heading, `No driver
+  assigned yet.`, `Currently assigned to… status: X`, `Assign driver`/
+  `Reassign driver`) preserved exactly — `orders/[id]/page.test.tsx`'s
+  3 tests still pass unmodified.
+
+Verified: typecheck, lint, full test suite (94 passed, only the 3
+pre-existing unrelated `live-build-screen.test.tsx` failures remain),
+full production build, and a live mobile-viewport (390×844) browser
+session against the dev server (screenshot delivered separately).
+
+**Next in Sprint 19:** Menu module, then Kitchen/Ops, Staff/Payments/
+Settings, Marketing/Analytics, and the remaining Website Hub pages —
+delivered as further verified parts.

@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { Badge, Button, Card, PageHeader, PageShell, Skeleton } from "@/components/ui";
 import {
   assignDriver,
   cancelOrder,
@@ -20,6 +20,13 @@ import {
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
+}
+
+function statusBadgeTone(status: string): "success" | "warning" | "danger" | "info" | "neutral" {
+  if (status === "CANCELLED" || status === "REFUNDED") return "danger";
+  if (status === "COMPLETED" || status === "READY") return "success";
+  if (status === "OUT_FOR_DELIVERY") return "info";
+  return "warning";
 }
 
 const NEXT_ACTIONS: Record<string, { label: string; action: (id: string) => Promise<{ order: OwnerOrderDetail }> }[]> = {
@@ -144,116 +151,111 @@ export default function OrderDetailPage() {
   }
 
   if (!order) {
-    return <p className="p-8 text-sm text-zinc-600 dark:text-zinc-400">{error ?? "Loading…"}</p>;
+    return (
+      <PageShell maxWidth="2xl">
+        {error ? (
+          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-9 w-40" />
+            <Skeleton className="h-28 w-full" />
+            <Skeleton className="h-40 w-full" />
+          </div>
+        )}
+      </PageShell>
+    );
   }
 
   const nextActions = NEXT_ACTIONS[order.status] ?? [];
+  const canCancel = order.status !== "CANCELLED" && order.status !== "COMPLETED" && order.status !== "REFUNDED";
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="2xl">
+      <PageHeader eyebrow="ORDER DETAIL" title={`Order #${order.orderNumber}`} />
+      {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Order #{order.orderNumber}</h1>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <div className="rounded-lg border border-black/[.08] bg-white p-4 text-sm dark:border-white/[.145] dark:bg-zinc-950">
-          <p>Status: {order.status}</p>
-          <p>Payment: {order.paymentStatus}</p>
-          <p>Fulfillment: {order.fulfillmentType}</p>
-          <p>Total: ${formatPrice(order.totalCents)}</p>
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={statusBadgeTone(order.status)}>{order.status.replaceAll("_", " ")}</Badge>
+          <Badge tone={order.paymentStatus === "PAID" ? "success" : "warning"}>{order.paymentStatus}</Badge>
+          <Badge tone="neutral">{order.fulfillmentType.replaceAll("_", " ")}</Badge>
         </div>
+        <p className="mt-4 text-3xl font-bold tracking-tight">${formatPrice(order.totalCents)}</p>
+      </Card>
 
-        <ul className="flex flex-col divide-y divide-black/[.08] rounded-lg border border-black/[.08] bg-white dark:divide-white/[.145] dark:border-white/[.145] dark:bg-zinc-950">
+      <Card padding="none" className="overflow-hidden">
+        <ul className="divide-y divide-[#EEE5D9]">
           {order.items.map((item) => (
-            <li key={item.id} className="flex justify-between p-3 text-sm">
-              <span>
-                {item.quantity}× {item.menuItemNameSnapshot}
+            <li key={item.id} className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
+              <span className="min-w-0">
+                <span className="font-bold text-[#9A6A2F]">{item.quantity}×</span> {item.menuItemNameSnapshot}
               </span>
-              <span>${formatPrice(item.unitPriceCents * item.quantity)}</span>
+              <span className="shrink-0 font-semibold">${formatPrice(item.unitPriceCents * item.quantity)}</span>
             </li>
           ))}
         </ul>
+      </Card>
 
-        <div className="flex flex-wrap gap-2">
-          {nextActions.map((next) => (
-            <button
-              key={next.label}
-              type="button"
-              onClick={() => handleAction(next.action)}
-              className="rounded-full bg-foreground px-4 py-2 text-sm text-background"
-            >
-              {next.label}
-            </button>
-          ))}
-          {order.paymentStatus === "UNPAID" && (
-            <button type="button" onClick={handleMarkPaid} className="rounded-full border border-black/[.08] px-4 py-2 text-sm dark:border-white/[.145]">
-              Mark paid (cash)
-            </button>
-          )}
-          {order.status !== "CANCELLED" && order.status !== "COMPLETED" && order.status !== "REFUNDED" && (
-            <button type="button" onClick={handleCancel} className="rounded-full border border-red-300 px-4 py-2 text-sm text-red-600">
-              Cancel order
-            </button>
-          )}
-        </div>
+      <div className="flex flex-wrap gap-2">
+        {nextActions.map((next) => (
+          <Button key={next.label} onClick={() => handleAction(next.action)}>
+            {next.label}
+          </Button>
+        ))}
+        {order.paymentStatus === "UNPAID" && <Button variant="secondary" onClick={handleMarkPaid}>Mark paid (cash)</Button>}
+        {canCancel && <Button variant="danger" onClick={handleCancel}>Cancel order</Button>}
+      </div>
 
-        {order.payment && (
-          <div className="flex items-end gap-2 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-              Refund amount ($)
+      {order.payment && (
+        <Card>
+          <label className="flex flex-col gap-2 text-sm font-semibold text-[#2A251F]">
+            Refund amount ($)
+            <div className="flex flex-wrap gap-2">
               <input
                 type="number"
                 step="0.01"
                 value={refundAmount}
                 onChange={(e) => setRefundAmount(e.target.value)}
-                className="rounded border border-black/[.08] px-3 py-2 dark:border-white/[.145] dark:bg-black"
+                className="min-h-11 w-32 rounded-xl border border-[#E7DDCF] bg-[#FFFDF9] px-3 text-base font-normal text-[#171512] outline-none focus:border-[#B97824]"
               />
-            </label>
-            <button type="button" onClick={handleRefund} className="rounded-full border border-red-300 px-4 py-2 text-sm text-red-600">
-              Issue refund
-            </button>
-          </div>
-        )}
-
-        {order.fulfillment && order.fulfillment.method === "RESTAURANT_DRIVER" && (
-          <div className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950">
-            <h2 className="text-sm font-semibold text-black dark:text-zinc-50">Driver</h2>
-            {order.fulfillment.driverAssignment ? (
-              <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                Currently assigned to{" "}
-                <strong>{drivers.find((d) => d.id === order.fulfillment!.driverAssignment!.driverId)?.name ?? "a driver"}</strong>{" "}
-                — status: {order.fulfillment.driverAssignment.status}
-              </p>
-            ) : (
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">No driver assigned yet.</p>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedDriverId}
-                onChange={(e) => setSelectedDriverId(e.target.value)}
-                className="rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
-              >
-                <option value="">Select a driver…</option>
-                {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                    {d.activeAssignmentCount > 0 ? ` (busy: ${d.activeAssignmentCount})` : ""}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleAssignDriver}
-                disabled={!selectedDriverId || assigningDriver}
-                className="rounded-full bg-foreground px-4 py-2 text-sm text-background disabled:opacity-50"
-              >
-                {order.fulfillment.driverAssignment ? "Reassign driver" : "Assign driver"}
-              </button>
+              <Button variant="danger" onClick={handleRefund}>Issue refund</Button>
             </div>
+          </label>
+        </Card>
+      )}
+
+      {order.fulfillment && order.fulfillment.method === "RESTAURANT_DRIVER" && (
+        <Card className="flex flex-col gap-3">
+          <h2 className="text-lg font-bold">Driver</h2>
+          {order.fulfillment.driverAssignment ? (
+            <p className="text-sm text-[#756B5D]">
+              Currently assigned to{" "}
+              <strong className="text-[#171512]">{drivers.find((d) => d.id === order.fulfillment!.driverAssignment!.driverId)?.name ?? "a driver"}</strong>{" "}
+              — status: {order.fulfillment.driverAssignment.status}
+            </p>
+          ) : (
+            <p className="text-sm text-[#756B5D]">No driver assigned yet.</p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedDriverId}
+              onChange={(e) => setSelectedDriverId(e.target.value)}
+              className="min-h-11 rounded-xl border border-[#E7DDCF] bg-[#FFFDF9] px-3 text-sm text-[#171512] outline-none focus:border-[#B97824]"
+            >
+              <option value="">Select a driver…</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.activeAssignmentCount > 0 ? ` (busy: ${d.activeAssignmentCount})` : ""}
+                </option>
+              ))}
+            </select>
+            <Button onClick={handleAssignDriver} disabled={!selectedDriverId || assigningDriver}>
+              {order.fulfillment.driverAssignment ? "Reassign driver" : "Assign driver"}
+            </Button>
           </div>
-        )}
-      </div>
-    </div>
+        </Card>
+      )}
+    </PageShell>
   );
 }

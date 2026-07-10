@@ -2,18 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { Badge, EmptyState, FilterPills, PageHeader, PageShell, ResponsiveTable, Skeleton } from "@/components/ui";
 import { listOwnOrders, type OwnerOrder } from "@/lib/owner-commerce-api";
 
 function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
-const STATUSES = ["", "PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY", "COMPLETED", "CANCELLED", "REFUNDED"];
+function statusBadgeTone(status: string): "success" | "warning" | "danger" | "info" | "neutral" {
+  if (status === "CANCELLED" || status === "REFUNDED") return "danger";
+  if (status === "COMPLETED" || status === "READY") return "success";
+  if (status === "OUT_FOR_DELIVERY") return "info";
+  return "warning";
+}
+
+const STATUSES = ["", "PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY", "COMPLETED", "CANCELLED", "REFUNDED"] as const;
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<(typeof STATUSES)[number]>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -34,35 +41,54 @@ export default function OrdersPage() {
     };
   }, [status]);
 
+  function handleStatusChange(next: (typeof STATUSES)[number]) {
+    setLoading(true);
+    setStatus(next);
+  }
+
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-4xl flex-col gap-6">
-        <DashboardNav />
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Orders</h1>
+    <PageShell maxWidth="4xl">
+      <PageHeader eyebrow="ORDERS" title="Orders" description="Every order placed on your storefront, live." />
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-          {STATUSES.map((s) => (
-            <button
-              key={s || "all"}
-              type="button"
-              onClick={() => setStatus(s)}
-              className={`min-h-9 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs ${
-                status === s
-                  ? "bg-foreground text-background"
-                  : "border border-black/[.08] text-zinc-700 dark:border-white/[.145] dark:text-zinc-300"
-              }`}
-            >
-              {s || "All"}
-            </button>
-          ))}
+      <FilterPills options={STATUSES} value={status} onChange={handleStatusChange} />
+
+      {loading ? (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
         </div>
+      ) : orders.length === 0 ? (
+        <EmptyState title="No orders yet" description="Orders placed on your storefront will show up here in real time." />
+      ) : (
+        <>
+          {/* Mobile: card list */}
+          <ul className="flex flex-col gap-3 sm:hidden">
+            {orders.map((order) => (
+              <li key={order.id}>
+                <Link
+                  href={`/dashboard/orders/${order.id}`}
+                  className="flex flex-col gap-2 rounded-2xl border border-[#E7DDCF] bg-white p-4 shadow-[0_8px_24px_rgba(48,39,27,0.04)] active:scale-[0.99]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-bold text-[#171512]">#{order.orderNumber}</span>
+                    <span className="font-bold text-[#9A6A2F]">${formatPrice(order.totalCents)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge tone={statusBadgeTone(order.status)}>{order.status.replaceAll("_", " ")}</Badge>
+                    <span className="text-xs text-[#8A7D6C]">{new Date(order.placedAt).toLocaleString()}</span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
 
-        <div className="w-full overflow-hidden rounded-lg border border-black/[.08] bg-white dark:border-white/[.145] dark:bg-zinc-950">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="border-b border-black/[.08] text-left text-zinc-600 dark:border-white/[.145] dark:text-zinc-400">
+          {/* Desktop/tablet: table */}
+          <div className="hidden sm:block">
+            <ResponsiveTable>
+              <thead className="border-b border-[#EEE5D9] text-left text-xs font-bold uppercase tracking-wide text-[#8A7D6C]">
                 <tr>
                   <th className="p-3">#</th>
                   <th className="p-3">Status</th>
@@ -72,38 +98,26 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={5} className="p-3 text-center text-zinc-500">
-                      Loading…
+                {orders.map((order) => (
+                  <tr key={order.id} className="border-b border-[#EEE5D9] last:border-0 hover:bg-[#FFFDF9]">
+                    <td className="p-3">
+                      <Link href={`/dashboard/orders/${order.id}`} className="font-bold text-[#171512] hover:text-[#A9681F]">
+                        #{order.orderNumber}
+                      </Link>
                     </td>
-                  </tr>
-                ) : orders.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-3 text-center text-zinc-500">
-                      No orders yet.
+                    <td className="p-3">
+                      <Badge tone={statusBadgeTone(order.status)}>{order.status.replaceAll("_", " ")}</Badge>
                     </td>
+                    <td className="p-3 text-[#756B5D]">{order.source}</td>
+                    <td className="p-3 font-semibold">${formatPrice(order.totalCents)}</td>
+                    <td className="p-3 text-[#8A7D6C]">{new Date(order.placedAt).toLocaleString()}</td>
                   </tr>
-                ) : (
-                  orders.map((order) => (
-                    <tr key={order.id} className="border-b border-black/[.08] last:border-0 dark:border-white/[.145]">
-                      <td className="p-3">
-                        <Link href={`/dashboard/orders/${order.id}`} className="font-medium text-black hover:underline dark:text-zinc-50">
-                          #{order.orderNumber}
-                        </Link>
-                      </td>
-                      <td className="p-3">{order.status}</td>
-                      <td className="p-3">{order.source}</td>
-                      <td className="p-3">${formatPrice(order.totalCents)}</td>
-                      <td className="p-3 text-zinc-500">{new Date(order.placedAt).toLocaleString()}</td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
-            </table>
+            </ResponsiveTable>
           </div>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </PageShell>
   );
 }
