@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createImportJob, type ImportJob, type ImportSourceType } from "@/lib/api";
 import { SourceIcon, type ImportSourceId } from "./source-icons";
@@ -258,12 +259,12 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
         <p className="mt-2 text-sm text-[#756B5D]">
           {productCount} product{productCount === 1 ? "" : "s"} across {categoryCount} categor{categoryCount === 1 ? "y" : "ies"}.
         </p>
-        <a
+        <Link
           href={`/dashboard/import/${displayJob.id}`}
           className="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#171512] px-6 text-base font-bold text-white shadow-lg shadow-black/10 active:scale-[0.99] sm:w-auto"
         >
           Review Menu
-        </a>
+        </Link>
       </section>
     );
   }
