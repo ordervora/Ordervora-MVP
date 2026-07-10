@@ -123,4 +123,28 @@ describe("ImportHub — live progress and completion, in place", () => {
 
     expect(screen.getByText(/2 more photos processing in the background/)).toBeInTheDocument();
   });
+
+  it("falls back to the picker instead of staying stuck on fake progress if the server never reports the job as active (e.g. it failed before the first poll)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockCreateImportJob.mockResolvedValue({ job: job({ status: "PENDING" }) });
+      const { rerender } = render(<ImportHub activeJob={null} otherActiveCount={0} />);
+
+      fireEvent.click(screen.getByText("PDF"));
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(fileInput, { target: { files: [new File(["%PDF"], "menu.pdf", { type: "application/pdf" })] } });
+
+      await vi.waitFor(() => expect(screen.getByText("BUILDING YOUR MENU")).toBeInTheDocument());
+
+      // The server-driven activeJob prop stays null the whole time — simulating a job that failed
+      // before ever showing up as active in a poll — instead of confirming/superseding localJob.
+      await vi.advanceTimersByTimeAsync(7100);
+      rerender(<ImportHub activeJob={null} otherActiveCount={0} />);
+
+      expect(screen.getByText("Import your menu")).toBeInTheDocument();
+      expect(screen.queryByText("BUILDING YOUR MENU")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

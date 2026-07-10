@@ -139,6 +139,22 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
     return () => window.clearTimeout(timeout);
   }, [comingSoonNote]);
 
+  /**
+   * localJob is optimistic client state shown before the first server poll
+   * confirms it. Once the server has had a full polling cycle to respond,
+   * defer to it exclusively — otherwise a job that fails fast (before
+   * appearing in `activeJob` at all) would leave this stuck showing fake
+   * "still processing" forever, since `activeJob` going back to null can't
+   * be told apart locally from "hasn't polled yet." If the job is really
+   * still active, the next poll's `activeJob` prop supersedes localJob via
+   * the `??` above before this fires, so nothing is lost.
+   */
+  useEffect(() => {
+    if (!localJob) return;
+    const timeout = window.setTimeout(() => setLocalJob(null), 7000);
+    return () => window.clearTimeout(timeout);
+  }, [localJob]);
+
   useEffect(() => {
     if (displayJob?.status !== "AWAITING_REVIEW" || redirectedRef.current) return;
     redirectedRef.current = true;
