@@ -2746,3 +2746,54 @@ equally synthetic; left as-is rather than reworked for cosmetic churn.
 
 **Next in Sprint 18:** website-preview UX fix, and a mobile responsive
 pass.
+
+## Sprint 18, Part 6 — Website Preview UX
+
+Retheme + real progress for the "choose a design → preview → publish"
+chain — the manual `/dashboard/website/*` Website Hub, which had never
+been migrated off the original dark/zinc styling used before the warm
+cream/gold system landed (the newer AI Builder flow at
+`/dashboard/builder/*` was already warm-themed, with one exception —
+see below):
+
+- **`FinaleReveal`** (`dashboard/builder/finale-reveal.tsx`) — the "your
+  business is officially open" screen right after auto-publish, the
+  single most-seen moment in this area — rethemed from dark/zinc to the
+  warm system, matching the screen immediately before it
+  (`LiveBuildScreen`) which was already on-brand.
+- **`DevicePreview`** (`variations/[id]/device-preview.tsx`, shared by
+  `FinaleReveal` and the variation preview page) — rethemed device-toggle
+  buttons and frame; loading state changed from plain "Loading preview…"
+  text to a pulsing skeleton block (better loading state, per this
+  part's goal); preview iframe height is now responsive (300px on
+  mobile, 600px at `sm:` and up) instead of a fixed 600px that forced
+  scrolling on small screens.
+- **`GenerationProgress`** (`variations/generation-progress.tsx`) — was a
+  single generic `w-1/2 animate-pulse` bar with a one-line stage label;
+  rewritten to a real weighted stage checklist (done/active/upcoming),
+  mirroring the same `GenerationStage` sequence and relative-duration
+  weighting the AI Builder's `LiveBuildScreen` already uses, scoped to
+  just this flow's 8 generation stages so 100% lands exactly at
+  `FINALIZE` (not diluted by the Builder's later select/publish/QR
+  steps, which don't apply here).
+- **`variations/page.tsx`, `variations/[id]/page.tsx`, `select-button.tsx`**
+  — rethemed to match (the `GenerationProgress`/`DevicePreview` cards
+  above now live inside these pages; leaving the page shells on the old
+  theme would have looked broken next to them).
+- **Publish flow** (`publish/page.tsx`, `publish-actions.tsx`,
+  `domain-form.tsx`) — rethemed for a cleaner, on-brand publishing
+  screen; domain rows and the add-domain form now stack vertically on
+  mobile instead of a cramped fixed-row layout; status badge, publish
+  warning, and "(live)" release tag now use the same badge language as
+  the rest of the app instead of raw `<span>` colors.
+
+**Explicitly out of scope this part:** the Website Hub landing page
+(`dashboard/website/page.tsx`), Score, and Messages pages — outside
+this part's "preview/publish" scope; whether `/dashboard/website/*`
+(manual, secondary path) and `/dashboard/builder/*` (orchestrated,
+primary path) should eventually be consolidated into one flow is a
+product decision, not resolved here — this part brings both onto one
+consistent visual language without changing which one owners are
+routed through.
+
+**Next in Sprint 18:** final mobile UX review.
