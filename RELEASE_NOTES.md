@@ -2797,3 +2797,41 @@ consistent visual language without changing which one owners are
 routed through.
 
 **Next in Sprint 18:** final mobile UX review.
+
+## Sprint 18, Part 7 — Mobile UX Pass (Orders page)
+
+A targeted mobile-responsiveness pass across owner screens, per instruction
+scoped to polish only — no visual redesign, no re-theming of pages still on
+the older dark/zinc styling.
+
+Audited every owner screen for the concrete bug classes in scope (horizontal
+overflow, unwrapped tables, missing loading states, cramped touch targets).
+`/dashboard/orders` (`apps/web/src/app/dashboard/orders/page.tsx`) was the one
+screen with real bugs:
+
+- The status-filter row (9 pills) had no wrap or scroll handling — on a
+  narrow viewport the later pills (`READY`, `OUT_FOR_DELIVERY`, `CANCELLED`,
+  `REFUNDED`, …) were pushed off-screen with no way to reach them. Fixed
+  with a horizontally-scrollable strip on mobile that becomes a wrapping
+  row at `sm:` and up.
+- The orders `<table>` had no scroll wrapper, so on a narrow screen it
+  either forced the whole page to scroll sideways or squeezed five columns
+  illegibly. Wrapped in its own `overflow-x-auto` with a `min-w` floor, the
+  established pattern already used by `admin-panel.tsx`.
+- The list showed "No orders yet." during the initial fetch, not just when
+  a fetch actually returned zero orders — indistinguishable from a real
+  empty state. Added a genuine loading row.
+- Added `overflow-x-hidden` on the page's outer container as a backstop
+  against any future overflow inside it forcing page-level horizontal
+  scroll on mobile.
+
+Other owner screens were checked for the same bug classes (raw `<table>`
+without a scroll wrapper, unwrapped wide flex/grid rows, missing loading
+states) and found already handled correctly — most list/grid screens
+already use `grid-cols-1 sm:grid-cols-N` responsive breakpoints, and
+`admin-panel.tsx`'s table already wraps in `overflow-x-auto`.
+
+**Explicitly out of scope this part:** re-theming any of the still-dark/zinc
+owner screens to the newer warm cream/gold system — that is a visual
+redesign, not a UX polish pass, and was explicitly excluded from this part's
+instructions.
