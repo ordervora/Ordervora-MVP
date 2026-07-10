@@ -3035,3 +3035,86 @@ fix. 10 new tests in `import-hub.test.tsx`.
 backend changes, no new import adapters or POS integrations — the 8
 platforms without real backend support remain "Coming soon"/
 "Enterprise" until a future milestone adds real integration work.
+
+## Sprint 19A — UX Validation Pass
+
+A full manual review of the entire Import experience (first tap through
+final Review Menu) against a 20-point production-quality checklist,
+covering code review, live mobile-viewport (390×844) browser sessions,
+and edge-case testing (simulated upload failures, network interruptions,
+rapid double-submission, browser Back navigation). Found and fixed four
+real bugs; everything else on the checklist passed as-is.
+
+**Bugs found and fixed:**
+
+- **Layout shift on every transition.** The picker card (~730px on a
+  731px-tall grid of 13 sources) collapsed to the progress card (~150px)
+  instantly — measured live: a 580px snap with zero animation, the
+  single worst offender against "premium." Added `AnimatedHeightSwap`,
+  a small wrapper that measures content height via `ResizeObserver` and
+  animates the container's height across all three states (picker →
+  progress → completion) instead of an abrupt jump. Verified live: the
+  580px collapse now animates smoothly over ~380ms instead of snapping
+  instantly.
+- **Forced-redirect loop.** Landing on `/dashboard/import` with an
+  already-`AWAITING_REVIEW` job (e.g. the owner pressed Back after
+  reviewing, without approving or rejecting yet) force-navigated them
+  straight back to the review page ~2.2s later — confirmed live via a
+  simulated completed job, reproduced on the first fresh page load every
+  time. The auto-redirect now only fires on a genuine
+  PENDING/PROCESSING → AWAITING_REVIEW transition witnessed while the
+  component is mounted (tracked via a previous-status ref), not merely
+  "the active job happens to already be complete when this page loads."
+  Verified live: landing on an already-complete job now stays put; a
+  live completion still auto-redirects as designed.
+- **Silent partial failures in multi-photo batches.** Forcing 2 of 4
+  photo uploads to fail (via request interception) showed zero
+  in-the-moment feedback — the card just moved on to showing progress
+  for whichever photo succeeded first, with the failures visible only
+  by scrolling into Import History and noticing them. Restored a
+  batch-result summary (dropped during the original rewrite), now shown
+  inline on the progress card: "N photos started importing — M failed
+  to upload and won't appear below."
+- **No re-entrancy guard on submit.** `submitUrl`/`submitFiles` had no
+  guard against being invoked again while already in flight — a
+  real risk since the URL field's Enter-key handler had no debounce.
+  Added an `uploading` guard to both.
+
+**Also found and fixed while verifying the above live** (not on the
+original checklist, but real): three JSX text templates
+(`{count} label{count === 1 ? "" : "s"} more text`) rendered with a
+missing space in the actual Chromium/Turbopack production build —
+`"1failed"` instead of `"1 failed"` — despite passing in jsdom/vitest,
+which uses a different JSX transform than Next's Turbopack dev/build
+pipeline. Converted all three (plus one more of the same shape in
+`review-editor.tsx`'s per-category item count, which also lacked
+singular/plural handling entirely — "1 items" — found reviewing the
+full flow through to Review Menu as instructed) to explicit template
+literals, which are unambiguous regardless of JSX whitespace handling.
+Verified via real DOM `textContent` reads in the live browser, not just
+visual screenshot inspection, since this class of bug is easy to
+eyeball past.
+
+**Checklist items verified without changes needed:** no horizontal
+overflow at 390px or 375px (iPhone SE) widths; safe-area-inset CSS
+correct in `DashboardNav` (already covered by Sprint 18, unaffected
+here — real device notch behavior can't be simulated in Chromium
+automation, so this is a code-level check, not a rendered one); brand
+icon colors match each platform's real identity; spacing/typography
+consistent throughout; Import History correctly excludes the active
+job at every step, including through the redirect-loop fix; invalid
+files and network interruptions surface through the existing generic
+error path (already exercised live via real DNS/HTTP failures during
+Sprint 19A's original build).
+
+**Environment note:** `api.openai.com` is blocked by this sandbox's
+network egress policy, so real AI-processed completions (photo/PDF)
+could not be exercised end-to-end here — verified the completion state
+via a database-simulated `AWAITING_REVIEW` job instead, and the
+underlying AI call path is unchanged from Sprint 18 (already
+production-verified there). Not an application bug.
+
+**Verified:** typecheck, lint, full test suite (107 passed — 5 new
+regression tests for the redirect-loop, re-entrancy, and partial-failure
+fixes), full production build, and repeated live mobile-viewport browser
+sessions re-confirming each fix after implementation.

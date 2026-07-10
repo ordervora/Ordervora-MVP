@@ -1,10 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createImportJob, type ImportJob, type ImportSourceType } from "@/lib/api";
 import { SourceIcon, type ImportSourceId } from "./source-icons";
+
+/**
+ * Animates the container's height across content swaps (picker <-> live
+ * progress <-> completion) instead of an abrupt jump — the picker is ~5x
+ * taller than the progress card, so without this the page visibly snaps up
+ * the moment an import starts.
+ */
+function AnimatedHeightSwap({ children }: { children: ReactNode }) {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | "auto">("auto");
+
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setHeight(el.scrollHeight));
+    observer.observe(el);
+    setHeight(el.scrollHeight);
+    return () => observer.disconnect();
+  }, [children]);
+
+  return (
+    <div style={{ height, overflow: "hidden", transition: "height 380ms cubic-bezier(0.4, 0, 0.2, 1)" }}>
+      <div ref={innerRef}>{children}</div>
+    </div>
+  );
+}
 
 interface SourceDef {
   id: ImportSourceId;
@@ -54,7 +80,6 @@ function stageForPercent(percent: number): (typeof STAGES)[number] {
   return "Completed";
 }
 
-/** Smoothly animates toward a status-derived ceiling — an honest "still working, getting closer" indicator, not a fake precise countdown. */
 /**
  * Smoothly animates toward a status-derived ceiling via interval ticks only
  * (never a direct setState in the effect body) — an honest "still working,
@@ -80,7 +105,17 @@ function useAnimatedPercent(status: ImportJob["status"] | "UPLOADING" | null) {
   return Math.round(percent);
 }
 
-function ProgressCard({ job, uploading, otherActiveCount }: { job: ImportJob | null; uploading: boolean; otherActiveCount: number }) {
+function ProgressCard({
+  job,
+  uploading,
+  otherActiveCount,
+  batchSummary,
+}: {
+  job: ImportJob | null;
+  uploading: boolean;
+  otherActiveCount: number;
+  batchSummary: { succeeded: number; failed: number } | null;
+}) {
   const status: ImportJob["status"] | "UPLOADING" = uploading ? "UPLOADING" : (job?.status ?? "PENDING");
   const animatedPercent = useAnimatedPercent(status);
   const remainingSeconds = Math.max(2, Math.round(((100 - animatedPercent) / 100) * 45));
@@ -114,7 +149,13 @@ function ProgressCard({ job, uploading, otherActiveCount }: { job: ImportJob | n
       </div>
 
       {otherActiveCount > 0 && (
-        <p className="mt-4 text-xs text-[#8A7D6C]">{otherActiveCount} more photo{otherActiveCount === 1 ? "" : "s"} processing in the background.</p>
+        <p className="mt-4 text-xs text-[#8A7D6C]">{`${otherActiveCount} more photo${otherActiveCount === 1 ? "" : "s"} processing in the background.`}</p>
+      )}
+
+      {batchSummary && batchSummary.failed > 0 && (
+        <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+          {`${batchSummary.succeeded} photo${batchSummary.succeeded === 1 ? "" : "s"} started importing — ${batchSummary.failed} failed to upload and won't appear below.`}
+        </p>
       )}
     </section>
   );
@@ -129,8 +170,10 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [comingSoonNote, setComingSoonNote] = useState<string | null>(null);
+  const [batchSummary, setBatchSummary] = useState<{ succeeded: number; failed: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const redirectedRef = useRef(false);
+  const prevStatusRef = useRef<ImportJob["status"] | "UPLOADING" | null>(null);
 
   const displayJob = activeJob ?? localJob;
 
@@ -156,12 +199,25 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
     return () => window.clearTimeout(timeout);
   }, [localJob]);
 
+  /**
+   * Only auto-redirects on a genuine PENDING/PROCESSING -> AWAITING_REVIEW
+   * transition witnessed while mounted — not merely "the active job happens
+   * to already be AWAITING_REVIEW when this page loads." Without that
+   * distinction, pressing Back to return here after a deliberate detour
+   * (without approving/rejecting) would force-navigate the owner straight
+   * back to the review page every time, on a loop.
+   */
   useEffect(() => {
-    if (displayJob?.status !== "AWAITING_REVIEW" || redirectedRef.current) return;
+    const prevStatus = prevStatusRef.current;
+    const currentStatus = uploading ? "UPLOADING" : (displayJob?.status ?? null);
+    prevStatusRef.current = currentStatus;
+
+    const justCompleted = currentStatus === "AWAITING_REVIEW" && prevStatus !== null && prevStatus !== "AWAITING_REVIEW";
+    if (!justCompleted || !displayJob || redirectedRef.current) return;
     redirectedRef.current = true;
     const timeout = window.setTimeout(() => router.push(`/dashboard/import/${displayJob.id}`), 2200);
     return () => window.clearTimeout(timeout);
-  }, [displayJob, router]);
+  }, [displayJob, uploading, router]);
 
   function resetToPicker() {
     setLocalJob(null);
@@ -169,11 +225,13 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
     setOpenSourceId(null);
     setUrlValue("");
     setError(null);
+    setBatchSummary(null);
   }
 
   async function submitFiles(source: SourceDef, files: File[]) {
-    if (!source.sourceType || files.length === 0) return;
+    if (!source.sourceType || files.length === 0 || uploading) return;
     setError(null);
+    setBatchSummary(null);
     setUploading(true);
 
     if (files.length === 1) {
@@ -190,6 +248,7 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
     }
 
     let succeeded = 0;
+    let failed = 0;
     let firstJob: ImportJob | null = null;
     for (let i = 0; i < files.length; i++) {
       setUploadProgress({ done: i, total: files.length });
@@ -198,7 +257,8 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
         if (!firstJob) firstJob = job;
         succeeded++;
       } catch {
-        // Individual photo failures don't stop the batch — surfaced via Import History for any that fail outright.
+        // Individual photo failures don't stop the batch — counted below and surfaced via Import History.
+        failed++;
       }
     }
     setUploadProgress(null);
@@ -207,12 +267,13 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
       setError("None of the selected photos could be uploaded. Try again.");
       return;
     }
+    if (failed > 0) setBatchSummary({ succeeded, failed });
     setLocalJob(firstJob);
     router.refresh();
   }
 
   async function submitUrl(source: SourceDef) {
-    if (!source.sourceType || !urlValue.trim()) return;
+    if (!source.sourceType || !urlValue.trim() || uploading) return;
     setError(null);
     setUploading(true);
     try {
@@ -244,20 +305,22 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
 
   const openSource = SOURCES.find((s) => s.id === openSourceId) ?? null;
 
+  let content: ReactNode;
+
   // ---- Live progress card (replaces the picker in place) ----
   if (displayJob && (displayJob.status === "PENDING" || displayJob.status === "PROCESSING" || uploading)) {
-    return <ProgressCard key={displayJob?.id ?? "uploading"} job={displayJob} uploading={uploading} otherActiveCount={otherActiveCount} />;
-  }
-
-  if (displayJob?.status === "AWAITING_REVIEW") {
+    content = (
+      <ProgressCard key={displayJob?.id ?? "uploading"} job={displayJob} uploading={uploading} otherActiveCount={otherActiveCount} batchSummary={batchSummary} />
+    );
+  } else if (displayJob?.status === "AWAITING_REVIEW") {
     const categoryCount = displayJob.extractedData?.categories.length ?? 0;
     const productCount = displayJob.extractedData?.categories.reduce((sum, c) => sum + c.items.length, 0) ?? 0;
-    return (
+    content = (
       <section className="rounded-3xl border border-[#E7DDCF] bg-white p-5 text-center shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-8">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-3xl">✅</div>
         <h2 className="mt-4 text-2xl font-bold">Menu Ready</h2>
         <p className="mt-2 text-sm text-[#756B5D]">
-          {productCount} product{productCount === 1 ? "" : "s"} across {categoryCount} categor{categoryCount === 1 ? "y" : "ies"}.
+          {`${productCount} product${productCount === 1 ? "" : "s"} across ${categoryCount} categor${categoryCount === 1 ? "y" : "ies"}.`}
         </p>
         <Link
           href={`/dashboard/import/${displayJob.id}`}
@@ -267,10 +330,9 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
         </Link>
       </section>
     );
-  }
-
-  // ---- Source picker ----
-  return (
+  } else {
+    // ---- Source picker ----
+    content = (
     <section className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
       <div className="flex items-start gap-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F4E6D1] text-2xl font-bold text-[#9A5F17]">＋</div>
@@ -356,7 +418,7 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
           <div className="h-2 overflow-hidden rounded-full bg-[#EEE5D9]">
             <div className="h-full rounded-full bg-[#B97824] transition-all duration-300" style={{ width: `${Math.round((uploadProgress.done / uploadProgress.total) * 100)}%` }} />
           </div>
-          <p className="mt-2 text-xs font-semibold text-[#9A6A2F]">Uploading photo {uploadProgress.done + 1} of {uploadProgress.total}…</p>
+          <p className="mt-2 text-xs font-semibold text-[#9A6A2F]">{`Uploading photo ${uploadProgress.done + 1} of ${uploadProgress.total}…`}</p>
         </div>
       )}
 
@@ -367,5 +429,8 @@ export function ImportHub({ activeJob, otherActiveCount }: { activeJob: ImportJo
         </div>
       )}
     </section>
-  );
+    );
+  }
+
+  return <AnimatedHeightSwap>{content}</AnimatedHeightSwap>;
 }

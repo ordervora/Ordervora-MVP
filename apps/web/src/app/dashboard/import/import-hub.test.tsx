@@ -96,6 +96,43 @@ describe("ImportHub — auto-start on selection", () => {
 
     await waitFor(() => expect(mockCreateImportJob).toHaveBeenCalledTimes(2));
   });
+
+  it("surfaces a summary instead of staying silent when some photos in a batch fail to upload", async () => {
+    mockCreateImportJob
+      .mockResolvedValueOnce({ job: job() })
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({ job: job() });
+    render(<ImportHub activeJob={null} otherActiveCount={0} />);
+
+    fireEvent.click(screen.getByText("Photo"));
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const files = [
+      new File(["a"], "1.jpg", { type: "image/jpeg" }),
+      new File(["b"], "2.jpg", { type: "image/jpeg" }),
+      new File(["c"], "3.jpg", { type: "image/jpeg" }),
+    ];
+    fireEvent.change(fileInput, { target: { files } });
+
+    await waitFor(() => expect(mockCreateImportJob).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByText(/2 photos started importing — 1 failed to upload/)).toBeInTheDocument());
+  });
+
+  it("does not fire a second createImportJob if Enter is pressed again before the first request resolves", async () => {
+    let resolveFirst: (value: { job: ImportJob }) => void = () => {};
+    mockCreateImportJob.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+    render(<ImportHub activeJob={null} otherActiveCount={0} />);
+
+    fireEvent.click(screen.getByText("Website"));
+    const urlInput = screen.getByPlaceholderText("https://example.com/menu");
+    fireEvent.change(urlInput, { target: { value: "https://example.com/menu" } });
+    fireEvent.keyDown(urlInput, { key: "Enter" });
+    fireEvent.keyDown(urlInput, { key: "Enter" });
+    fireEvent.keyDown(urlInput, { key: "Enter" });
+
+    resolveFirst({ job: job() });
+    await waitFor(() => expect(screen.getByText("BUILDING YOUR MENU")).toBeInTheDocument());
+    expect(mockCreateImportJob).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ImportHub — live progress and completion, in place", () => {
@@ -122,6 +159,37 @@ describe("ImportHub — live progress and completion, in place", () => {
     render(<ImportHub activeJob={job({ status: "PROCESSING" })} otherActiveCount={2} />);
 
     expect(screen.getByText(/2 more photos processing in the background/)).toBeInTheDocument();
+  });
+
+  it("does not auto-redirect on first mount just because the active job already happens to be awaiting review (e.g. after pressing Back)", async () => {
+    vi.useFakeTimers();
+    try {
+      const readyJob = job({ status: "AWAITING_REVIEW", extractedData: { categories: [] } });
+      render(<ImportHub activeJob={readyJob} otherActiveCount={0} />);
+
+      expect(screen.getByText("Menu Ready")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(mockPush).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("auto-redirects once a job genuinely transitions to awaiting review while mounted", async () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<ImportHub activeJob={job({ status: "PROCESSING" })} otherActiveCount={0} />);
+
+      const readyJob = job({ status: "AWAITING_REVIEW", extractedData: { categories: [] } });
+      rerender(<ImportHub activeJob={readyJob} otherActiveCount={0} />);
+      expect(screen.getByText("Menu Ready")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(2300);
+      expect(mockPush).toHaveBeenCalledWith("/dashboard/import/job-1");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to the picker instead of staying stuck on fake progress if the server never reports the job as active (e.g. it failed before the first poll)", async () => {

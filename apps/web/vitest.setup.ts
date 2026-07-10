@@ -19,3 +19,15 @@ if (typeof window !== "undefined" && !window.matchMedia) {
       removeEventListener: () => {},
     }) as unknown as MediaQueryList;
 }
+
+// jsdom doesn't implement ResizeObserver — stubbed globally as a no-op so
+// components that measure their own size (e.g. an animated-height wrapper)
+// don't need a per-test-file mock. Tests asserting on measured dimensions
+// should stub a real implementation locally.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
