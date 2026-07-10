@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import { getDeliveryConfig, updateDeliveryConfig, type DeliveryConfig } from "@/lib/owner-commerce-api";
 
 export default function DeliveryPage() {
@@ -38,13 +38,16 @@ export default function DeliveryPage() {
   }
 
   if (!config) {
-    return <p className="p-8 text-sm text-zinc-600 dark:text-zinc-400">{error ?? "Loading…"}</p>;
+    return (
+      <PageShell maxWidth="xl">
+        <p className="text-sm text-[#756B5D]">{error ?? "Loading…"}</p>
+      </PageShell>
+    );
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <form onSubmit={handleSave} className="flex w-full max-w-xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="xl">
+      <form onSubmit={handleSave} className="flex w-full flex-col gap-6">
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Delivery &amp; fulfillment</h1>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -123,6 +126,6 @@ export default function DeliveryPage() {
           {saving ? "Saving…" : "Save"}
         </button>
       </form>
-    </div>
+    </PageShell>
   );
 }

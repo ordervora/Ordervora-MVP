@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import {
   changePassword,
   getMe,
@@ -99,9 +99,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="2xl">
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Profile</h1>
 
         {loading && <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading…</p>}
@@ -223,7 +221,6 @@ export default function ProfilePage() {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

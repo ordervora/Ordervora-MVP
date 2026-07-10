@@ -1,3 +1,4 @@
+import { PageShell } from "@/components/ui";
 import type { AuditLogEntry, PublicUser, Restaurant } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DashboardOverview } from "./dashboard-overview";
@@ -39,9 +40,9 @@ export default async function DashboardPage() {
   const result = await serverFetch<{ user: PublicUser }>("/api/auth/me");
   if (!result.ok) {
     return (
-      <div className="min-h-screen bg-[#F7F0E5] p-6 text-sm text-red-700">
-        Could not load your account. Please refresh.
-      </div>
+      <PageShell maxWidth="2xl">
+        <p className="text-sm text-red-700">Could not load your account. Please refresh.</p>
+      </PageShell>
     );
   }
 

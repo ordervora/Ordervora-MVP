@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DraftForm } from "./draft-form";
@@ -17,25 +17,20 @@ export default async function EditorPage() {
 
   if (!draft) {
     return (
-      <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-        <div className="flex w-full max-w-2xl flex-col gap-6">
-          <DashboardNav />
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            No active draft yet — select a variation from the{" "}
-            <Link href="/dashboard/website/variations" className="underline">
-              Variation Picker
-            </Link>{" "}
-            first.
-          </p>
-        </div>
-      </div>
+      <PageShell maxWidth="2xl">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          No active draft yet — select a variation from the{" "}
+          <Link href="/dashboard/website/variations" className="underline">
+            Variation Picker
+          </Link>{" "}
+          first.
+        </p>
+      </PageShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="2xl">
         <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-semibold text-black dark:text-zinc-50">Editor</h1>
@@ -65,7 +60,6 @@ export default async function EditorPage() {
             </Link>
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

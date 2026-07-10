@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { SiteDomain, SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DomainForm, DomainRow } from "./domain-form";
@@ -23,9 +23,7 @@ export default async function PublishPage() {
   const domains = domainsResult.ok ? domainsResult.data.domains : [];
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="2xl">
         <header className="pt-2 lg:pt-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">GO LIVE</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Publish &amp; domains</h1>
@@ -84,7 +82,6 @@ export default async function PublishPage() {
             </ul>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

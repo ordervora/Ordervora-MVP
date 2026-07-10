@@ -3170,3 +3170,83 @@ existing bottom tab bar still present and unaffected. No console or page
 errors in any run.
 
 Stopping here per instruction — no further Sprint 19B parts started.
+
+## Sprint 19B-2 — Unified Mobile Layout Foundation
+
+UI-only sprint: unified the container/padding/background foundation
+across the owner dashboard and the surrounding auth screens. No new
+features, no backend changes, no visual-language redesign — every page's
+inner content (cards, forms, colors) is untouched; only the outer shell
+each page sits in was consolidated onto the shared `PageShell` component.
+
+**Audit findings:**
+
+- Only 2 of ~30 dashboard pages (Orders, Orders detail) used the shared
+  `PageShell`. Everything else hand-rolled its own copy of the wrapper.
+- 19 pages (menu, restaurant, profile, staff, analytics, coupons,
+  payments, pos, kitchen, kitchen-capacity, delivery, driver, referrals,
+  tables, loyalty, website + 3 website subpages) were still on a
+  pre-Sprint-19 `bg-zinc-50 ... dark:bg-black` shell — the "legacy
+  dark/zinc UI" CLAUDE.md calls out. In OS dark mode these pages rendered
+  with a black background while every other page stayed warm cream: a
+  real page-to-page jump, not just a stale color choice.
+- 4 pages (website/publish, website/variations, import, import/[id]) had
+  already moved to the cream palette but hand-copied the wrapper markup
+  instead of using `PageShell` — four independent copies free to drift.
+- `dashboard-overview.tsx` didn't use `PageShell`/`DashboardNav` at all;
+  its desktop padding (`lg:px-10 lg:pb-10 lg:pt-9`) was a near-miss of
+  `PageShell`'s `lg:p-10`.
+- `reset-password` and `verify-email` were never migrated off the
+  original Next.js starter template (no cream background, leftover
+  `dark:bg-black` scaffold classes) despite sitting in the same auth
+  journey as the already-correct `login`/`register`/`forgot-password`.
+- `dashboard/page.tsx`'s plain-user error fallback ("Could not load your
+  account") had different padding, no `overflow-x-hidden`, and no nav —
+  a layout jump and a dead end if it ever rendered.
+- The "More" bottom sheet was already pixel-consistent between
+  `DashboardNav` and `dashboard-overview.tsx`'s duplicate — verified, no
+  fix needed.
+
+**What was changed:**
+
+- Added `xl` to `PageShell`'s `maxWidth` map (several legacy pages used
+  `max-w-xl`, which the shared component didn't support yet) — additive,
+  no visual change to existing `PageShell` users.
+- Migrated all 23 pages onto `<PageShell maxWidth="...">`, preserving
+  each page's exact current max-width, deleting duplicated wrapper markup
+  and each page's individual `DashboardNav` import/usage. Three of these
+  (kitchen-capacity, delivery, loyalty) used a `<form>` element as their
+  own inner wrapper; restructured so the form sits inside `PageShell`'s
+  children instead of doubling as the shell, and gave their previously
+  bare, nav-less "Loading…" early-return states a `PageShell` wrapper too
+  (was a second, more severe layout jump on first paint).
+- Aligned `dashboard-overview.tsx`'s desktop padding to `lg:p-10`,
+  matching `PageShell` exactly. Its intentional desktop two-column
+  sidebar layout — a genuine structural difference from other pages, not
+  a foundation bug — was left as-is.
+- Rebuilt `reset-password` and `verify-email` on the established
+  `login`/`register`/`forgot-password` shell (branded header, cream
+  card), preserving all existing logic and copy.
+- Wrapped `dashboard/page.tsx`'s plain-user error fallback in `PageShell`
+  so a failed load still has navigation instead of stranding the user.
+
+**Deliberately left untouched** (flagged, not fixed, to respect "no
+redesign" and "no new features"): the AI Builder's full-screen cinematic
+flow, the Launch/test-order wizard, the Setup wizard (uses `max-w-lg` vs.
+the auth pages' `max-w-md` — different content, not a bug), and the
+customer-facing `/account/*` + `/order/*` checkout pages — none of these
+are part of the owner dashboard/onboarding surface this sprint targeted,
+and touching them risked exactly the redesign/feature creep ruled out.
+The bottom-tab item-set difference between `DashboardNav`
+(Overview/Orders/Menu/AI) and `dashboard-overview.tsx`'s own tabs
+(Home/Orders/Menu/Website) is a product/IA decision, not a layout-width
+bug — flagged, not changed.
+
+**Verified:** typecheck, lint, full test suite (111 passed, unchanged),
+production build (all 53 routes compiled clean), and live Playwright
+sessions at 375×812, 390×844, and 430×932 (iPhone Pro Max) across 22
+representative pages spanning every migrated family — zero horizontal
+overflow anywhere, zero console/page errors, and the shared container's
+left edge measured at an identical 16px on every single page checked
+(including `dashboard-overview.tsx`), confirming one shared horizontal
+padding system end to end.

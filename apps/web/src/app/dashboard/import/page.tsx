@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { ImportJob } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { ImportAutoRefresh } from "./import-auto-refresh";
@@ -23,10 +23,8 @@ export default async function ImportPage() {
   const pollingNeeded = jobs.some((job) => job.status === "PENDING" || job.status === "PROCESSING");
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
-      <ImportAutoRefresh active={pollingNeeded} />
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="3xl">
+        <ImportAutoRefresh active={pollingNeeded} />
         <header className="pt-2 lg:pt-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">AI IMPORT HUB</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Bring your business from anywhere.</h1>
@@ -59,7 +57,6 @@ export default async function ImportPage() {
             </ul>
           </section>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

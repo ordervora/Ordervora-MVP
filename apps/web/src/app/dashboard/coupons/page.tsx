@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import { createCoupon, deleteCoupon, listCoupons, updateCoupon, type Coupon } from "@/lib/owner-commerce-api";
 
 function formatCents(cents: number): string {
@@ -75,9 +75,7 @@ export default function CouponsPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
-      <div className="flex w-full max-w-xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="xl">
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Coupons</h1>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -193,7 +191,6 @@ export default function CouponsPage() {
           ))}
           {coupons.length === 0 && <li className="p-4 text-zinc-500">No coupons yet.</li>}
         </ul>
-      </div>
-    </div>
+    </PageShell>
   );
 }
