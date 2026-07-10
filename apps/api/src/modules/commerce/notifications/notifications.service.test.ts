@@ -50,12 +50,12 @@ describe("sendNotification", () => {
     );
   });
 
-  it("writes FAILED (never throws) when the adapter reports failure", async () => {
+  it("writes FAILED (never throws) when the adapter reports failure, but still returns the failure to the caller", async () => {
     mockSend.mockResolvedValue({ success: false, errorMessage: "boom" });
 
     await expect(
       sendNotification({ type: "ORDER_CONFIRMATION", channel: "EMAIL", to: "a@b.com", body: "y" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ success: false, errorMessage: "boom" });
 
     expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "FAILED", error: "boom" }) }),

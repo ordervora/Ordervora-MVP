@@ -1,6 +1,10 @@
 import type { NotificationChannel, NotificationType } from "@prisma/client";
+import { createLogger } from "../../../lib/logger";
 import { prisma } from "../../../lib/prisma";
 import { notificationProviderRegistry } from "./registry";
+import type { SendNotificationResult } from "./types";
+
+const logger = createLogger("notifications");
 
 export interface SendNotificationParams {
   type: NotificationType;
@@ -18,9 +22,12 @@ export interface SendNotificationParams {
  * Never throws — a notification failure must never break the caller's
  * flow, mirroring the codebase's existing fire-and-forget
  * revalidatePublishedSite philosophy. Always writes a NotificationLog row
- * so gaps (including a disabled channel) are auditable.
+ * so gaps (including a disabled channel) are auditable. Returns the send
+ * result so callers that need to know whether it actually went out (e.g.
+ * an owner explicitly clicking "Resend verification email") can react —
+ * most callers still fire-and-forget by simply not checking it.
  */
-export async function sendNotification(params: SendNotificationParams): Promise<void> {
+export async function sendNotification(params: SendNotificationParams): Promise<SendNotificationResult> {
   const adapter = notificationProviderRegistry.get(params.channel);
 
   if (!adapter?.implemented) {
@@ -34,7 +41,7 @@ export async function sendNotification(params: SendNotificationParams): Promise<
         status: "SKIPPED_CHANNEL_DISABLED",
       },
     });
-    return;
+    return { success: false, errorMessage: `${params.channel} channel is not implemented` };
   }
 
   const result = await adapter.send({ type: params.type, to: params.to, subject: params.subject, body: params.body });
@@ -51,6 +58,12 @@ export async function sendNotification(params: SendNotificationParams): Promise<
       error: result.errorMessage,
     },
   });
+
+  if (!result.success) {
+    logger.warn({ channel: params.channel, type: params.type, errorMessage: result.errorMessage }, "Notification send failed");
+  }
+
+  return result;
 }
 
 function formatDollars(cents: number): string {
@@ -220,8 +233,8 @@ export async function sendDriverReassignedAwayNotification(
 }
 
 /** Sent when a customer requests a password reset (Sprint 07.7 H-6) — no orderId/restaurantId context, just the customer's own identity. */
-export async function sendPasswordResetEmail(customerId: string, customerEmail: string, resetLink: string): Promise<void> {
-  await sendNotification({
+export async function sendPasswordResetEmail(customerId: string, customerEmail: string, resetLink: string): Promise<SendNotificationResult> {
+  return sendNotification({
     type: "PASSWORD_RESET_REQUESTED",
     channel: "EMAIL",
     to: customerEmail,
@@ -232,8 +245,8 @@ export async function sendPasswordResetEmail(customerId: string, customerEmail: 
 }
 
 /** Sent when a restaurant owner/staff account (the User table, distinct from Customer) requests a password reset (Sprint 18). */
-export async function sendOwnerPasswordResetEmail(ownerEmail: string, resetLink: string): Promise<void> {
-  await sendNotification({
+export async function sendOwnerPasswordResetEmail(ownerEmail: string, resetLink: string): Promise<SendNotificationResult> {
+  return sendNotification({
     type: "PASSWORD_RESET_REQUESTED",
     channel: "EMAIL",
     to: ownerEmail,
@@ -243,8 +256,8 @@ export async function sendOwnerPasswordResetEmail(ownerEmail: string, resetLink:
 }
 
 /** Sent to verify a restaurant owner/staff account's email address (Sprint 18). */
-export async function sendEmailVerificationEmail(ownerEmail: string, verifyLink: string): Promise<void> {
-  await sendNotification({
+export async function sendEmailVerificationEmail(ownerEmail: string, verifyLink: string): Promise<SendNotificationResult> {
+  return sendNotification({
     type: "EMAIL_VERIFICATION_REQUESTED",
     channel: "EMAIL",
     to: ownerEmail,

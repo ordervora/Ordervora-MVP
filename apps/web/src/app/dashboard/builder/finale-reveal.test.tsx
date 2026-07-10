@@ -2,6 +2,10 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/dashboard/builder",
+}));
+
 vi.mock("canvas-confetti", () => ({ default: vi.fn() }));
 
 vi.mock("qrcode.react", () => ({

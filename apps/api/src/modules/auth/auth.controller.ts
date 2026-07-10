@@ -247,7 +247,11 @@ export async function verifyEmailHandler(req: Request, res: Response): Promise<v
 }
 
 export async function resendVerificationHandler(req: Request, res: Response): Promise<void> {
-  await sendEmailVerification(req.user!.id);
+  const result = await sendEmailVerification(req.user!.id);
+  if (!result.sent) {
+    res.status(502).json({ error: "Could not send the verification email. Please try again in a few minutes." });
+    return;
+  }
   res.status(200).json({ ok: true });
 }
 

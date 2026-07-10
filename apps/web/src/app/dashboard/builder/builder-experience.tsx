@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { DashboardDrawer } from "@/components/dashboard-drawer";
 import { FinaleReveal } from "./finale-reveal";
 import { LiveBuildScreen } from "./live-build-screen";
 import { useRestaurantBuilder } from "./use-restaurant-builder";
@@ -24,32 +25,36 @@ export function BuilderExperience({ restaurantName }: { restaurantName: string }
     return () => clearTimeout(timer);
   }, [state.phase]);
 
+  let content: ReactNode;
+
   if (state.phase === "loading") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 p-8 dark:bg-black">
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">Let&apos;s build {restaurantName}&apos;s digital home…</p>
+    content = (
+      <div className="flex min-h-screen w-full flex-col bg-[#F7F0E5] px-4 pt-5 sm:px-6">
+        <DashboardDrawer />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+          <p className="text-sm text-[#756B5D]">Let&apos;s build {restaurantName}&apos;s digital home…</p>
+        </div>
       </div>
     );
-  }
-
-  if (state.phase === "bootstrap_failed") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 p-8 dark:bg-black">
-        <p className="text-sm text-red-600">{state.bootstrapError ?? "Something went wrong getting started."}</p>
-        <button
-          type="button"
-          onClick={state.retryBootstrap}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background"
-        >
-          Try again
-        </button>
+  } else if (state.phase === "bootstrap_failed") {
+    content = (
+      <div className="flex min-h-screen w-full flex-col bg-[#F7F0E5] px-4 pt-5 sm:px-6">
+        <DashboardDrawer />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+          <p className="text-sm text-red-600">{state.bootstrapError ?? "Something went wrong getting started."}</p>
+          <button
+            type="button"
+            onClick={state.retryBootstrap}
+            className="rounded-full bg-[#171512] px-5 py-2 text-sm font-medium text-white"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
-  }
-
-  if (state.phase === "generating" || state.phase === "generation_failed") {
+  } else if (state.phase === "generating" || state.phase === "generation_failed") {
     const activeStepId = state.job?.stage ?? "INGEST";
-    return (
+    content = (
       <LiveBuildScreen
         restaurantName={restaurantName}
         activeStepId={activeStepId}
@@ -57,11 +62,9 @@ export function BuilderExperience({ restaurantName }: { restaurantName: string }
         onRetry={state.phase === "generation_failed" ? state.retryGeneration : undefined}
       />
     );
-  }
-
-  if (state.phase === "finishing" || state.phase === "finish_failed" || (state.phase === "done" && !readyToReveal)) {
+  } else if (state.phase === "finishing" || state.phase === "finish_failed" || (state.phase === "done" && !readyToReveal)) {
     const activeStepId = state.phase === "done" ? "PROVISIONING" : (state.finishFailure?.step ?? state.finishStepId);
-    return (
+    content = (
       <LiveBuildScreen
         restaurantName={restaurantName}
         activeStepId={activeStepId}
@@ -73,17 +76,19 @@ export function BuilderExperience({ restaurantName }: { restaurantName: string }
         colorSeed={state.winningDesign?.colorSeed}
       />
     );
+  } else {
+    // phase === "done" && readyToReveal
+    content = (
+      <FinaleReveal
+        restaurantName={restaurantName}
+        siteId={state.siteId!}
+        siteSlug={state.siteSlug ?? "your-restaurant"}
+        publishedVersionId={state.publishedVersionId}
+        qrToken={state.qrToken}
+        qrError={state.qrError}
+      />
+    );
   }
 
-  // phase === "done" && readyToReveal
-  return (
-    <FinaleReveal
-      restaurantName={restaurantName}
-      siteId={state.siteId!}
-      siteSlug={state.siteSlug ?? "your-restaurant"}
-      publishedVersionId={state.publishedVersionId}
-      qrToken={state.qrToken}
-      qrError={state.qrError}
-    />
-  );
+  return content;
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { PageShell } from "@/components/ui";
 import type { Restaurant } from "@/lib/api";
 
 function LinkRow({ label, href, external }: { label: string; href: string; external?: boolean }) {
@@ -56,17 +57,14 @@ export function LaunchCenter({ restaurant }: { restaurant: Restaurant }) {
   const dashboardUrl = `${origin}/dashboard`;
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 py-8 pb-28 text-[#171512] sm:px-6">
-      <div className="mx-auto w-full max-w-lg">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="text-xl font-bold tracking-tight text-[#B97824]">OrderVora</div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm">
-            Business Ready
-          </span>
-        </div>
-
+    <PageShell maxWidth="lg">
         <section className="rounded-[28px] border border-[#E7DDCF] bg-white p-5 shadow-[0_18px_50px_rgba(48,39,27,0.07)] sm:p-7">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">YOU&apos;RE LIVE</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">YOU&apos;RE LIVE</p>
+            <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm">
+              Business Ready
+            </span>
+          </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">{restaurant.name} is ready to take orders.</h1>
           <p className="mt-3 text-sm leading-6 text-[#756B5D]">
             Share your ordering link, print the QR code for tables or receipts, and run a test order before you go live.
@@ -97,7 +95,6 @@ export function LaunchCenter({ restaurant }: { restaurant: Restaurant }) {
             Go to dashboard
           </Link>
         </section>
-      </div>
-    </main>
+    </PageShell>
   );
 }

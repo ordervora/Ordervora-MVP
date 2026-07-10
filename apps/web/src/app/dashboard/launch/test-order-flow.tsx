@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PageShell } from "@/components/ui";
 import type { Restaurant } from "@/lib/api";
 
 const STEPS = [
@@ -25,17 +26,14 @@ export function TestOrderFlow({ restaurant }: { restaurant: Restaurant }) {
   const websiteUrl = `${origin}/order/${restaurant.id}`;
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 py-8 pb-28 text-[#171512] sm:px-6">
-      <div className="mx-auto w-full max-w-lg">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="text-xl font-bold tracking-tight text-[#B97824]">OrderVora</div>
-          <Link href="/dashboard/launch" className="text-sm font-bold text-[#756B5D]">
-            Back
-          </Link>
-        </div>
-
+    <PageShell maxWidth="lg">
         <section className="rounded-[28px] border border-[#E7DDCF] bg-white p-5 shadow-[0_18px_50px_rgba(48,39,27,0.07)] sm:p-7">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">TEST ORDER</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">TEST ORDER</p>
+            <Link href="/dashboard/launch" className="shrink-0 text-sm font-bold text-[#756B5D]">
+              Back
+            </Link>
+          </div>
           <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
             Run a test order before you go live.
           </h1>
@@ -94,7 +92,6 @@ export function TestOrderFlow({ restaurant }: { restaurant: Restaurant }) {
             Back to Launch Center
           </Link>
         </section>
-      </div>
-    </main>
+    </PageShell>
   );
 }

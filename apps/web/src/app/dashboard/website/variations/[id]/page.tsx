@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { PageShell } from "@/components/ui";
 import type { SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
 import { DevicePreview } from "./device-preview";
@@ -28,9 +28,7 @@ export default async function VariationPreviewPage({ params }: { params: Promise
   const definition = version.definition;
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        <DashboardNav />
+    <PageShell maxWidth="3xl">
         <div className="flex flex-col gap-6 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">FULL PREVIEW</p>
@@ -79,7 +77,6 @@ export default async function VariationPreviewPage({ params }: { params: Promise
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

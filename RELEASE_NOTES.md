@@ -3250,3 +3250,107 @@ overflow anywhere, zero console/page errors, and the shared container's
 left edge measured at an identical 16px on every single page checked
 (including `dashboard-overview.tsx`), confirming one shared horizontal
 padding system end to end.
+
+## Sprint 19B-3 — Production Readiness
+
+Full production-readiness pass: closed the last drawer-coverage gaps,
+found and fixed a real silent-failure bug in the email verification
+flow, and re-verified every primary action and dashboard/onboarding
+screen live. No new features, no backend architecture changes, no
+redesign.
+
+**1. Drawer coverage — 4 pages were still missing it:**
+
+- `builder/page.tsx` (the AI Restaurant Builder's cinematic full-screen
+  flow — loading, bootstrap-failed, live-build, and finale-reveal
+  phases) had no nav at all, by original design ("distraction-free").
+  Given every dashboard page must now have it, added `DashboardDrawer`
+  to all five phases without touching any of the existing
+  confetti/chime/rotating-caption cinematic behavior — verified live
+  that the hamburger is present and clickable through the confetti
+  overlay on the finale screen.
+- `dashboard/launch/page.tsx` and `launch/test-order/page.tsx`
+  (`LaunchCenter`/`TestOrderFlow`) had their own bespoke "OrderVora"
+  header with no hamburger/drawer and no bottom tab bar — a real
+  navigation dead end reachable only by browser Back. Migrated both onto
+  `PageShell`, moving their existing "Business Ready" badge and "Back"
+  link inline into the card header rather than dropping them.
+- `website/variations/[id]/page.tsx` had `DashboardNav` (so the drawer
+  technically worked) but was still hand-rolling the container markup
+  missed in Sprint 19B-2's audit — migrated onto `PageShell` for
+  consistency.
+- Also fixed three more bare, nav-less "Loading…" early-return states
+  (`launch/page.tsx`, `launch/test-order/page.tsx`, plus the two
+  `bg-zinc-50`/`dark:bg-black` loading/error states inside
+  `builder-experience.tsx`, recolored to the cream palette) — the same
+  jump-inducing gap class of bug fixed for other pages in 19B-2.
+- Confirmed via a scripted check across every `page.tsx` under
+  `/dashboard` that all now reference `PageShell`/`DashboardDrawer`/
+  `DashboardNav`, directly or through a component they render.
+
+**2. Email Verification / Resend Email — root cause found and fixed:**
+
+The resend flow was not a UI bug — it was a completely silent backend
+failure. `sendNotification()` (the shared notification dispatcher) never
+threw and never returned its result; it wrote a `NotificationLog` row
+and returned `void`. `resendVerificationHandler` always responded
+`{ ok: true }` regardless of whether the email actually sent, and the
+frontend's `VerifyEmailBanner` always showed "Verification email sent —
+check your inbox." — even when the SMTP send failed outright. Nothing
+surfaced the failure anywhere: no error to the user, no server log, only
+a `FAILED` row in a database table nobody was watching.
+
+Reproduced live end-to-end in this environment (this sandbox's
+`SMTP_HOST` is the placeholder `smtp.example.com`, which is expected for
+local dev but happens to reproduce the exact failure class this bug
+hides): before the fix, clicking "Resend email" against a dead SMTP host
+returned HTTP 200 and showed the false success message. After the fix,
+it correctly returns HTTP 502 with `Could not send the verification
+email. Please try again in a few minutes.`, and the server log now shows
+the real underlying error (`getaddrinfo ENOTFOUND smtp.example.com`).
+
+Fix, threaded end to end:
+- `sendNotification()` now returns the real `SendNotificationResult`
+  (`{success, errorMessage}`) instead of `void`, and logs a `warn` on
+  failure — existing fire-and-forget callers (order confirmations, etc.)
+  are unaffected since they already ignored the return value.
+- `sendEmailVerificationEmail`/`sendOwnerPasswordResetEmail`/
+  `sendPasswordResetEmail` forward that result instead of swallowing it.
+- `sendEmailVerification()` (auth service) now returns
+  `{ sent: boolean; errorMessage?: string }`; `register()` still ignores
+  it (a failed welcome email must never block account creation — the
+  banner is the recovery path), but `resendVerificationHandler` checks
+  it and returns a real 502 with a real message when the send fails.
+- `VerifyEmailBanner` now catches that error and displays it (with a
+  "Try again" retry button) instead of the try/finally previously
+  discarding it as an unhandled rejection.
+- Deliberately left `requestPasswordReset`/`forgotPassword` untouched:
+  it's intentionally enumeration-safe (always resolves identically
+  whether or not the email exists, per its own doc comment), and
+  surfacing SMTP failures there would open a timing/response oracle for
+  distinguishing valid from invalid emails during an SMTP outage — a
+  real security regression this sprint's "no production regressions"
+  requirement rules out. That flow's silence is by design, not a bug.
+
+**Note on scope:** this fixes the code-level bug — the flow now tells
+the truth about whether an email went out, in every environment. Verifying
+the *actual* production `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD` values
+requires access to the real deployment's environment configuration, which
+this sandbox does not have. If production email still doesn't arrive
+after this deploys, the fix guarantees it will now fail loudly (server
+log + 502 + a real on-screen error) instead of silently — that's the
+signal to check the production SMTP credentials next.
+
+**3–5. Full review pass:** live Playwright sweep across 21 dashboard
+pages at iPhone SE (375×667), iPhone 14/15 (390×844), and iPhone Pro Max
+(430×932) — zero horizontal overflow, zero missing hamburger buttons,
+zero console/page errors on any page at any width. Verified every listed
+primary action live: Login, Navigation Drawer (open + navigate), Logout,
+Forgot Password, and Verify Email/Resend (above) all work correctly
+end-to-end. Re-confirmed Import Hub, Launch Center, and Test Order Flow
+render correctly with no regressions from today's changes.
+
+**Verified:** typecheck, lint, full test suite (both apps — 113 web
+tests incl. 3 new, 1073 API tests incl. 2 new, all passing), production
+build (both apps, all routes clean), and the live verification described
+above.
