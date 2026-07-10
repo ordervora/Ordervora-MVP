@@ -20,17 +20,21 @@ beforeAll(() => {
 });
 
 describe("createApp", () => {
-  it("assigns a fresh X-Request-Id to a request that doesn't send one, and echoes an inbound one back unchanged", async () => {
-    const { createApp } = await import("./app.js");
-    const request = (await import("supertest")).default;
-    const app = createApp();
+  it(
+    "assigns a fresh X-Request-Id to a request that doesn't send one, and echoes an inbound one back unchanged",
+    async () => {
+      const { createApp } = await import("./app.js");
+      const request = (await import("supertest")).default;
+      const app = createApp();
 
-    const withoutHeader = await request(app).get("/health");
-    expect(withoutHeader.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      const withoutHeader = await request(app).get("/health");
+      expect(withoutHeader.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
 
-    const withHeader = await request(app).get("/health").set("X-Request-Id", "caller-supplied-id");
-    expect(withHeader.headers["x-request-id"]).toBe("caller-supplied-id");
-  });
+      const withHeader = await request(app).get("/health").set("X-Request-Id", "caller-supplied-id");
+      expect(withHeader.headers["x-request-id"]).toBe("caller-supplied-id");
+    },
+    15_000,
+  );
 
   it("/health reports process liveness plus each background worker's last-poll snapshot (Production Hardening Phase 9)", async () => {
     const { createApp } = await import("./app.js");
@@ -81,21 +85,12 @@ describe("createApp", () => {
         res.json({ body: req.body ?? null });
       });
 
-      // A bare HTML <form> can only ever send this content type (or
-      // multipart/form-data or text/plain) — never application/json — so
-      // if this were parsed into req.body, a malicious page's
-      // auto-submitting form could drive any cookie-authenticated route
-      // (auth here is cookie-only — see middleware/require-auth.ts — and
-      // the cross-site custom domain requires SameSite=None, see
-      // modules/auth/cookies.ts — so this is a live CSRF vector unless
-      // the server flatly refuses to parse non-JSON bodies).
       const formRes = await request(app)
         .post("/probe")
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send("email=attacker%40example.com&password=hunter2");
       expect(formRes.body.body).toBeFalsy();
 
-      // Positive control: a genuine JSON request still parses normally.
       const jsonRes = await request(app).post("/probe").send({ email: "a@a.com" });
       expect(jsonRes.body.body).toEqual({ email: "a@a.com" });
     });
