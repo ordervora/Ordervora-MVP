@@ -2703,3 +2703,46 @@ existing warm mobile-first design tokens.
 
 **Next in Sprint 18:** import-processing UX fix, website-preview UX
 fix, and a mobile responsive pass.
+
+## Sprint 18, Part 5 — Import Processing UX
+
+Finishes and polishes the `/dashboard/import` review workflow:
+
+- **Bulk review actions (done):** the per-item selection checkboxes in
+  `ReviewEditor` existed since Sprint 10 but had no action wired to them
+  (dead UI). They now drive a real bulk-action bar: **Move to category**
+  (moves every selected item into a typed/existing category, creating a
+  new category on the fly if it doesn't exist yet) and **Delete
+  selected**, plus a per-category "select all" checkbox in each section
+  header. All of this is local editor state — nothing is persisted until
+  Save/Approve, same as existing inline edits.
+- **Removed a dead "Edit" button** that only focused the row's checkbox
+  and did nothing else — confusing UI with no real function.
+- **Fixed a status-indicator bug** on the review page (`/dashboard/import/[id]`):
+  the colored status dot next to the job status label was hardcoded to
+  amber regardless of the job's actual status; it now reflects
+  FAILED/REJECTED (red), AWAITING_REVIEW (blue), APPROVED (green), or
+  PENDING/PROCESSING (amber).
+- **Retheme:** `BusinessProfilePreview` (the "profile update applied on
+  approve" card shown above the review editor for Website/Google Maps
+  imports) was still on the old dark/zinc design language; it now
+  matches the warm cream/gold system used everywhere else in the import
+  flow.
+- **Test fixes:** `upload-form.test.tsx` and `review-editor.test.tsx`
+  had gone stale against earlier UI copy/structure changes (radio-button
+  source picker → button grid, "Import"/"Reject" → "Start
+  import"/"Reject import"/"Approve & continue") and were failing before
+  this part; updated to match current UI, plus new coverage for the
+  bulk-action bar.
+
+**Explicitly out of scope this part:** the AI import progress bar
+(`ImportProgress` in `/dashboard/import`) intentionally stays a
+synthetic 7-stage breakdown derived from the coarse `PENDING →
+PROCESSING → AWAITING_REVIEW` status — `ImportJob` has no real
+per-stage granularity on the backend (unlike site generation's
+`GenerationStage` enum), so building a "more real" version would either
+require a schema change (out of scope for a UX-only part) or would be
+equally synthetic; left as-is rather than reworked for cosmetic churn.
+
+**Next in Sprint 18:** website-preview UX fix, and a mobile responsive
+pass.

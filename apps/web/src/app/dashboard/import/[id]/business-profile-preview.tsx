@@ -14,21 +14,22 @@ export function BusinessProfilePreview({ profile }: { profile: BusinessProfile }
   if (!hasAnyField) return null;
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-black/[.08] p-3 text-sm dark:border-white/[.145]">
-      <h2 className="font-medium text-black dark:text-zinc-50">Restaurant profile update (applied on approve)</h2>
-      <div className="flex gap-3">
+    <div className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">APPLIED ON APPROVE</p>
+      <h2 className="mt-1 text-lg font-bold">Restaurant profile update</h2>
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row">
         {profile.logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={profile.logoUrl} alt="Restaurant logo" className="h-16 w-16 rounded object-cover" />
+          <img src={profile.logoUrl} alt="Restaurant logo" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />
         )}
-        <div className="flex flex-col gap-1">
-          {profile.name && <p>Name: {profile.name}</p>}
-          {profile.address && <p>Address: {profile.address}</p>}
-          {profile.phone && <p>Phone: {profile.phone}</p>}
+        <div className="flex min-w-0 flex-col gap-1 text-sm text-[#2A251F]">
+          {profile.name && <p><span className="text-[#8A7D6C]">Name:</span> {profile.name}</p>}
+          {profile.address && <p><span className="text-[#8A7D6C]">Address:</span> {profile.address}</p>}
+          {profile.phone && <p><span className="text-[#8A7D6C]">Phone:</span> {profile.phone}</p>}
           {profile.website && (
             <p>
-              Website:{" "}
-              <a href={profile.website} target="_blank" rel="noreferrer" className="underline">
+              <span className="text-[#8A7D6C]">Website:</span>{" "}
+              <a href={profile.website} target="_blank" rel="noreferrer" className="break-all font-semibold text-[#A9681F] underline">
                 {profile.website}
               </a>
             </p>
@@ -36,21 +37,21 @@ export function BusinessProfilePreview({ profile }: { profile: BusinessProfile }
         </div>
       </div>
       {profile.hours && profile.hours.length > 0 && (
-        <ul className="pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+        <ul className="mt-3 space-y-0.5 border-t border-[#EEE5D9] pt-3 text-xs text-[#756B5D]">
           {profile.hours.map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
       )}
       {profile.socialLinks && profile.socialLinks.length > 0 && (
-        <div className="flex gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           {profile.socialLinks.map((link) => (
             <a
               key={link.platform}
               href={link.url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-full border border-black/[.08] px-2 py-0.5 text-xs capitalize dark:border-white/[.145]"
+              className="rounded-full border border-[#E7DDCF] bg-[#FFFDF9] px-3 py-1 text-xs font-semibold capitalize text-[#756B5D]"
             >
               {link.platform}
             </a>

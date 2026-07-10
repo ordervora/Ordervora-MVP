@@ -61,11 +61,13 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
   const router = useRouter();
   const [items, setItems] = useState<EditableItem[]>(() => flatten(job.extractedData ?? { categories: [] }));
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [moveTarget, setMoveTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const categoryNames = [...new Set(items.map((item) => item.category))];
   const businessProfile = job.extractedData?.businessProfile;
+  const selectedCount = selectedKeys.size;
 
   function toggleSelected(key: string) {
     setSelectedKeys((prev) => {
@@ -74,6 +76,36 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
       else next.add(key);
       return next;
     });
+  }
+
+  function toggleCategorySelected(categoryName: string) {
+    const categoryKeys = items.filter((item) => item.category === categoryName).map((item) => item.key);
+    const allSelected = categoryKeys.every((key) => selectedKeys.has(key));
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      for (const key of categoryKeys) {
+        if (allSelected) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedKeys(new Set());
+    setMoveTarget("");
+  }
+
+  function handleDeleteSelected() {
+    setItems((prev) => prev.filter((item) => !selectedKeys.has(item.key)));
+    clearSelection();
+  }
+
+  function handleMoveSelected() {
+    const target = moveTarget.trim();
+    if (!target) return;
+    setItems((prev) => prev.map((item) => (selectedKeys.has(item.key) ? { ...item, category: target } : item)));
+    clearSelection();
   }
 
   function updateItem(key: string, patch: Partial<EditableItem>) {
@@ -129,18 +161,52 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
     <div className="space-y-6">
       {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
+      {selectedCount > 0 && (
+        <div className="sticky top-2 z-30 flex flex-col gap-3 rounded-2xl border border-[#B97824] bg-[#FFF8ED] p-3 shadow-[0_8px_24px_rgba(185,120,36,0.12)] sm:flex-row sm:items-center">
+          <span className="text-sm font-bold text-[#171512]">{selectedCount} selected</span>
+          <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="text"
+              list="review-editor-category-names"
+              value={moveTarget}
+              onChange={(e) => setMoveTarget(e.target.value)}
+              placeholder="Move to category…"
+              className="min-h-11 w-full rounded-xl border border-[#E7DDCF] bg-white px-3 text-sm text-[#171512] outline-none focus:border-[#B97824] sm:max-w-xs"
+            />
+            <datalist id="review-editor-category-names">
+              {categoryNames.map((name) => <option key={name} value={name} />)}
+            </datalist>
+            <div className="flex gap-2">
+              <button type="button" onClick={handleMoveSelected} disabled={!moveTarget.trim()} className="min-h-11 flex-1 rounded-xl border border-[#E7DDCF] bg-white px-4 text-sm font-bold text-[#171512] disabled:opacity-50 sm:flex-none">Move</button>
+              <button type="button" onClick={handleDeleteSelected} className="min-h-11 flex-1 rounded-xl bg-red-600 px-4 text-sm font-bold text-white sm:flex-none">Delete selected</button>
+              <button type="button" onClick={clearSelection} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-[#756B5D]">Clear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {categoryNames.map((categoryName) => {
         const categoryItems = items.filter((item) => item.category === categoryName);
+        const allSelected = categoryItems.every((item) => selectedKeys.has(item.key));
         return (
           <section key={categoryName}>
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-bold tracking-tight sm:text-xl">{categoryName}</h2>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => toggleCategorySelected(categoryName)}
+                  aria-label={`Select all in ${categoryName}`}
+                  className="h-4 w-4 shrink-0 accent-[#B97824]"
+                />
+                <h2 className="text-lg font-bold tracking-tight sm:text-xl">{categoryName}</h2>
+              </label>
               <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#756B5D] shadow-sm">{categoryItems.length} items</span>
             </div>
 
             <div className="mt-3 overflow-hidden rounded-2xl border border-[#E7DDCF] bg-white shadow-[0_8px_24px_rgba(48,39,27,0.04)]">
               {categoryItems.map((item, index) => (
-                <article key={item.key} className={`px-3 py-3 sm:px-4 ${index > 0 ? "border-t border-[#EEE5D9]" : ""}`}>
+                <article key={item.key} className={`px-3 py-3 sm:px-4 ${index > 0 ? "border-t border-[#EEE5D9]" : ""} ${selectedKeys.has(item.key) ? "bg-[#FFF8ED]" : ""}`}>
                   <div className="flex items-start gap-3">
                     <input
                       type="checkbox"
@@ -179,14 +245,13 @@ export function ReviewEditor({ job }: { job: ImportJob }) {
                         />
                       )}
 
-                      <div className="mt-1 flex items-center gap-2">
-                        <button type="button" className="text-xs font-bold text-[#A9681F]" onClick={() => document.querySelector<HTMLInputElement>(`input[aria-label=\"Select ${item.name}\"]`)?.focus()}>Edit</button>
-                        {item.confidence !== undefined && (
+                      {item.confidence !== undefined && (
+                        <div className="mt-1">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${confidenceClass(item.confidence)}`}>
                             {Math.round(item.confidence * 100)}%
                           </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </article>

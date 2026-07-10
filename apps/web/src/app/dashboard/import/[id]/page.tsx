@@ -9,6 +9,13 @@ function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+function statusDotClass(status: ImportJob["status"]): string {
+  if (status === "FAILED" || status === "REJECTED") return "bg-red-500";
+  if (status === "AWAITING_REVIEW") return "bg-blue-500";
+  if (status === "APPROVED") return "bg-emerald-500";
+  return "bg-amber-500";
+}
+
 export default async function ImportReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const result = await serverFetch<{ job: ImportJob }>(`/api/imports/${id}`);
@@ -27,7 +34,7 @@ export default async function ImportReviewPage({ params }: { params: Promise<{ i
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Review your imported menu</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#756B5D]">Check names and prices, make quick edits, then approve everything into your menu.</p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-bold text-[#756B5D] shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            <span className={`h-2 w-2 rounded-full ${statusDotClass(job.status)}`} />
             {job.status.replaceAll("_", " ")}
           </div>
         </header>

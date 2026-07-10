@@ -61,25 +61,6 @@ describe("ReviewEditor (Sprint 10)", () => {
     expect(screen.getByText("40%")).toBeInTheDocument();
   });
 
-  it("bulk-moves selected items to a different category", async () => {
-    render(<ReviewEditor job={job()} />);
-
-    fireEvent.click(screen.getByLabelText("Select Mystery Combo"));
-    fireEvent.change(screen.getByPlaceholderText("Move to category…"), { target: { value: "Appetizers" } });
-    fireEvent.click(screen.getByText("Move"));
-
-    await waitFor(() => expect(screen.queryByText("Mystery Combo")).not.toBeInTheDocument());
-  });
-
-  it("bulk-deletes selected items", async () => {
-    render(<ReviewEditor job={job()} />);
-
-    fireEvent.click(screen.getByLabelText("Select Mystery Combo"));
-    fireEvent.click(screen.getByText("Delete selected"));
-
-    await waitFor(() => expect(screen.queryByDisplayValue("Mystery Combo")).not.toBeInTheDocument());
-  });
-
   it("edits an item's name and price inline", () => {
     render(<ReviewEditor job={job()} />);
 
@@ -101,7 +82,7 @@ describe("ReviewEditor (Sprint 10)", () => {
   it("persists edits before approving, then hands off into the AI Restaurant Builder experience (Sprint 11)", async () => {
     render(<ReviewEditor job={job()} />);
 
-    fireEvent.click(screen.getByText("Approve into menu"));
+    fireEvent.click(screen.getByText("Approve & continue"));
 
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith("job-1", expect.any(Object)));
     expect(mockApprove).toHaveBeenCalledWith("job-1");
@@ -111,9 +92,50 @@ describe("ReviewEditor (Sprint 10)", () => {
   it("rejects without persisting edits first", async () => {
     render(<ReviewEditor job={job()} />);
 
-    fireEvent.click(screen.getByText("Reject"));
+    fireEvent.click(screen.getByText("Reject import"));
 
     await waitFor(() => expect(mockReject).toHaveBeenCalledWith("job-1"));
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReviewEditor — bulk selection (Sprint 18 Part 5)", () => {
+  it("shows a bulk action bar only once an item is selected", () => {
+    render(<ReviewEditor job={job()} />);
+
+    expect(screen.queryByText("Delete selected")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Select Mystery Combo"));
+
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("Delete selected")).toBeInTheDocument();
+  });
+
+  it("bulk-deletes selected items", async () => {
+    render(<ReviewEditor job={job()} />);
+
+    fireEvent.click(screen.getByLabelText("Select Mystery Combo"));
+    fireEvent.click(screen.getByText("Delete selected"));
+
+    await waitFor(() => expect(screen.queryByDisplayValue("Mystery Combo")).not.toBeInTheDocument());
+  });
+
+  it("bulk-moves selected items to a different category", async () => {
+    render(<ReviewEditor job={job()} />);
+
+    fireEvent.click(screen.getByLabelText("Select Mystery Combo"));
+    fireEvent.change(screen.getByPlaceholderText("Move to category…"), { target: { value: "Appetizers" } });
+    fireEvent.click(screen.getByText("Move"));
+
+    await waitFor(() => expect(screen.queryByText("Mystery Combo")).not.toBeInTheDocument());
+    expect(screen.getAllByText("3 items")).toHaveLength(1);
+  });
+
+  it("selects every item in a category via the category checkbox", () => {
+    render(<ReviewEditor job={job()} />);
+
+    fireEvent.click(screen.getByLabelText("Select all in Appetizers"));
+
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
   });
 });
