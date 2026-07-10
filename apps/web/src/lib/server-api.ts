@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 
 const apiUrl =
-  process.env.API_URL ??
-  (process.env.NODE_ENV === "production" ? "https://ordervora-api.onrender.com" : "http://localhost:4000");
+  process.env.NODE_ENV === "production"
+    ? "https://ordervora-api.onrender.com"
+    : (process.env.API_URL ?? "http://localhost:4000");
 
 export type ServerFetchResult<T> = { ok: true; data: T } | { ok: false; status: number };
 
