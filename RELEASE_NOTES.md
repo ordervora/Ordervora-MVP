@@ -2953,3 +2953,85 @@ session against the dev server (screenshot delivered separately).
 **Next in Sprint 19:** Menu module, then Kitchen/Ops, Staff/Payments/
 Settings, Marketing/Analytics, and the remaining Website Hub pages —
 delivered as further verified parts.
+
+## Sprint 19 — Scope Change
+
+The broader page-by-page dashboard redesign above (Parts 1-2 shipped;
+Menu/Kitchen/Staff/etc. were next) was paused mid-flight per updated
+direction: finish the product to production quality first, in small,
+individually-approved milestones, rather than a continuous sweep.
+Sprint 19 now proceeds as **Sprint 19A, 19B, …** — each a scoped,
+explicitly-approved unit of work. The Part 1 design system foundation
+and Part 2 Orders module already shipped remain in place and in use.
+
+## Sprint 19A — AI Import Experience
+
+Full redesign of the AI Menu Import experience, approved and delivered
+exactly to spec (see approval decisions below):
+
+- **One unified import hub** — removed the old separated "AI import" /
+  "POS connections" / "delivery platforms" sections entirely. All 13
+  sources (Photo, PDF, Spreadsheet, Website, Google Maps, DoorDash,
+  Uber Eats, Grubhub, Toast, Clover, Square, SpotOn, Revel) now live
+  together in one compact 3-column grid.
+- **Real branded icons** (`source-icons.tsx`) — each source is a
+  colored tile + glyph evoking that brand's actual color and shape
+  language (DoorDash red, Uber Eats green bag, Grubhub red bite mark,
+  Toast orange, Clover green four-leaf, Square black, Google Maps'
+  red/blue pin, SpotOn teal pin, Revel blue), replacing the generic
+  beige placeholder icons. These are original marks, not reproductions
+  of trademarked logo files — no internet access in this environment
+  to source official brand assets.
+- **JSON merged into Spreadsheet** — no separate, unbacked JSON card;
+  the existing Spreadsheet source already covers CSV/Excel/JSON-shaped
+  data via the `xlsx`-based CSV adapter.
+- **Honest "Coming soon" / "Enterprise" labels, never a fake workflow**
+  — DoorDash/Uber Eats/Grubhub have stub backend adapters only
+  (`implemented: false`); Toast/Clover/Square are a separate, existing
+  POS-sync feature (`/dashboard/pos`), not import sources; SpotOn/Revel
+  don't exist in the backend at all. Tapping any of these shows an
+  inline note and does nothing else — no backend changes were made in
+  this milestone, per explicit instruction.
+- **No "Start Import" button** — selecting a file or submitting a URL
+  (Enter key, or the inline arrow button) starts the import
+  immediately.
+- **The upload card transforms in place** through picking → live AI
+  progress → completion — no separate progress section, no scrolling
+  required to find it. Live progress shows a real stage name (Uploading
+  / OCR Reading / AI Understanding / Building Categories / Building
+  Products / Generating Descriptions / Saving Database / Completed), a
+  percentage, an 8-dot stage stepper, and an "About Xs left" estimate —
+  all driven by a smooth interval-animated percentage that climbs
+  toward a ceiling set by the job's real status (PENDING/PROCESSING/
+  AWAITING_REVIEW), an honest "still working, getting closer" indicator
+  rather than a fake precise countdown (same accepted tradeoff pattern
+  as Sprint 18 Part 5, since the backend has no finer-grained stage
+  data than those three values).
+- **Completion state** — "✅ Menu Ready", product/category counts, and
+  a prominent Review Menu action, auto-navigating to the review page
+  after a short pause.
+- **Import History is strictly historical** — the job currently live in
+  the hub card is excluded from the history list below it; history
+  never duplicates or becomes the primary workflow.
+- **Bug found and fixed during live mobile verification**: a job that
+  failed before ever appearing in a server poll as active would leave
+  the card stuck showing fake "still processing" progress forever,
+  since `displayJob = activeJob ?? localJob` couldn't distinguish
+  "hasn't polled yet" from "polled and it's genuinely gone." Fixed with
+  a 7-second grace period (past the 6s poll interval) after which the
+  optimistic local job state is dropped if the server hasn't confirmed
+  it — verified against a real failing import in a live browser
+  session, with a regression test added.
+
+**Verified:** typecheck, lint, full test suite (103 passed — the
+previously-known pre-existing `live-build-screen.test.tsx` failures
+were independently fixed elsewhere on this branch and are now green
+too), full production build, and multiple live mobile-viewport
+(390×844) browser sessions covering the picker grid, coming-soon
+handling, URL/file auto-start, live progress, and the failure-fallback
+fix. 10 new tests in `import-hub.test.tsx`.
+
+**Explicitly out of scope this milestone** (per instruction): no
+backend changes, no new import adapters or POS integrations — the 8
+platforms without real backend support remain "Coming soon"/
+"Enterprise" until a future milestone adds real integration work.
