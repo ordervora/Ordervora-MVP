@@ -49,18 +49,51 @@ function PlatformIcon({ name }: { name: PlatformIconName }) {
   return <div className={box} aria-label="Grubhub icon"><span className="text-lg font-black">G</span></div>;
 }
 
+const MAX_IMAGE_FILES = 20;
+
 export function UploadForm() {
   const router = useRouter();
   const [sourceId, setSourceId] = useState("image");
   const [file, setFile] = useState<File | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [sourceUrl, setSourceUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [batchSummary, setBatchSummary] = useState<{ succeeded: number; failed: number } | null>(null);
   const selected = SOURCES.find((source) => source.id === sourceId) ?? SOURCES[0];
+  const isMultiImage = selected.id === "image";
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    setBatchSummary(null);
+
+    if (isMultiImage) {
+      if (imageFiles.length === 0) {
+        setError("Choose at least one photo to upload");
+        return;
+      }
+      setSubmitting(true);
+      let succeeded = 0;
+      let failed = 0;
+      for (let i = 0; i < imageFiles.length; i++) {
+        setUploadProgress({ done: i, total: imageFiles.length });
+        try {
+          await createImportJob("IMAGE", { file: imageFiles[i] });
+          succeeded++;
+        } catch {
+          failed++;
+        }
+      }
+      setUploadProgress(null);
+      setBatchSummary({ succeeded, failed });
+      setImageFiles([]);
+      setSubmitting(false);
+      router.refresh();
+      return;
+    }
+
     if (selected.inputKind === "file" && !file) {
       setError("Choose a file to upload");
       return;
@@ -100,7 +133,7 @@ export function UploadForm() {
               <button
                 key={source.id}
                 type="button"
-                onClick={() => { setSourceId(source.id); setFile(null); setSourceUrl(""); setError(null); }}
+                onClick={() => { setSourceId(source.id); setFile(null); setImageFiles([]); setSourceUrl(""); setError(null); setBatchSummary(null); }}
                 className={`flex min-h-[92px] flex-col items-start justify-between rounded-2xl border p-3 text-left transition ${active ? "border-[#B97824] bg-[#FFF8ED] shadow-[0_8px_24px_rgba(185,120,36,0.10)]" : "border-[#E7DDCF] bg-[#FFFDF9]"}`}
               >
                 <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? "bg-[#B97824] text-white" : "bg-[#F4E6D1] text-[#9A5F17]"}`}><SourceIcon name={source.icon}/></span>
@@ -112,9 +145,27 @@ export function UploadForm() {
 
         <div className="mt-5 rounded-2xl border border-dashed border-[#CDBA9E] bg-[#FFFDF9] p-4 text-center sm:p-6">
           <h3 className="text-lg font-bold">{selected.inputKind === "url" ? "Paste your source link" : `Upload ${selected.label}`}</h3>
-          <p className="mt-1 text-sm text-[#756B5D]">We will extract categories, products, prices, and descriptions.</p>
+          <p className="mt-1 text-sm text-[#756B5D]">
+            {isMultiImage
+              ? `Select up to ${MAX_IMAGE_FILES} photos of your menu — pages, boards, receipts, anything with items and prices.`
+              : "We will extract categories, products, prices, and descriptions."}
+          </p>
 
-          {selected.inputKind === "file" ? (
+          {isMultiImage ? (
+            <label className="mt-4 flex cursor-pointer flex-col items-center rounded-2xl border border-[#E7DDCF] bg-white px-4 py-4 shadow-sm">
+              <span className="text-sm font-bold text-[#171512]">
+                {imageFiles.length > 0 ? `${imageFiles.length} photo${imageFiles.length === 1 ? "" : "s"} selected` : "Choose photos"}
+              </span>
+              <span className="mt-1 text-xs text-[#8A7D6C]">Up to {MAX_IMAGE_FILES} images</span>
+              <input
+                type="file"
+                accept={selected.accept}
+                multiple
+                onChange={(e) => setImageFiles(Array.from(e.target.files ?? []).slice(0, MAX_IMAGE_FILES))}
+                className="sr-only"
+              />
+            </label>
+          ) : selected.inputKind === "file" ? (
             <label className="mt-4 flex cursor-pointer flex-col items-center rounded-2xl border border-[#E7DDCF] bg-white px-4 py-4 shadow-sm">
               <span className="text-sm font-bold text-[#171512]">{file ? file.name : "Choose a file"}</span>
               <span className="mt-1 text-xs text-[#8A7D6C]">{selected.label}</span>
@@ -128,6 +179,27 @@ export function UploadForm() {
               placeholder={selected.value === "GOOGLE_MAPS" ? "https://maps.app.goo.gl/..." : "https://example.com/menu"}
               className="mt-4 min-h-14 w-full rounded-2xl border border-[#E7DDCF] bg-white px-4 text-base text-[#171512] outline-none placeholder:text-[#A3988A] focus:border-[#B97824]"
             />
+          )}
+
+          {uploadProgress && (
+            <div className="mt-4">
+              <div className="h-2 overflow-hidden rounded-full bg-[#EEE5D9]">
+                <div
+                  className="h-full rounded-full bg-[#B97824] transition-all duration-300"
+                  style={{ width: `${Math.round((uploadProgress.done / uploadProgress.total) * 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs font-semibold text-[#9A6A2F]">
+                Uploading photo {uploadProgress.done + 1} of {uploadProgress.total}…
+              </p>
+            </div>
+          )}
+
+          {batchSummary && (
+            <p className={`mt-3 text-sm font-medium ${batchSummary.failed > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+              {batchSummary.succeeded} photo{batchSummary.succeeded === 1 ? "" : "s"} started import
+              {batchSummary.failed > 0 ? `, ${batchSummary.failed} failed to upload` : ""}.
+            </p>
           )}
 
           {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
