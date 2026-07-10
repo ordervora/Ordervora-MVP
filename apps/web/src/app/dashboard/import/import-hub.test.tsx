@@ -14,8 +14,9 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ImportHub } from "./import-hub";
+import type { ImportJob } from "@/lib/api";
 
-function job(overrides: Record<string, unknown> = {}) {
+function job(overrides: Partial<ImportJob> = {}): ImportJob {
   return {
     id: "job-1",
     sourceType: "IMAGE",
