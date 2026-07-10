@@ -69,15 +69,14 @@ describe("LiveBuildScreen", () => {
     afterEach(() => vi.useRealTimers());
 
     it("rotates the active stage caption over time", () => {
-      render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="ASSEMBLY" />);
-      const initialCaption = screen.getByText("Assembling three complete designs…");
-      expect(initialCaption).toBeInTheDocument();
+      render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="INGEST" />);
+      expect(screen.getByText("Reading Joe's Diner's menu and profile…")).toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(2200);
       });
 
-      expect(screen.queryByText("Assembling three complete designs…")).not.toBeInTheDocument();
+      expect(screen.getByText("Organizing your categories and items…")).toBeInTheDocument();
     });
   });
 });
