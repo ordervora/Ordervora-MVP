@@ -3118,3 +3118,55 @@ production-verified there). Not an application bug.
 regression tests for the redirect-loop, re-entrancy, and partial-failure
 fixes), full production build, and repeated live mobile-viewport browser
 sessions re-confirming each fix after implementation.
+
+## Sprint 19B-1 — Premium Header & Navigation
+
+UI-only sprint: replaced the absence of a mobile top nav with a premium
+slide-in-from-left drawer (Apple/Linear/Arc-Browser-inspired), triggered by
+a new ☰ hamburger button. No routing or backend changes; the existing
+bottom tab bar and "More" bottom sheet are untouched.
+
+**What was built:**
+
+- `DashboardDrawer` (`apps/web/src/components/dashboard-drawer.tsx`) — a
+  mobile-only (`lg:hidden`) header row (hamburger + "OrderVora" wordmark)
+  plus a slide-in drawer panel. The drawer stays mounted at all times and
+  is class-toggled (`translate-x-0` / `-translate-x-full`, backdrop
+  `opacity-100` / `opacity-0`) rather than conditionally rendered, so both
+  the open and close transitions animate smoothly (300ms ease-out) instead
+  of only the open direction.
+- Backdrop: `bg-black/40 backdrop-blur-sm`, dismisses the drawer on tap.
+- 9 menu items with `lucide-react` icons (Dashboard, Orders, Menu,
+  Customers, AI, Website, Marketing, Settings, Help). Dashboard, Orders,
+  Menu, AI, Website, and Settings map to existing routes (Settings →
+  `/dashboard/restaurant`, the closest existing settings surface).
+  Customers, Marketing, and Help have no corresponding page yet, so they
+  render as non-navigating rows with a "Soon" badge rather than linking
+  to a 404.
+- Active-page highlighting reuses the same `pathname === href ||
+  startsWith(href)` logic already used by `DashboardNav`'s desktop and
+  bottom-tab links.
+- `pt-[max(20px,env(safe-area-inset-top))]` on the drawer panel for iPhone
+  notch clearance.
+- Wired into `DashboardNav` (automatic coverage across every page that
+  renders it — ~25 owner dashboard routes) and separately into
+  `dashboard-overview.tsx`, which has its own hand-rolled header/nav
+  instead of using `DashboardNav`.
+
+**Bug found and fixed during implementation:** the new drawer's "Close
+menu" buttons (backdrop + explicit X) collided with the existing "More"
+bottom-sheet's "Close menu" button on accessible name, breaking an
+existing `dashboard-nav.test.tsx` test once both were mounted together.
+Renamed the drawer's close controls to "Close navigation menu" to keep
+both controls independently addressable.
+
+**Verified:** typecheck, lint, full test suite (107 passed), production
+build (all ~40 routes compiled clean), and live Playwright sessions at
+390×844 and 375×812 covering: drawer open/close animation, backdrop tap
+outside the panel, zero horizontal overflow before/after opening the
+drawer, active-page highlighting on both a `DashboardNav` page (Orders)
+and `dashboard-overview.tsx`, "Soon" items not navigating, and the
+existing bottom tab bar still present and unaffected. No console or page
+errors in any run.
+
+Stopping here per instruction — no further Sprint 19B parts started.
