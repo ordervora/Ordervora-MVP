@@ -27,3 +27,15 @@ export class StaffNotFoundError extends Error {
     super("Staff member not found");
   }
 }
+
+export class InvalidPasswordResetTokenError extends Error {
+  constructor() {
+    super("Invalid or expired reset link");
+  }
+}
+
+export class InvalidEmailVerificationTokenError extends Error {
+  constructor() {
+    super("Invalid or expired verification link");
+  }
+}

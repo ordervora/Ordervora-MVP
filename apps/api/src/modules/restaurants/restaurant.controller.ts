@@ -9,11 +9,17 @@ import {
   getOwnRestaurantId,
   listAllRestaurants,
   listReferrals,
+  setSetupStep,
   suspendRestaurant,
   unsuspendRestaurant,
   updateOwnRestaurant,
 } from "./restaurant.service";
-import { createRestaurantSchema, suspendRestaurantSchema, updateRestaurantSchema } from "./restaurant.validation";
+import {
+  createRestaurantSchema,
+  setSetupStepSchema,
+  suspendRestaurantSchema,
+  updateRestaurantSchema,
+} from "./restaurant.validation";
 
 /** §19.4 profile-change revalidation — see menu.controller.ts's revalidateInBackground for the same rationale. */
 function revalidateInBackground(restaurantId: string): void {
@@ -62,6 +68,25 @@ export async function updateMine(req: Request, res: Response): Promise<void> {
   try {
     const restaurant = await updateOwnRestaurant(req.user!.id, parsed.data);
     revalidateInBackground(restaurant.id);
+    res.status(200).json({ restaurant });
+  } catch (err) {
+    if (err instanceof NoRestaurantError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function setSetupStepHandler(req: Request, res: Response): Promise<void> {
+  const parsed = setSetupStepSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const restaurant = await setSetupStep(req.user!.id, parsed.data.setupStep);
     res.status(200).json({ restaurant });
   } catch (err) {
     if (err instanceof NoRestaurantError) {

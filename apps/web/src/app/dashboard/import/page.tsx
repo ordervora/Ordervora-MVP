@@ -24,7 +24,38 @@ function statusTone(status: ImportJob["status"]) {
   return "bg-emerald-50 text-emerald-700";
 }
 
-function ImportProgress({ job }: { job: ImportJob }) {
+const TOP_LEVEL_STAGES = ["Uploading", "AI Processing", "Building Menu", "Complete"] as const;
+
+function topLevelStageIndex(overall: number): number {
+  if (overall < 15) return 0;
+  if (overall < 70) return 1;
+  if (overall < 100) return 2;
+  return 3;
+}
+
+function TopLevelStages({ overall }: { overall: number }) {
+  const activeIndex = topLevelStageIndex(overall);
+  return (
+    <div className="mt-5 grid grid-cols-4 gap-2">
+      {TOP_LEVEL_STAGES.map((label, index) => {
+        const done = index < activeIndex || overall >= 100;
+        const active = index === activeIndex && overall < 100;
+        return (
+          <div
+            key={label}
+            className={`rounded-xl px-2 py-2 text-center text-[11px] font-bold sm:text-xs ${
+              done ? "bg-emerald-50 text-emerald-700" : active ? "bg-[#FFF3E0] text-[#9A6A2F]" : "bg-[#F7F0E5] text-[#A3988A]"
+            }`}
+          >
+            {label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ImportProgress({ job, otherActiveCount }: { job: ImportJob; otherActiveCount: number }) {
   const overall = progressForStatus(job.status);
   const stages = [
     ["Upload complete", overall >= 10 ? 100 : 0],
@@ -51,6 +82,8 @@ function ImportProgress({ job }: { job: ImportJob }) {
       </div>
       <p className="mt-2 text-xs text-[#8A7D6C]">This page updates automatically while the import is running.</p>
 
+      <TopLevelStages overall={overall} />
+
       <div className="mt-6 space-y-5">
         {stages.map(([label, value]) => (
           <div key={label}>
@@ -70,6 +103,11 @@ function ImportProgress({ job }: { job: ImportJob }) {
         <p className="mt-1 text-sm leading-6 text-[#E9E0D4]">
           {job.status === "PENDING" ? "Preparing the source for AI analysis." : job.status === "PROCESSING" ? "Reading menu content, detecting categories, products, and prices." : job.status === "AWAITING_REVIEW" ? "Extraction is complete. Your menu is ready for review." : "Import job finished."}
         </p>
+        {otherActiveCount > 0 && (
+          <p className="mt-2 text-xs text-[#B9AD9B]">
+            {otherActiveCount} more import{otherActiveCount === 1 ? " is" : "s are"} processing — see the full list below.
+          </p>
+        )}
       </div>
     </section>
   );
@@ -78,7 +116,8 @@ function ImportProgress({ job }: { job: ImportJob }) {
 export default async function ImportPage() {
   const result = await serverFetch<{ jobs: ImportJob[] }>("/api/imports");
   const jobs = result.ok ? result.data.jobs : [];
-  const activeJob = jobs.find((job) => job.status === "PENDING" || job.status === "PROCESSING" || job.status === "AWAITING_REVIEW");
+  const activeJobs = jobs.filter((job) => job.status === "PENDING" || job.status === "PROCESSING" || job.status === "AWAITING_REVIEW");
+  const activeJob = activeJobs[0];
   const pollingNeeded = jobs.some((job) => job.status === "PENDING" || job.status === "PROCESSING");
 
   return (
@@ -93,7 +132,7 @@ export default async function ImportPage() {
         </header>
 
         <UploadForm />
-        {activeJob && <ImportProgress job={activeJob} />}
+        {activeJob && <ImportProgress job={activeJob} otherActiveCount={activeJobs.length - 1} />}
 
         <section className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
           <div className="flex items-center justify-between gap-3">

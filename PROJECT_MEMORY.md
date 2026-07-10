@@ -102,16 +102,41 @@ Planned:
 
 ## Current Development Direction
 
-Sprint 18:
-Premium UI integration.
+Sprint 18 (Owner Experience Foundation): **complete**, all 7 parts —
+owner auth foundation, Business Setup Wizard, Launch Center, Test Order
+Flow, Import Processing UX, Website Preview UX, Final Mobile UX Review.
+Full detail per part is in `RELEASE_NOTES.md`.
 
-Focus:
+Focus carried through the sprint:
 - Improve existing screens
 - Connect Figma designs to real React components
 - Preserve backend functionality
 - Improve mobile experience
 
 Do not rewrite the system unnecessarily.
+
+**What Sprint 18 did and did not cover:** the warm cream/gold design
+system now covers the primary owner flows built or touched this sprint
+(setup wizard, launch center, test order flow, import review, the AI
+Builder path, and the manual Website Hub's preview/publish pages). It
+does **not** yet cover the rest of the pre-existing owner dashboard
+(Orders, Menu, Kitchen, Staff, Payments, Coupons, Loyalty, Referrals,
+Tables, Delivery, Driver, Kitchen Capacity, POS, Restaurant, Profile) —
+those pages had their mobile *structure* fixed in Part 7 (bottom-nav
+clearance, horizontal-overflow guards, reachable navigation) but keep
+their pre-Sprint-18 dark/zinc visual styling. Retheming them is real,
+scoped follow-up work, not something to redo from scratch — see
+`ROADMAP.md`.
+
+**Mobile navigation:** `DashboardNav` (`apps/web/src/components/dashboard-nav.tsx`)
+is the shared nav used by most dashboard pages — desktop pill nav +
+mobile bottom tab bar with a "More" sheet for sections without their own
+tab. `dashboard-overview.tsx` (the `/dashboard` Overview page) has its
+own separate hand-rolled desktop-sidebar + mobile-bottom-nav layout,
+not `DashboardNav` — a pre-existing duplication (not consolidated this
+sprint; both got the same "More" sheet fix independently in Part 7).
+Check which layout a new owner-facing page should use before building
+it — don't assume `DashboardNav` covers every case.
 
 ## Important Decisions
 

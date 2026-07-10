@@ -10,11 +10,12 @@ vi.mock("../../lib/prisma", () => ({
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
+import { NoRestaurantError, RestaurantAlreadyExistsError, RestaurantNotFoundError } from "./restaurant.errors";
 import {
   createRestaurant,
   getOwnRestaurantId,
   listReferrals,
+  setSetupStep,
   suspendRestaurant,
   unsuspendRestaurant,
 } from "./restaurant.service";
@@ -112,6 +113,27 @@ describe("createRestaurant", () => {
     });
   });
 
+  it("defaults name to a placeholder and setupStep to BUSINESS_INFO when the wizard creates the row with only a businessType", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
+
+    const txRestaurantCreate = vi.fn().mockResolvedValue({ id: "new-restaurant" });
+    const txMock = { restaurant: { create: txRestaurantCreate }, user: { update: vi.fn() } };
+    const transactionMock = mockPrisma.$transaction as unknown as {
+      mockImplementation: (fn: (callback: (tx: typeof txMock) => unknown) => unknown) => void;
+    };
+    transactionMock.mockImplementation((fn) => fn(txMock));
+
+    await createRestaurant("owner-1", { businessType: "COFFEE_SHOP" });
+
+    expect(txRestaurantCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: "My Business",
+        businessType: "COFFEE_SHOP",
+        setupStep: "BUSINESS_INFO",
+      }),
+    });
+  });
+
   it("retries with a fresh code on a referral-code collision, and gives up after too many collisions", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
 
@@ -181,6 +203,28 @@ describe("unsuspendRestaurant", () => {
     expect(mockPrisma.restaurant.update).toHaveBeenCalledWith({
       where: { id: "rest-1" },
       data: { isSuspended: false, suspendedReason: null },
+    });
+  });
+});
+
+describe("setSetupStep", () => {
+  it("throws NoRestaurantError when the caller has no business yet", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: null } as never);
+
+    await expect(setSetupStep("owner-1", "LOCATION")).rejects.toBeInstanceOf(NoRestaurantError);
+  });
+
+  it("updates the restaurant's setupStep", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ restaurantId: "rest-1" } as never);
+    mockPrisma.restaurant.findUnique.mockResolvedValue({ id: "rest-1" } as never);
+    mockPrisma.restaurant.update.mockResolvedValue({ id: "rest-1", setupStep: "LOCATION" } as never);
+
+    const result = await setSetupStep("owner-1", "LOCATION");
+
+    expect(result.setupStep).toBe("LOCATION");
+    expect(mockPrisma.restaurant.update).toHaveBeenCalledWith({
+      where: { id: "rest-1" },
+      data: { setupStep: "LOCATION" },
     });
   });
 });

@@ -31,8 +31,16 @@ export function DevicePreview({ siteId, variationId }: { siteId: string; variati
     };
   }, [siteId]);
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!token) return <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading preview…</p>;
+  if (error) {
+    return <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>;
+  }
+  if (!token) {
+    return (
+      <div className="flex h-[300px] w-full animate-pulse flex-col items-center justify-center gap-2 rounded-2xl bg-[#EEE5D9] sm:h-[600px]">
+        <p className="text-sm font-semibold text-[#8A7D6C]">Loading preview…</p>
+      </div>
+    );
+  }
 
   const src = `/preview/${token}?variation=${encodeURIComponent(variationId)}&path=${encodeURIComponent("/")}`;
 
@@ -44,10 +52,8 @@ export function DevicePreview({ siteId, variationId }: { siteId: string; variati
             key={d}
             type="button"
             onClick={() => setDevice(d)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${
-              device === d
-                ? "border-foreground bg-foreground text-background"
-                : "border-black/[.08] text-black dark:border-white/[.145] dark:text-zinc-50"
+            className={`min-h-9 rounded-full border px-3 py-1 text-xs font-bold capitalize transition ${
+              device === d ? "border-[#171512] bg-[#171512] text-white" : "border-[#E7DDCF] bg-white text-[#756B5D]"
             }`}
           >
             {d}
@@ -55,10 +61,10 @@ export function DevicePreview({ siteId, variationId }: { siteId: string; variati
         ))}
       </div>
       <div
-        className="mx-auto w-full overflow-hidden rounded-lg border border-black/[.08] transition-[max-width] dark:border-white/[.145]"
+        className="mx-auto w-full overflow-hidden rounded-2xl border border-[#E7DDCF] bg-white transition-[max-width]"
         style={{ maxWidth: DEVICE_WIDTHS[device] }}
       >
-        <iframe src={src} title="Site preview" className="h-[600px] w-full border-0" />
+        <iframe src={src} title="Site preview" className="h-[300px] w-full border-0 sm:h-[600px]" />
       </div>
     </div>
   );

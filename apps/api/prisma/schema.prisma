@@ -27,6 +27,11 @@ model User {
   // request, since access tokens are short-lived and this mirrors the
   // existing token-theft revocation check's granularity.
   isActive     Boolean  @default(true)
+  // Sprint 18 — owner/staff account completeness. Not enforced at login
+  // (an unverified owner can still use the product; this only gates the
+  // "Resend verification" banner/prompt), mirroring how most SaaS
+  // products treat email verification as a nag, not a hard login gate.
+  emailVerified Boolean @default(false)
 
   invitedById String?
   invitedBy   User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])
@@ -37,6 +42,8 @@ model User {
   ownedRestaurant Restaurant? @relation("RestaurantOwner")
 
   refreshTokens RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   importJobs    ImportJob[]
   siteVersionsCreated SiteVersion[]
 
@@ -59,6 +66,36 @@ model RefreshToken {
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
+  // "Remember me" (Sprint 18) — decides whether the refresh-token cookie
+  // is persistent (survives browser close) or session-only. Carried
+  // forward across rotation so the original login choice holds for the
+  // life of the session, not just its first refresh.
+  rememberMe Boolean  @default(true)
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/** Mirrors CustomerPasswordResetToken exactly, for the User (owner/staff) table (Sprint 18). */
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
   createdAt DateTime  @default(now())
 
   @@index([userId])
@@ -69,6 +106,15 @@ model Restaurant {
   ownerId     String   @unique
   owner       User     @relation("RestaurantOwner", fields: [ownerId], references: [id])
   name        String
+  // Sprint 18 — Business Setup Wizard. "Business" is the umbrella term
+  // across every business type below (a coffee shop or retail store is
+  // still a "Restaurant" row internally — renaming the table platform-wide
+  // was out of scope; only user-facing copy says "Business").
+  businessType BusinessType @default(OTHER)
+  // Tracks which wizard step the owner should resume at if they close the
+  // tab mid-setup and log back in later (from any device) — DONE means
+  // the wizard has been completed and the owner sees the normal dashboard.
+  setupStep    SetupStep    @default(BUSINESS_TYPE)
   description String?
   address     String?
   // Geocoded restaurant location — required for the Smart Routing
@@ -172,6 +218,29 @@ model MenuItem {
 
   @@index([restaurantId])
   @@index([categoryId])
+}
+
+// Sprint 18 — Business Setup Wizard.
+enum BusinessType {
+  RESTAURANT
+  COFFEE_SHOP
+  DELI
+  VAPE_SHOP
+  CONVENIENCE_STORE
+  BAKERY
+  PIZZA
+  RETAIL
+  OTHER
+}
+
+enum SetupStep {
+  BUSINESS_TYPE
+  BUSINESS_INFO
+  LOCATION
+  PAYMENT_PROVIDER
+  MENU_IMPORT
+  WEBSITE_THEME
+  DONE
 }
 
 enum ImportSourceType {
@@ -1787,6 +1856,7 @@ enum NotificationType {
   DRIVER_ASSIGNMENT_OFFER
   DRIVER_REASSIGNED_AWAY
   PASSWORD_RESET_REQUESTED
+  EMAIL_VERIFICATION_REQUESTED
 }
 
 enum NotificationStatus {

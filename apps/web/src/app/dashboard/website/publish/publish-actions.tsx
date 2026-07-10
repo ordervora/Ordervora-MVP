@@ -29,13 +29,13 @@ export function PublishButton({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {warning && <p className="text-sm text-amber-600">{warning}</p>}
+      {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+      {warning && <p className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{warning}</p>}
       <button
         type="button"
         onClick={handleClick}
         disabled={submitting}
-        className="self-start rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background disabled:opacity-50"
+        className="min-h-12 self-start rounded-2xl bg-[#171512] px-5 text-sm font-bold text-white disabled:opacity-50"
       >
         {submitting ? "Publishing…" : "Publish"}
       </button>
@@ -62,7 +62,7 @@ export function UnpublishButton({ siteId }: { siteId: string }) {
       type="button"
       onClick={handleClick}
       disabled={submitting}
-      className="self-start rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
+      className="min-h-12 self-start rounded-2xl border border-[#E7DDCF] bg-white px-4 text-sm font-bold text-[#171512] disabled:opacity-50"
     >
       {submitting ? "Unpublishing…" : "Unpublish"}
     </button>
@@ -88,7 +88,7 @@ export function RollbackButton({ siteId, versionId }: { siteId: string; versionI
       type="button"
       onClick={handleClick}
       disabled={submitting}
-      className="rounded-full border border-black/[.08] px-3 py-1 text-xs font-medium text-black disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
+      className="min-h-9 rounded-full border border-[#E7DDCF] bg-white px-3 py-1 text-xs font-bold text-[#171512] disabled:opacity-50"
     >
       {submitting ? "Rolling back…" : "Roll back to this release"}
     </button>

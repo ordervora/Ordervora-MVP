@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveBuildScreen } from "./live-build-screen";
 
 describe("LiveBuildScreen", () => {
-  it("shows the restaurant name and marks earlier steps as done", () => {
+  it("shows the restaurant name and grouped build progress", () => {
     render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="ASSEMBLY" />);
 
-    expect(screen.getByText(/Building Joe's Diner's digital home/)).toBeInTheDocument();
-    expect(screen.getByText("Theme Selection")).toBeInTheDocument();
-    expect(screen.getByText("Homepage Creation")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Building Joe's Diner" })).toBeInTheDocument();
+    expect(screen.getByText("Understanding your restaurant")).toBeInTheDocument();
+    expect(screen.getByText("Designing your website")).toBeInTheDocument();
+    expect(screen.getByText("Publishing your business")).toBeInTheDocument();
   });
 
   it("shows the error message and retry button when one is provided", () => {
@@ -32,10 +33,13 @@ describe("LiveBuildScreen", () => {
     expect(screen.getByText(/Joe's Diner's menu and profile/)).toBeInTheDocument();
   });
 
-  it("shows the value-pitch checklist and ticks items off as their gating stage completes", () => {
+  it("shows grouped build stages with completion state", () => {
     render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="PUBLISHING" />);
-    expect(screen.getByText("Website")).toBeInTheDocument();
-    expect(screen.getByText("QR ordering")).toBeInTheDocument();
+
+    expect(screen.getByText("Understanding your restaurant")).toBeInTheDocument();
+    expect(screen.getByText("Designing your website")).toBeInTheDocument();
+    expect(screen.getByText("Publishing your business")).toBeInTheDocument();
+    expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
   });
 
   it("dramatizes the choice with candidate cards during SELECTING instead of the generic mockup", () => {
@@ -60,19 +64,19 @@ describe("LiveBuildScreen", () => {
     vi.useRealTimers();
   });
 
-  describe("reassurance line", () => {
+  describe("rotating captions", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it("appears only after the active stage has run long enough", () => {
-      render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="ASSEMBLY" />);
-      expect(screen.queryByText(/Still working/)).not.toBeInTheDocument();
+    it("rotates the active stage caption over time", () => {
+      render(<LiveBuildScreen restaurantName="Joe's Diner" activeStepId="INGEST" />);
+      expect(screen.getByText("Reading Joe's Diner's menu and profile…")).toBeInTheDocument();
 
       act(() => {
-        vi.advanceTimersByTime(7000);
+        vi.advanceTimersByTime(2200);
       });
 
-      expect(screen.getByText(/Still working/)).toBeInTheDocument();
+      expect(screen.getByText("Organizing your categories and items…")).toBeInTheDocument();
     });
   });
 });

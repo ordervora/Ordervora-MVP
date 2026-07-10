@@ -23,42 +23,48 @@ export default async function PublishPage() {
   const domains = domainsResult.ok ? domainsResult.data.domains : [];
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
         <DashboardNav />
+        <header className="pt-2 lg:pt-0">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">GO LIVE</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Publish &amp; domains</h1>
+        </header>
 
-        <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <h1 className="text-lg font-semibold text-black dark:text-zinc-50">Publish</h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Status: <span className="font-mono">{site.status}</span>
-          </p>
+        <div className="flex flex-col gap-4 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold">Status</h2>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${site.status === "PUBLISHED" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+              {site.status}
+            </span>
+          </div>
           {!draft ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm text-[#756B5D]">
               No active draft to publish —{" "}
-              <Link href="/dashboard/website/variations" className="underline">
+              <Link href="/dashboard/website/variations" className="font-semibold text-[#A9681F] underline">
                 choose a variation
               </Link>{" "}
               first.
             </p>
           ) : (
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <PublishButton siteId={site.id} />
               {site.status === "PUBLISHED" && <UnpublishButton siteId={site.id} />}
             </div>
           )}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold text-black dark:text-zinc-50">Releases</h2>
+        <div className="flex flex-col gap-3 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
+          <h2 className="text-lg font-bold">Releases</h2>
           {releases.length === 0 ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">No releases yet.</p>
+            <p className="text-sm text-[#756B5D]">No releases yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {releases.map((release) => (
-                <li key={release.id} className="flex items-center justify-between rounded border border-black/[.08] p-3 text-sm dark:border-white/[.145]">
+                <li key={release.id} className="flex flex-col gap-2 rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <span>
                     v{release.versionNo} — {release.publishedAt ? new Date(release.publishedAt).toLocaleString() : "unknown"}
-                    {release.id === site.publishedVersionId && <span className="ml-2 text-xs text-emerald-600">(live)</span>}
+                    {release.id === site.publishedVersionId && <span className="ml-2 text-xs font-bold text-emerald-700">(live)</span>}
                   </span>
                   {release.id !== site.publishedVersionId && <RollbackButton siteId={site.id} versionId={release.id} />}
                 </li>
@@ -67,8 +73,8 @@ export default async function PublishPage() {
           )}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold text-black dark:text-zinc-50">Domains</h2>
+        <div className="flex flex-col gap-3 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
+          <h2 className="text-lg font-bold">Domains</h2>
           <DomainForm siteId={site.id} />
           {domains.length > 0 && (
             <ul className="flex flex-col gap-2">

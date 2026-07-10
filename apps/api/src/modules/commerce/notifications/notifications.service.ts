@@ -230,3 +230,25 @@ export async function sendPasswordResetEmail(customerId: string, customerEmail: 
     customerId,
   });
 }
+
+/** Sent when a restaurant owner/staff account (the User table, distinct from Customer) requests a password reset (Sprint 18). */
+export async function sendOwnerPasswordResetEmail(ownerEmail: string, resetLink: string): Promise<void> {
+  await sendNotification({
+    type: "PASSWORD_RESET_REQUESTED",
+    channel: "EMAIL",
+    to: ownerEmail,
+    subject: "Reset your password",
+    body: `Use the link below to reset your password. This link expires in 1 hour.\n\n${resetLink}`,
+  });
+}
+
+/** Sent to verify a restaurant owner/staff account's email address (Sprint 18). */
+export async function sendEmailVerificationEmail(ownerEmail: string, verifyLink: string): Promise<void> {
+  await sendNotification({
+    type: "EMAIL_VERIFICATION_REQUESTED",
+    channel: "EMAIL",
+    to: ownerEmail,
+    subject: "Verify your email",
+    body: `Use the link below to verify your email address. This link expires in 24 hours.\n\n${verifyLink}`,
+  });
+}

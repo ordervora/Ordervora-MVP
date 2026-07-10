@@ -28,23 +28,24 @@ export default async function VariationPreviewPage({ params }: { params: Promise
   const definition = version.definition;
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
-      <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#F7F0E5] px-4 pb-28 pt-5 text-[#171512] sm:px-6 lg:p-10">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <DashboardNav />
-        <div className="flex flex-col gap-6 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
+        <div className="flex flex-col gap-6 rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)] sm:p-6">
           <div>
-            <h1 className="text-lg font-semibold text-black dark:text-zinc-50">{definition.restaurantName}</h1>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">FULL PREVIEW</p>
+            <h1 className="mt-1 text-2xl font-bold">{definition.restaurantName}</h1>
+            <p className="mt-1 text-sm text-[#756B5D]">
               {version.styleFamily} · {definition.cuisine} · {definition.businessType}
             </p>
-            <p className="mt-2 text-sm italic text-zinc-600 dark:text-zinc-400">&ldquo;{definition.tagline}&rdquo;</p>
+            <p className="mt-2 text-sm italic text-[#756B5D]">&ldquo;{definition.tagline}&rdquo;</p>
           </div>
 
           <DevicePreview siteId={site.id} variationId={version.id} />
 
-          <div className="flex gap-2 text-xs text-zinc-500 dark:text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-[#8A7D6C]">
             <span
-              className="h-5 w-5 rounded-full border border-black/[.08] dark:border-white/[.145]"
+              className="h-5 w-5 shrink-0 rounded-full border border-[#E7DDCF]"
               style={{ backgroundColor: definition.colorSeed }}
             />
             <span>
@@ -53,13 +54,13 @@ export default async function VariationPreviewPage({ params }: { params: Promise
           </div>
 
           {definition.pages.map((page) => (
-            <div key={page.slug} className="flex flex-col gap-2 border-t border-black/[.08] pt-4 dark:border-white/[.145]">
-              <h2 className="text-sm font-semibold text-black dark:text-zinc-50">{page.title}</h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-500">{page.metaDescription}</p>
-              <ul className="flex flex-col gap-2 pl-4 text-sm text-zinc-700 dark:text-zinc-300">
+            <div key={page.slug} className="flex flex-col gap-2 border-t border-[#EEE5D9] pt-4">
+              <h2 className="text-sm font-bold">{page.title}</h2>
+              <p className="text-xs text-[#8A7D6C]">{page.metaDescription}</p>
+              <ul className="flex flex-col gap-2 pl-4 text-sm text-[#2A251F]">
                 {page.sections.map((section, i) => (
                   <li key={`${section.type}-${i}`}>
-                    <span className="font-mono text-xs uppercase text-zinc-500">{section.type}</span>
+                    <span className="font-mono text-xs uppercase text-[#8A7D6C]">{section.type}</span>
                     {typeof section.props.headline === "string" && <span> — {section.props.headline}</span>}
                     {typeof section.props.story === "string" && <span> — {section.props.story}</span>}
                     {Array.isArray(section.props.categories) && (

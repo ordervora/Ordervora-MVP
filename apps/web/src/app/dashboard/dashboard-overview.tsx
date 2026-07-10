@@ -46,6 +46,17 @@ const NAV_ITEMS: Array<[string, string, IconName]> = [
   ["Analytics", "/dashboard/analytics", "analytics"], ["Staff", "/dashboard/staff", "staff"], ["Settings", "/dashboard/restaurant", "settings"],
 ];
 
+const MOBILE_TABS: Array<[string, string, IconName]> = [
+  ["Home", "/dashboard", "home"], ["Orders", "/dashboard/orders", "orders"], ["Menu", "/dashboard/menu", "menu"], ["Website", "/dashboard/website", "website"],
+];
+
+// Everything reachable from the desktop sidebar (NAV_ITEMS) or Quick Actions that doesn't
+// already have its own mobile tab above — otherwise unreachable on mobile without this sheet.
+const MORE_ITEMS: Array<[string, string, IconName]> = [
+  ["Launch", "/dashboard/launch", "arrow"], ["Import", "/dashboard/import", "import"], ["Analytics", "/dashboard/analytics", "analytics"],
+  ["Staff", "/dashboard/staff", "staff"], ["Restaurant", "/dashboard/restaurant", "settings"], ["Profile", "/dashboard/profile", "customers"],
+];
+
 const QUICK_ACTIONS: Array<[string, string, IconName]> = [
   ["Add product", "/dashboard/menu", "product"], ["Create coupon", "/dashboard/coupons", "coupon"], ["Import menu", "/dashboard/import", "import"],
   ["Open KDS", "/dashboard/kitchen", "kds"], ["Publish website", "/dashboard/website", "website"],
@@ -65,12 +76,13 @@ function MetricCard({label,value,note,icon}:{label:string;value:string;note?:str
 
 export function DashboardOverview({userName}:{userName:string}){
   const [summary,setSummary]=useState<RevenueSummary|null>(null); const [byDay,setByDay]=useState<RevenueByDay[]>([]); const [topItems,setTopItems]=useState<TopItem[]>([]); const [orders,setOrders]=useState<OwnerOrder[]>([]); const [loading,setLoading]=useState(true); const [error,setError]=useState<string|null>(null);
+  const [moreOpen,setMoreOpen]=useState(false);
   useEffect(()=>{let cancelled=false;(async()=>{try{const [s,d,t,o]=await Promise.all([getRevenueSummary(7),getRevenueByDay(7),getTopItems(7,5),listOwnOrders()]);if(cancelled)return;setSummary(s);setByDay(d.days);setTopItems(t.items);setOrders(o.orders.slice(0,5));setError(null);}catch(e){if(!cancelled)setError(e instanceof Error?e.message:"Could not load dashboard data");}finally{if(!cancelled)setLoading(false);}})();return()=>{cancelled=true};},[]);
   const operations=useMemo(()=>{const c={New:0,Preparing:0,Ready:0,Delayed:0};for(const o of orders){const s=o.status.toUpperCase();if(s.includes("READY"))c.Ready++;else if(s.includes("PREPAR"))c.Preparing++;else if(s.includes("DELAY"))c.Delayed++;else if(!s.includes("COMPLETE")&&!s.includes("CANCEL"))c.New++;}return c;},[orders]);
   const maxRevenue=Math.max(1,...byDay.map(i=>i.revenueCents)); const insight=topItems[0]?`${topItems[0].name} is your leading item this week with ${topItems[0].quantitySold} sold and ${money(topItems[0].revenueCents)} in revenue.`:"Your AI business insights will appear here once you have enough order activity.";
   return <div className="min-h-screen bg-[#F7F0E5] text-[#171512] lg:grid lg:grid-cols-[240px_1fr]">
     <aside className="hidden min-h-screen bg-[#171512] px-4 py-7 text-white lg:flex lg:flex-col"><div className="px-3 text-2xl font-bold tracking-tight text-[#D8A24E]">OrderVora</div><nav className="mt-12 space-y-2">{NAV_ITEMS.map(([label,href,icon],i)=><Link key={href} href={href} className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${i===0?"bg-[#B97824] text-white":"text-[#D7D0C6] hover:bg-white/8 hover:text-white"}`}><Icon name={icon} className="h-[18px] w-[18px]"/>{label}</Link>)}</nav><div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-[#D7D0C6]"><p className="font-semibold text-white">Business command center</p><p className="mt-1 leading-5">Orders, menu, customers and growth in one place.</p></div></aside>
-    <main className="min-w-0 px-4 pb-24 pt-5 sm:px-6 lg:px-10 lg:pb-10 lg:pt-9">
+    <main className="min-w-0 overflow-x-hidden px-4 pb-28 pt-5 sm:px-6 lg:px-10 lg:pb-10 lg:pt-9">
       <header className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-semibold tracking-[0.12em] text-[#9A6A2F] sm:text-sm">BUSINESS OVERVIEW</p><h1 className="mt-1 text-[2rem] font-bold leading-tight tracking-tight sm:text-4xl">Good morning, {userName}.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#756B5D]">See what is happening now and what deserves your attention next.</p></div><button aria-label="Notifications" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#E7DDCF] bg-white text-[#171512] shadow-sm"><Icon name="bell"/></button></header>
       <Link href="/dashboard/orders" className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-[#171512] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-black/10">View live orders <Icon name="arrow" className="h-4 w-4"/></Link>
       {error&&<div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}{loading&&<div className="mt-6 text-sm font-medium text-[#756B5D]">Loading live business data…</div>}
@@ -82,6 +94,15 @@ export function DashboardOverview({userName}:{userName:string}){
       <section className="mt-4 grid gap-4 xl:grid-cols-2"><div className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)]"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Top selling items</h2><Link href="/dashboard/analytics" className="text-sm font-semibold text-[#A9681F]">View all</Link></div><div className="mt-4 divide-y divide-[#EEE5D9]">{topItems.length===0?<p className="py-6 text-sm text-[#756B5D]">No sales data yet.</p>:topItems.map((item,index)=><div key={item.menuItemId} className="flex items-center justify-between gap-4 py-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F4E6D1] text-sm font-bold text-[#9A5F17]">{index+1}</span><div className="min-w-0"><p className="truncate font-semibold">{item.name}</p><p className="text-xs text-[#8A7D6C]">{item.quantitySold} sold</p></div></div><span className="font-semibold">{money(item.revenueCents)}</span></div>)}</div></div>
       <div className="rounded-3xl border border-[#E7DDCF] bg-white p-5 shadow-[0_12px_36px_rgba(48,39,27,0.04)]"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Recent orders</h2><Link href="/dashboard/orders" className="text-sm font-semibold text-[#A9681F]">View all</Link></div><div className="mt-4 divide-y divide-[#EEE5D9]">{orders.length===0?<p className="py-6 text-sm text-[#756B5D]">No orders yet.</p>:orders.map(order=><div key={order.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-semibold">#{order.orderNumber}</p><p className="text-xs text-[#8A7D6C]">{relativeTime(order.placedAt)}</p></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(order.status)}`}>{order.status}</span><span className="font-semibold">{money(order.totalCents)}</span></div></div>)}</div></div></section>
     </main>
-    <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[#E7DDCF] bg-white/95 px-1 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden">{([['Home','/dashboard','home'],['Orders','/dashboard/orders','orders'],['Menu','/dashboard/menu','menu'],['Website','/dashboard/website','website'],['More','/dashboard/restaurant','more']] as Array<[string,string,IconName]>).map(([label,href,icon],i)=><Link key={href} href={href} className={`flex flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${i===0?'text-[#A9681F]':'text-[#756B5D]'}`}><Icon name={icon} className="h-5 w-5"/><span>{label}</span></Link>)}</nav>
+    {moreOpen&&<div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="More navigation">
+      <button type="button" aria-label="Close menu" onClick={()=>setMoreOpen(false)} className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"/>
+      <div className="absolute inset-x-0 bottom-20 mx-3 rounded-3xl border border-[#E7DDCF] bg-white p-3 shadow-[0_18px_50px_rgba(48,39,27,0.18)]">
+        <div className="grid grid-cols-2 gap-2">{MORE_ITEMS.map(([label,href,icon])=><Link key={href} href={href} onClick={()=>setMoreOpen(false)} className="flex min-h-12 items-center gap-2 rounded-2xl bg-[#F7F0E5] px-4 py-3 text-sm font-bold text-[#2A251F]"><Icon name={icon} className="h-[18px] w-[18px]"/>{label}</Link>)}</div>
+      </div>
+    </div>}
+    <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[#E7DDCF] bg-white/95 px-1 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden">
+      {MOBILE_TABS.map(([label,href,icon])=><Link key={href} href={href} className={`flex flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${href==='/dashboard'?'text-[#A9681F]':'text-[#756B5D]'}`}><Icon name={icon} className="h-5 w-5"/><span>{label}</span></Link>)}
+      <button type="button" onClick={()=>setMoreOpen((open)=>!open)} aria-expanded={moreOpen} aria-label="More navigation" className={`flex flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[11px] font-semibold ${moreOpen?'text-[#A9681F]':'text-[#756B5D]'}`}><Icon name="more" className="h-5 w-5"/><span>More</span></button>
+    </nav>
   </div>;
 }

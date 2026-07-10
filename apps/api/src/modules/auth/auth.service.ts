@@ -1,15 +1,29 @@
+import { randomBytes } from "node:crypto";
 import { Role, type User } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
+import { getStringEnv } from "../../config/env";
 import { generateRefreshToken, hashToken, signAccessToken } from "../../lib/jwt";
 import { hashPassword, verifyPassword } from "../../lib/password";
+import { sendEmailVerificationEmail, sendOwnerPasswordResetEmail } from "../commerce/notifications/notifications.service";
 import {
   AccountDeactivatedError,
   EmailInUseError,
   InvalidCredentialsError,
+  InvalidEmailVerificationTokenError,
+  InvalidPasswordResetTokenError,
   InvalidRefreshTokenError,
   StaffNotFoundError,
 } from "./auth.errors";
-import type { CreateStaffInput, LoginInput, RegisterInput } from "./auth.validation";
+import type {
+  ChangePasswordInput,
+  CreateStaffInput,
+  LoginInput,
+  RegisterInput,
+  UpdateProfileInput,
+} from "./auth.validation";
+
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export interface TokenPair {
   accessToken: string;
@@ -17,10 +31,18 @@ export interface TokenPair {
   refreshExpiresAt: Date;
 }
 
-export type PublicUser = Pick<User, "id" | "email" | "name" | "role" | "isActive">;
+export type PublicUser = Pick<User, "id" | "email" | "name" | "role" | "isActive" | "emailVerified" | "phone">;
 
 function toPublicUser(user: User): PublicUser {
-  return { id: user.id, email: user.email, name: user.name, role: user.role, isActive: user.isActive };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    isActive: user.isActive,
+    emailVerified: user.emailVerified,
+    phone: user.phone,
+  };
 }
 
 export interface StaffSummary {
@@ -113,23 +135,23 @@ export async function validateCredentials(input: LoginInput): Promise<User> {
   return user;
 }
 
-export async function issueTokenPair(user: User): Promise<TokenPair> {
+export async function issueTokenPair(user: User, rememberMe = true): Promise<TokenPair> {
   const accessToken = signAccessToken({ sub: user.id, role: user.role });
   const { token, tokenHash, expiresAt } = generateRefreshToken();
   await prisma.refreshToken.create({
-    data: { userId: user.id, tokenHash, expiresAt },
+    data: { userId: user.id, tokenHash, expiresAt, rememberMe },
   });
   return { accessToken, refreshToken: token, refreshExpiresAt: expiresAt };
 }
 
-async function revokeAllRefreshTokensForUser(userId: string): Promise<void> {
+export async function revokeAllRefreshTokensForUser(userId: string): Promise<void> {
   await prisma.refreshToken.updateMany({
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
 }
 
-export async function rotateRefreshToken(presentedToken: string): Promise<{ user: User; tokens: TokenPair }> {
+export async function rotateRefreshToken(presentedToken: string): Promise<{ user: User; tokens: TokenPair; rememberMe: boolean }> {
   const tokenHash = hashToken(presentedToken);
   const stored = await prisma.refreshToken.findUnique({
     where: { tokenHash },
@@ -161,8 +183,11 @@ export async function rotateRefreshToken(presentedToken: string): Promise<{ user
     data: { revokedAt: new Date() },
   });
 
-  const tokens = await issueTokenPair(stored.user);
-  return { user: stored.user, tokens };
+  // Carries the original login's Remember Me choice forward across every
+  // rotation, so a session-only login doesn't silently become persistent
+  // (or vice versa) just because a silent refresh happened (Sprint 18).
+  const tokens = await issueTokenPair(stored.user, stored.rememberMe);
+  return { user: stored.user, tokens, rememberMe: stored.rememberMe };
 }
 
 export async function revokeRefreshToken(presentedToken: string): Promise<void> {
@@ -175,6 +200,92 @@ export async function revokeRefreshToken(presentedToken: string): Promise<void> 
 
 export async function getUserById(id: string): Promise<User | null> {
   return prisma.user.findUnique({ where: { id } });
+}
+
+/**
+ * Always resolves regardless of whether the email matches an account —
+ * enumeration-prevention, mirroring customers.service.ts's
+ * requestPasswordReset (Sprint 18).
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    return;
+  }
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+  await prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash, expiresAt } });
+
+  const resetLink = `${getStringEnv("FRONTEND_URL", "")}/reset-password?token=${token}`;
+  await sendOwnerPasswordResetEmail(user.email, resetLink);
+}
+
+/**
+ * Confirms a password reset — rejects an unknown/expired/already-used
+ * token with one generic error, updates the password, marks the token
+ * used, and invalidates every existing session for the account.
+ */
+export async function resetPassword(presentedToken: string, newPassword: string): Promise<void> {
+  const tokenHash = hashToken(presentedToken);
+  const stored = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+
+  if (!stored || stored.usedAt || stored.expiresAt < new Date()) {
+    throw new InvalidPasswordResetTokenError();
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({ where: { id: stored.userId }, data: { passwordHash } });
+  await prisma.passwordResetToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } });
+  await revokeAllRefreshTokensForUser(stored.userId);
+}
+
+/** Authenticated password change — re-verifies currentPassword, then invalidates every existing session. */
+export async function changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !(await verifyPassword(user.passwordHash, input.currentPassword))) {
+    throw new InvalidCredentialsError();
+  }
+  const passwordHash = await hashPassword(input.newPassword);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await revokeAllRefreshTokensForUser(userId);
+}
+
+/** Issues a fresh single-use email-verification token and emails the link. Never blocks login (Sprint 18 — emailVerified only gates a UI prompt). */
+export async function sendEmailVerification(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.emailVerified) {
+    return;
+  }
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+  await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt } });
+
+  const verifyLink = `${getStringEnv("FRONTEND_URL", "")}/verify-email?token=${token}`;
+  await sendEmailVerificationEmail(user.email, verifyLink);
+}
+
+export async function verifyEmail(presentedToken: string): Promise<void> {
+  const tokenHash = hashToken(presentedToken);
+  const stored = await prisma.emailVerificationToken.findUnique({ where: { tokenHash } });
+
+  if (!stored || stored.usedAt || stored.expiresAt < new Date()) {
+    throw new InvalidEmailVerificationTokenError();
+  }
+
+  await prisma.user.update({ where: { id: stored.userId }, data: { emailVerified: true } });
+  await prisma.emailVerificationToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } });
+}
+
+export async function updateProfile(userId: string, input: UpdateProfileInput): Promise<User> {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+    },
+  });
 }
 
 export { toPublicUser };

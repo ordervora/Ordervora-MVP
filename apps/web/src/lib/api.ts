@@ -3,14 +3,41 @@ export interface PublicUser {
   email: string;
   name: string;
   role: "ADMIN" | "RESTAURANT_OWNER" | "RESTAURANT_STAFF";
+  isActive: boolean;
+  emailVerified: boolean;
+  phone: string | null;
 }
+
+export type BusinessType =
+  | "RESTAURANT"
+  | "COFFEE_SHOP"
+  | "DELI"
+  | "VAPE_SHOP"
+  | "CONVENIENCE_STORE"
+  | "BAKERY"
+  | "PIZZA"
+  | "RETAIL"
+  | "OTHER";
+
+export type SetupStep =
+  | "BUSINESS_TYPE"
+  | "BUSINESS_INFO"
+  | "LOCATION"
+  | "PAYMENT_PROVIDER"
+  | "MENU_IMPORT"
+  | "WEBSITE_THEME"
+  | "DONE";
 
 export interface Restaurant {
   id: string;
   ownerId: string;
   name: string;
+  businessType: BusinessType;
+  setupStep: SetupStep;
   description: string | null;
   address: string | null;
+  lat: number | null;
+  lng: number | null;
   phone: string | null;
   isPublished: boolean;
   isSuspended: boolean;
@@ -19,9 +46,12 @@ export interface Restaurant {
 }
 
 export interface RestaurantInput {
-  name: string;
+  name?: string;
+  businessType?: BusinessType;
   description?: string;
   address?: string;
+  lat?: number;
+  lng?: number;
   phone?: string;
   isPublished?: boolean;
   /** The *referrer's* code (from a ?ref= link) — only meaningful on creation. */
@@ -121,10 +151,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return data as T;
 }
 
-export function login(email: string, password: string) {
+export function login(email: string, password: string, rememberMe = true) {
   return apiFetch<{ user: PublicUser }>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, rememberMe }),
   });
 }
 
@@ -137,6 +167,53 @@ export function register(email: string, password: string, name: string) {
 
 export function logout() {
   return apiFetch<{ ok: true }>("/api/auth/logout", { method: "POST" });
+}
+
+export function logoutAllDevices() {
+  return apiFetch<{ ok: true }>("/api/auth/logout-all", { method: "POST" });
+}
+
+export function getMe() {
+  return apiFetch<{ user: PublicUser }>("/api/auth/me");
+}
+
+export function forgotPassword(email: string) {
+  return apiFetch<{ ok: true }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(token: string, newPassword: string) {
+  return apiFetch<{ ok: true }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
+}
+
+export function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<{ ok: true }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export function verifyEmail(token: string) {
+  return apiFetch<{ ok: true }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function resendVerification() {
+  return apiFetch<{ ok: true }>("/api/auth/resend-verification", { method: "POST" });
+}
+
+export function updateProfile(input: { name?: string; phone?: string | null }) {
+  return apiFetch<{ user: PublicUser }>("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export interface StaffMember {
@@ -182,6 +259,13 @@ export function updateRestaurant(input: RestaurantInput) {
 
 export function getRestaurant() {
   return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me");
+}
+
+export function setSetupStep(setupStep: SetupStep) {
+  return apiFetch<{ restaurant: Restaurant }>("/api/restaurants/me/setup-step", {
+    method: "PATCH",
+    body: JSON.stringify({ setupStep }),
+  });
 }
 
 export function listReferrals() {

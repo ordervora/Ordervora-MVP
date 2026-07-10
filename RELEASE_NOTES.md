@@ -2539,3 +2539,417 @@ this is the one piece of the full roadmap that needs the user to set up
 their own Stripe Connect (or equivalent) account before it can be
 built; will be surfaced as a discrete step when reached rather than
 assumed.
+
+## Sprint 18, Part 1 — Owner Auth Foundation
+
+**Rebuilt owner/staff authentication (done):** the `User` table gains a
+full password-reset, email-verification, and session-management story,
+mirroring the Sprint 07.7 customer-auth pattern:
+
+- **Forgot / reset password**: `POST /api/auth/forgot-password` always
+  resolves regardless of whether the email matches an account
+  (enumeration prevention), emailing a single-use, hashed, 1-hour token
+  when it does. `POST /api/auth/reset-password` consumes the token,
+  updates the password, and revokes every existing refresh token for
+  that account.
+- **Change password**: `POST /api/auth/change-password` (authenticated)
+  re-verifies the current password before accepting a new one, and also
+  revokes every other session.
+- **Email verification**: registering now fires a verification email
+  (`EmailVerificationToken`, same hashed/single-use/TTL shape as the
+  reset token, 24h). `emailVerified` is **not** enforced at login — it
+  only gates a dashboard banner ("Please verify your email") with a
+  resend button, the same soft-nag pattern most SaaS products use rather
+  than blocking sign-in.
+- **Remember Me / persistent sessions**: `RefreshToken` gains a
+  `rememberMe` column, set at login and carried forward through every
+  subsequent rotation (not just the first refresh) — so a session-only
+  login doesn't silently become persistent, or vice versa, just because
+  a silent token refresh happened while the tab stayed open. When
+  `rememberMe` is false, the refresh cookie is set without an `expires`
+  attribute, making it a true browser session cookie.
+- **Logout of all devices**: `POST /api/auth/logout-all` revokes every
+  active refresh token for the account and clears cookies — exposed as
+  a "Log out of all devices" button on the new `/dashboard/profile` page.
+- **Owner profile**: `PATCH /api/auth/profile` updates name/phone;
+  `/dashboard/profile` is the single page for profile edits, password
+  changes, resend-verification, and logout-all-devices.
+
+**Frontend**: new `/forgot-password`, `/reset-password`, and
+`/verify-email` pages (styled to match the existing login/register
+pages); the login page gained a Remember Me checkbox (defaults checked)
+and a Forgot Password link; the dashboard shows a verification banner
+when `emailVerified` is false.
+
+**Explicitly deferred (needs the user's own account setup):** Google
+Sign-In and Apple Sign-In require registering OAuth apps with each
+provider and supplying client ID/secret — not built this sprint since
+there's no working credential to wire up yet. Will be surfaced as a
+discrete step once the user is ready to register those apps.
+
+Requires one new migration in production:
+`apps/api/prisma/migrations/20260709000000_sprint18_owner_auth/migration.sql`
+— adds `User.emailVerified`, `RefreshToken.rememberMe`, two new tables
+(`PasswordResetToken`, `EmailVerificationToken`), and one new
+`NotificationType` enum value (`EMAIL_VERIFICATION_REQUESTED`) — same
+manual Supabase SQL-editor step as every other schema change this
+session.
+
+## Sprint 18, Part 2 — Business Setup Wizard
+
+**Replaces the old "No restaurant found" flow (done):** an owner with no
+business (or one who closed the tab mid-setup) is now automatically sent
+to `/setup` — a 7-step wizard — by `dashboard/layout.tsx`, instead of
+ever landing on a dashboard page that assumes a business already exists,
+or having to manually visit `/dashboard/restaurant` from the "More" menu
+to create one.
+
+- **Business Type** (new step): pick from Restaurant, Coffee Shop, Deli,
+  Vape Shop, Convenience Store, Bakery, Pizza, Retail, or Other —
+  `Restaurant.businessType`, a new enum column. Picking a type creates
+  the business record immediately (name defaults to "My Business" until
+  step 2), so the wizard has something to attach progress to from the
+  very first step.
+- **Business Info**: name, phone, description.
+- **Location**: address (skippable).
+- **Payment Provider**: connect Stripe inline (reuses the existing
+  `connectPaymentProvider` endpoint) or skip and connect later from
+  Dashboard → Payments.
+- **Menu Import**: upload a photo/PDF (reuses the existing import
+  pipeline) or skip and add items manually later.
+- **Website Theme**: reuses the existing AI site generator
+  (`createSite` + `startGeneration`) to build a website immediately, or
+  skip for later.
+- **Finish**: hands off to the new Launch Center (`/dashboard/launch`,
+  Sprint 18 Part 3) instead of the plain dashboard.
+
+**Resumable across logins/devices (done):** progress is tracked
+server-side via `Restaurant.setupStep` (`BUSINESS_TYPE` →
+`BUSINESS_INFO` → `LOCATION` → `PAYMENT_PROVIDER` → `MENU_IMPORT` →
+`WEBSITE_THEME` → `DONE`), not client-side storage — closing the tab and
+logging back in on any device resumes exactly where the owner left off.
+Existing restaurants (created before this wizard existed) are
+backfilled to `DONE` in the migration so they're never redirected into
+it.
+
+**New/changed API:** `POST /api/restaurants` now accepts `businessType`
+alone (name optional, defaulting server-side); `PATCH
+/api/restaurants/me` accepts `businessType`/`lat`/`lng`; new `PATCH
+/api/restaurants/me/setup-step` advances the resume point.
+
+Requires one new migration in production:
+`apps/api/prisma/migrations/20260709221300_sprint18_business_setup_wizard/migration.sql`
+— adds `Restaurant.businessType` and `Restaurant.setupStep` (with a
+data-backfill marking every existing restaurant `DONE`) — same manual
+Supabase SQL-editor step as every other schema change this session.
+
+**Explicitly out of scope this part** (per instruction — functionality
+over visual redesign): the wizard reuses the existing warm/mobile-first
+design tokens already shipped elsewhere in the app rather than
+introducing new visual design; it does not yet rename "Restaurant" to
+"Business" anywhere outside its own new screens.
+
+**Next in Sprint 18:** Launch Center, Test Order
+Flow, import-processing UX fix, website-preview UX fix, and a mobile
+responsive pass — the remaining six pieces of the Sprint 18 "Owner
+Experience Foundation" spec.
+
+## Sprint 18, Part 3 — Launch Center
+
+A new `/dashboard/launch` page is now the landing point right after setup
+finishes, replacing the plain dashboard as the wizard's `DONE` handoff.
+It gives a newly-onboarded owner everything needed to actually go live
+in one place:
+
+- A scannable QR code (`qrcode.react`) encoding the real customer
+  ordering link (`/order/{restaurantId}` — the functional storefront,
+  not the placeholder AI-generated "Site" module).
+- Copy/open rows for the customer ordering link, kitchen display (KDS),
+  and dashboard, so an owner can hand off the right link to the right
+  person (front counter, kitchen, themselves) without hunting for it.
+- A "Test order flow" action that hands off to the guided Test Order
+  Flow (Sprint 18 Part 4, below).
+- A "Go to dashboard" fallback for owners who just want to skip ahead.
+
+Added a "Launch" entry to the desktop dashboard nav pointing at the new
+page. No schema or API changes — this part is presentation-only, built
+entirely on data the Business Setup Wizard (Part 2) already collects.
+
+**Explicitly out of scope this part:** any visual redesign beyond the existing warm
+mobile-first design tokens.
+
+**Next in Sprint 18:** Test Order Flow, import-processing UX fix,
+website-preview UX fix, and a mobile responsive pass.
+
+## Sprint 18, Part 4 — Test Order Flow
+
+A guided `/dashboard/launch/test-order` page, reached from the Launch
+Center's "Test order flow" button, walks a newly-onboarded owner through
+placing one real order on their own storefront before sharing the link
+with actual customers:
+
+- A numbered 3-step checklist (open the live ordering page, complete a
+  real checkout, confirm it landed on Orders/Kitchen).
+- An "Open my ordering page" action that opens the real `/order/{id}`
+  storefront in a new tab.
+- A lightweight self-confirmation ("Did your test order go through?" →
+  "Yes, it worked") that surfaces a success message and a way back to
+  the Launch Center — no new database state; this is a one-time UX
+  nudge, not a gating requirement before an owner can share their link.
+
+No schema or API changes. **Explicitly out of scope:** persisting
+whether a test order was completed, and any visual redesign beyond the
+existing warm mobile-first design tokens.
+
+**Next in Sprint 18:** import-processing UX fix, website-preview UX
+fix, and a mobile responsive pass.
+
+## Sprint 18, Part 5 — Import Processing UX
+
+Finishes and polishes the `/dashboard/import` review workflow:
+
+- **Bulk review actions (done):** the per-item selection checkboxes in
+  `ReviewEditor` existed since Sprint 10 but had no action wired to them
+  (dead UI). They now drive a real bulk-action bar: **Move to category**
+  (moves every selected item into a typed/existing category, creating a
+  new category on the fly if it doesn't exist yet) and **Delete
+  selected**, plus a per-category "select all" checkbox in each section
+  header. All of this is local editor state — nothing is persisted until
+  Save/Approve, same as existing inline edits.
+- **Removed a dead "Edit" button** that only focused the row's checkbox
+  and did nothing else — confusing UI with no real function.
+- **Fixed a status-indicator bug** on the review page (`/dashboard/import/[id]`):
+  the colored status dot next to the job status label was hardcoded to
+  amber regardless of the job's actual status; it now reflects
+  FAILED/REJECTED (red), AWAITING_REVIEW (blue), APPROVED (green), or
+  PENDING/PROCESSING (amber).
+- **Retheme:** `BusinessProfilePreview` (the "profile update applied on
+  approve" card shown above the review editor for Website/Google Maps
+  imports) was still on the old dark/zinc design language; it now
+  matches the warm cream/gold system used everywhere else in the import
+  flow.
+- **Test fixes:** `upload-form.test.tsx` and `review-editor.test.tsx`
+  had gone stale against earlier UI copy/structure changes (radio-button
+  source picker → button grid, "Import"/"Reject" → "Start
+  import"/"Reject import"/"Approve & continue") and were failing before
+  this part; updated to match current UI, plus new coverage for the
+  bulk-action bar.
+
+**Explicitly out of scope this part:** the AI import progress bar
+(`ImportProgress` in `/dashboard/import`) intentionally stays a
+synthetic 7-stage breakdown derived from the coarse `PENDING →
+PROCESSING → AWAITING_REVIEW` status — `ImportJob` has no real
+per-stage granularity on the backend (unlike site generation's
+`GenerationStage` enum), so building a "more real" version would either
+require a schema change (out of scope for a UX-only part) or would be
+equally synthetic; left as-is rather than reworked for cosmetic churn.
+
+**Next in Sprint 18:** website-preview UX fix, and a mobile responsive
+pass.
+
+## Sprint 18, Part 6 — Website Preview UX
+
+Retheme + real progress for the "choose a design → preview → publish"
+chain — the manual `/dashboard/website/*` Website Hub, which had never
+been migrated off the original dark/zinc styling used before the warm
+cream/gold system landed (the newer AI Builder flow at
+`/dashboard/builder/*` was already warm-themed, with one exception —
+see below):
+
+- **`FinaleReveal`** (`dashboard/builder/finale-reveal.tsx`) — the "your
+  business is officially open" screen right after auto-publish, the
+  single most-seen moment in this area — rethemed from dark/zinc to the
+  warm system, matching the screen immediately before it
+  (`LiveBuildScreen`) which was already on-brand.
+- **`DevicePreview`** (`variations/[id]/device-preview.tsx`, shared by
+  `FinaleReveal` and the variation preview page) — rethemed device-toggle
+  buttons and frame; loading state changed from plain "Loading preview…"
+  text to a pulsing skeleton block (better loading state, per this
+  part's goal); preview iframe height is now responsive (300px on
+  mobile, 600px at `sm:` and up) instead of a fixed 600px that forced
+  scrolling on small screens.
+- **`GenerationProgress`** (`variations/generation-progress.tsx`) — was a
+  single generic `w-1/2 animate-pulse` bar with a one-line stage label;
+  rewritten to a real weighted stage checklist (done/active/upcoming),
+  mirroring the same `GenerationStage` sequence and relative-duration
+  weighting the AI Builder's `LiveBuildScreen` already uses, scoped to
+  just this flow's 8 generation stages so 100% lands exactly at
+  `FINALIZE` (not diluted by the Builder's later select/publish/QR
+  steps, which don't apply here).
+- **`variations/page.tsx`, `variations/[id]/page.tsx`, `select-button.tsx`**
+  — rethemed to match (the `GenerationProgress`/`DevicePreview` cards
+  above now live inside these pages; leaving the page shells on the old
+  theme would have looked broken next to them).
+- **Publish flow** (`publish/page.tsx`, `publish-actions.tsx`,
+  `domain-form.tsx`) — rethemed for a cleaner, on-brand publishing
+  screen; domain rows and the add-domain form now stack vertically on
+  mobile instead of a cramped fixed-row layout; status badge, publish
+  warning, and "(live)" release tag now use the same badge language as
+  the rest of the app instead of raw `<span>` colors.
+
+**Explicitly out of scope this part:** the Website Hub landing page
+(`dashboard/website/page.tsx`), Score, and Messages pages — outside
+this part's "preview/publish" scope; whether `/dashboard/website/*`
+(manual, secondary path) and `/dashboard/builder/*` (orchestrated,
+primary path) should eventually be consolidated into one flow is a
+product decision, not resolved here — this part brings both onto one
+consistent visual language without changing which one owners are
+routed through.
+
+**Next in Sprint 18:** final mobile UX review.
+
+## Sprint 18, Part 7 — Final Mobile UX Review
+
+A sweep for the "improve navigation," "fix spacing," "fix overflow," and
+"improve responsive behavior" goals across the owner dashboard,
+targeting the two concrete, verified-in-browser bugs below rather than
+a full page-by-page redesign (out of scope — see Part 6's note on
+`/dashboard/website/*` vs `/dashboard/builder/*`):
+
+- **Fixed: five owner sections were completely unreachable on mobile.**
+  The mobile bottom tab bar's "More" tab was a plain link straight to
+  `/dashboard/restaurant`, which has no links onward — so Launch,
+  Import, Website (from most pages), Analytics, and Profile had no
+  mobile navigation path at all. `DashboardNav` (used by 25+ pages) and
+  the Overview page's separate, hand-rolled mobile nav (`dashboard-overview.tsx`,
+  which duplicates `DashboardNav`'s bottom bar with different tabs and
+  the same dead "More" link — a pre-existing duplication, not introduced
+  here) both now open a real sheet listing the missing sections when
+  "More" is tapped. Verified end-to-end in a real mobile-viewport
+  browser session (login → dashboard → open More → navigate).
+  `DashboardNav` gets its first test file (`dashboard-nav.test.tsx`,
+  4 tests) covering open/close/navigate; `dashboard-overview.tsx` has no
+  test file (pre-existing) and none was added — it's a single dense,
+  minified-style component that doesn't match this codebase's test
+  patterns for straightforward extraction.
+- **Fixed: content hidden behind the fixed mobile nav bar, and hidden
+  horizontal overflow.** 20 dashboard pages shared one identical shell
+  className with no bottom padding reserved for the fixed mobile tab bar
+  (content's last ~60px was tucked underneath it) and no
+  `overflow-x-hidden` guard. Mechanically corrected to the same
+  `pb-28`/`overflow-x-hidden` shell already used by every Sprint 18 page
+  (`import`, `launch`, `setup`, `builder/*`) — a structural fix only,
+  not a retheme (these pages' internal cards/colors are untouched and
+  still on the pre-warm-palette dark/zinc styling; the visual redesign
+  of these pages is separate, larger work).
+- **Fixed: `/dashboard/orders` mobile bugs**, found auditing every owner
+  screen for this class of bug (horizontal overflow, unwrapped tables,
+  missing loading states) after the shell fix above:
+  - The 9-item status-filter row had no wrap or scroll handling — on a
+    narrow viewport `READY`/`OUT_FOR_DELIVERY`/`CANCELLED`/`REFUNDED`
+    were pushed off-screen with no way to reach them (previously masked
+    by the whole *page* scrolling sideways to reveal them — itself a
+    bug, and one the `overflow-x-hidden` shell fix above would have
+    turned into "permanently unreachable" without this). Fixed with an
+    edge-to-edge horizontally-scrollable strip on mobile that becomes a
+    normal wrapping row at `sm:` and up.
+  - The orders `<table>` itself had no scroll wrapper, so its five
+    columns either squeezed illegibly or forced page-level horizontal
+    scroll on a narrow screen. Wrapped in its own `overflow-x-auto` with
+    a `min-w` floor — the same pattern `admin-panel.tsx` already uses.
+  - The list showed "No orders yet." during the initial fetch, not just
+    when a fetch actually returned zero orders — indistinguishable from
+    a real empty state. Added a genuine loading row.
+  
+  Other owner screens were checked for the same bug classes and found
+  already handled correctly — list/grid screens already use
+  `grid-cols-1 sm:grid-cols-N` responsive breakpoints, and no other
+  audited page had a multi-item horizontal row without wrap or scroll of
+  its own.
+- **Fixed:** `orders/[id]/page.test.tsx` — one of three known-stale
+  frontend tests flagged during environment setup, failing because its
+  `next/navigation` mock didn't include `usePathname` (needed by
+  `DashboardNav`, which the page renders). Directly relevant to this
+  part's navigation work, so fixed here; two-line mock fix, now passing.
+
+**Explicitly out of scope:** retheming the 20 structurally-fixed pages'
+internal cards/colors off dark/zinc onto the warm cream/gold system —
+a full visual pass, not a mobile-structure fix, and a much larger unit
+of work than this part's stated goals; `live-build-screen.test.tsx`'s
+3 pre-existing failing tests (a caption-timing assertion issue in the
+AI Builder flow, unrelated to navigation/spacing/overflow — confirmed
+pre-existing by diffing against the branch state before this part).
+
+## Sprint 18 — Complete
+
+All 7 parts of the "Owner Experience Foundation" are now done: owner
+auth foundation, Business Setup Wizard, Launch Center, Test Order Flow,
+Import Processing UX, Website Preview UX, and this mobile UX review.
+See `PROJECT_MEMORY.md` and `ROADMAP.md` for the updated current-state
+summary and what comes after Sprint 18.
+
+# Release Notes — Sprint 19: Premium Mobile Dashboard Redesign
+
+Sprint 19 goal: not a recolor — rebuild spacing, typography, hierarchy,
+cards, navigation, animations, loading states, empty states, and
+interactions across every remaining owner dashboard page still on the
+pre-Sprint-18 dark/zinc styling, mobile-first, on top of a shared,
+reusable component library instead of continuing the one-off-per-page
+approach.
+
+## Sprint 19, Part 1 — Design System Foundation
+
+New `apps/web/src/components/ui/` — a shared component library
+extracted from the warm cream/gold patterns Sprint 18 already proved
+out in `import`/`launch`/`setup`/`builder`, not invented from scratch:
+
+- **`PageShell`** — the standard page wrapper (`DashboardNav` + warm
+  background + `overflow-x-hidden` + `pb-28` mobile-nav clearance),
+  parameterized by max-width instead of every page hand-rolling the
+  same shell string.
+- **`PageHeader`** — eyebrow label + title + description + optional
+  trailing action, the `AI IMPORT HUB` / `BUSINESS OVERVIEW` header
+  pattern generalized.
+- **`Card`** — the white rounded-3xl bordered surface used everywhere,
+  with `default`/`compact`/`none` padding.
+- **`Badge`** — status pill with 5 semantic tones (success/warning/
+  danger/info/neutral) replacing every page's own ad hoc `statusTone()`/
+  `statusClass()` function.
+- **`Button`** — primary/secondary/danger/ghost variants, `md`/`sm`
+  sizes, consistent touch targets and tap feedback.
+- **`EmptyState`** — a real designed empty state (title + description +
+  optional action) instead of a bare "No X yet." string.
+- **`Skeleton`/`SkeletonRows`** — this codebase's first shared loading
+  primitive; previously every screen hand-rolled its own loading text
+  or pulse block.
+- **`FilterPills`** — the scrollable-on-mobile/wrapping-on-desktop
+  status-filter row pattern, generalized from the Orders page fix in
+  Sprint 18 Part 7.
+- **`ResponsiveTable`** — a `<table>` wrapper with its own horizontal
+  scroll and `min-width` floor, so a data table never forces the whole
+  page to scroll sideways.
+
+10 unit tests (`ui.test.tsx`) cover `Button`, `Badge`, `EmptyState`, and
+`FilterPills`'s interactive/branching behavior.
+
+## Sprint 19, Part 2 — Orders Module
+
+First page group rebuilt on the Part 1 foundation, chosen because it's
+the highest-traffic owner screen and already had its mobile structure
+(not visuals) fixed in Sprint 18 Part 7:
+
+- **`/dashboard/orders`**: real card-based list on mobile (tap target
+  per order: number, total, status badge, timestamp) instead of a
+  cramped 5-column table squeezed onto a phone screen; the table is
+  kept for `sm:` and up. Real `Skeleton` loading rows replace the
+  "Loading…" table cell; a real `EmptyState` replaces the bare "No
+  orders yet." text. Status text now renders as color-coded `Badge`s
+  instead of raw uppercase strings.
+- **`/dashboard/orders/[id]`**: status/payment/fulfillment now render
+  as `Badge`s in a summary card with the total prominently displayed;
+  items list, actions, refund, and driver-assignment sections rebuilt
+  on `Card`/`Button`; loading state is now `Skeleton` blocks instead of
+  plain "Loading…" text. All existing driver-assignment behavior and
+  test-covered text (`Order #{n}`, `Driver` heading, `No driver
+  assigned yet.`, `Currently assigned to… status: X`, `Assign driver`/
+  `Reassign driver`) preserved exactly — `orders/[id]/page.test.tsx`'s
+  3 tests still pass unmodified.
+
+Verified: typecheck, lint, full test suite (94 passed, only the 3
+pre-existing unrelated `live-build-screen.test.tsx` failures remain),
+full production build, and a live mobile-viewport (390×844) browser
+session against the dev server (screenshot delivered separately).
+
+**Next in Sprint 19:** Menu module, then Kitchen/Ops, Staff/Payments/
+Settings, Marketing/Analytics, and the remaining Website Hub pages —
+delivered as further verified parts.

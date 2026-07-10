@@ -30,7 +30,7 @@ export default async function ScorePage() {
 
   if (!draft) {
     return (
-      <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
+      <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
         <div className="flex w-full max-w-2xl flex-col gap-6">
           <DashboardNav />
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -51,7 +51,7 @@ export default async function ScorePage() {
   const rankedSuggestions = score?.suggestions ?? [];
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 p-8 dark:bg-black">
+    <div className="flex min-h-screen w-full flex-1 flex-col items-center gap-6 overflow-x-hidden bg-zinc-50 px-4 pb-28 pt-5 dark:bg-black sm:px-6 lg:p-10">
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <DashboardNav />
         <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">

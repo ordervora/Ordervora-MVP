@@ -26,19 +26,19 @@ export function DomainForm({ siteId }: { siteId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      {error && <p className="text-sm text-red-600">{error}</p>}
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2 sm:flex-row">
+      {error && <p className="text-sm font-medium text-red-600">{error}</p>}
       <input
         type="text"
         value={hostname}
         onChange={(e) => setHostname(e.target.value)}
         placeholder="menu.yourrestaurant.com"
-        className="flex-1 rounded border border-black/[.08] px-3 py-2 text-sm dark:border-white/[.145] dark:bg-black"
+        className="min-h-11 flex-1 rounded-xl border border-[#E7DDCF] bg-white px-3 text-sm text-[#171512] outline-none focus:border-[#B97824]"
       />
       <button
         type="submit"
         disabled={submitting}
-        className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+        className="min-h-11 rounded-xl bg-[#171512] px-4 text-sm font-bold text-white disabled:opacity-50"
       >
         {submitting ? "Adding…" : "Add domain"}
       </button>
@@ -71,23 +71,23 @@ export function DomainRow({ siteId, domain }: { siteId: string; domain: SiteDoma
   }
 
   return (
-    <li className="flex items-center justify-between gap-2 rounded border border-black/[.08] p-3 text-sm dark:border-white/[.145]">
-      <div>
-        <p className="font-mono text-black dark:text-zinc-50">
-          {domain.hostname} {domain.isPrimary && <span className="text-xs text-emerald-600">(primary)</span>}
+    <li className="flex flex-col gap-2 rounded-2xl border border-[#E7DDCF] bg-[#FFFDF9] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="break-all font-mono text-[#171512]">
+          {domain.hostname} {domain.isPrimary && <span className="font-sans text-xs font-bold text-emerald-700">(primary)</span>}
         </p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-500">
+        <p className="text-xs text-[#8A7D6C]">
           DNS: {domain.verificationStatus} · TLS: {domain.tlsStatus}
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex shrink-0 gap-2">
         {domain.verificationStatus !== "VERIFIED" && (
-          <button type="button" onClick={handleVerify} disabled={busy} className="rounded-full border border-black/[.08] px-3 py-1 text-xs dark:border-white/[.145]">
+          <button type="button" onClick={handleVerify} disabled={busy} className="min-h-9 rounded-full border border-[#E7DDCF] bg-white px-3 py-1 text-xs font-bold text-[#171512]">
             Check DNS
           </button>
         )}
         {domain.verificationStatus === "VERIFIED" && !domain.isPrimary && (
-          <button type="button" onClick={handleSetPrimary} disabled={busy} className="rounded-full border border-black/[.08] px-3 py-1 text-xs dark:border-white/[.145]">
+          <button type="button" onClick={handleSetPrimary} disabled={busy} className="min-h-9 rounded-full border border-[#E7DDCF] bg-white px-3 py-1 text-xs font-bold text-[#171512]">
             Make primary
           </button>
         )}

@@ -8,7 +8,7 @@ export function ImportAutoRefresh({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (!active) return;
-    const interval = window.setInterval(() => router.refresh(), 2000);
+    const interval = window.setInterval(() => router.refresh(), 6000);
     return () => window.clearInterval(interval);
   }, [active, router]);
 

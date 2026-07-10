@@ -23,12 +23,12 @@ export function SelectButton({ siteId, versionId }: { siteId: string; versionId:
 
   return (
     <div className="flex flex-col gap-1">
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
       <button
         type="button"
         onClick={handleClick}
         disabled={submitting}
-        className="w-full rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+        className="min-h-12 w-full rounded-2xl bg-[#171512] px-4 text-sm font-bold text-white disabled:opacity-50"
       >
         {submitting ? "Selecting…" : "Select this design"}
       </button>
