@@ -545,6 +545,8 @@ export interface SiteSectionBlock {
   type: string;
   variant?: string;
   props: Record<string, unknown>;
+  /** Section Management (Sprint 20A Task 5) — kept in the array (with its props) but skipped at render time. */
+  hidden?: boolean;
 }
 
 export interface SitePage {
@@ -552,6 +554,81 @@ export interface SitePage {
   title: string;
   metaDescription: string;
   sections: SiteSectionBlock[];
+}
+
+// ---------------------------------------------------------------------------
+// Website Customization Studio (Sprint 20A Task 5) — every field mirrors
+// apps/api/src/modules/sites/types.ts's zod schemas 1:1 and is optional for
+// the same reason: a definition saved before this task has none of these,
+// and every renderer component falls back to a sensible default.
+// ---------------------------------------------------------------------------
+
+export type ButtonStyle = "rounded" | "pill" | "square";
+export type ShadowIntensity = "none" | "soft" | "medium" | "strong";
+export type PageWidth = "narrow" | "standard" | "wide" | "full";
+export type ContentSpacing = "compact" | "comfortable" | "spacious";
+
+export interface BrandSettings {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  headingFont?: string;
+  bodyFont?: string;
+  buttonStyle?: ButtonStyle;
+  borderRadius?: number;
+  shadowIntensity?: ShadowIntensity;
+  pageWidth?: PageWidth;
+  contentSpacing?: ContentSpacing;
+}
+
+export interface AnnouncementBar {
+  enabled: boolean;
+  text?: string;
+  link?: string;
+}
+
+export interface HeaderSettings {
+  logoPosition?: "left" | "center";
+  headerLayout?: "standard" | "minimal" | "centered";
+  stickyHeader?: boolean;
+  announcementBar?: AnnouncementBar;
+  showSearch?: boolean;
+  showCart?: boolean;
+  showAccount?: boolean;
+  showOrderButton?: boolean;
+  mobileNavStyle?: "drawer" | "bottomTabs";
+}
+
+export interface FooterSocialLink {
+  platform: "instagram" | "facebook" | "tiktok" | "x" | "youtube" | "website";
+  url: string;
+}
+
+export interface LegalLink {
+  label: string;
+  url: string;
+}
+
+export interface FooterSettings {
+  description?: string;
+  showContactInfo?: boolean;
+  socialLinks?: FooterSocialLink[];
+  legalLinks?: LegalLink[];
+  showHours?: boolean;
+  newsletterEnabled?: boolean;
+  copyrightText?: string;
+}
+
+export interface ProductPresentation {
+  categoryNavStyle?: "sticky" | "simple";
+  cardLayout?: "grid" | "list";
+  infoDensity?: "compact" | "detailed";
+  showModifiersBadge?: boolean;
+  priceStyle?: "standard" | "bold" | "minimal";
+  outOfStockAppearance?: "dimmed" | "hidden" | "badge";
+  addToCartStyle?: "button" | "iconButton" | "stepper";
 }
 
 export interface WebsiteSiteDefinition {
@@ -574,6 +651,10 @@ export interface WebsiteSiteDefinition {
     hasOnlineOrdering: boolean;
     hasReservations: boolean;
   };
+  brandSettings?: BrandSettings;
+  header?: HeaderSettings;
+  footer?: FooterSettings;
+  productPresentation?: ProductPresentation;
   pages: SitePage[];
 }
 
@@ -735,6 +816,67 @@ export function patchDraft(siteId: string, patch: Partial<WebsiteSiteDefinition>
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+/** Customization Studio live preview (Sprint 20A Task 5) — renders an unsaved candidate definition with the real renderer; never persists it. */
+export function renderDraftPreview(siteId: string, definition: WebsiteSiteDefinition, path = "/") {
+  return apiFetch<{ html: string }>(`/api/sites/${siteId}/draft/render`, {
+    method: "POST",
+    body: JSON.stringify({ definition, path }),
+  });
+}
+
+export type SiteAssetKind = "HERO" | "HERO_BACKGROUND" | "GALLERY" | "LOGO" | "FAVICON" | "OG";
+
+export interface SiteAssetRenditions {
+  thumbnail?: string;
+  card?: string;
+  full?: string;
+}
+
+export interface SiteAsset {
+  id: string;
+  siteId: string;
+  kind: SiteAssetKind;
+  storageKey: string;
+  renditions: SiteAssetRenditions | null;
+  altText: string | null;
+  sortOrder: number;
+  url: string;
+}
+
+export function listSiteAssets(siteId: string) {
+  return apiFetch<{ assets: SiteAsset[] }>(`/api/sites/${siteId}/assets`);
+}
+
+/** Bypasses apiFetch's forced JSON Content-Type — multipart needs the browser to set its own boundary, same pattern as createImportJob above. */
+export async function uploadSiteAsset(siteId: string, kind: SiteAssetKind, file: File): Promise<{ asset: SiteAsset }> {
+  const formData = new FormData();
+  formData.append("kind", kind);
+  formData.append("file", file);
+
+  const res = await fetch(`/api/sites/${siteId}/assets`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error ?? "Upload failed");
+  }
+  return data as { asset: SiteAsset };
+}
+
+export function updateSiteAsset(siteId: string, assetId: string, patch: { altText?: string; sortOrder?: number }) {
+  return apiFetch<{ asset: SiteAsset }>(`/api/sites/${siteId}/assets/${assetId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function removeSiteAsset(siteId: string, assetId: string) {
+  return apiFetch<void>(`/api/sites/${siteId}/assets/${assetId}`, { method: "DELETE" });
 }
 
 export function getLatestScore(siteId: string, versionId: string) {

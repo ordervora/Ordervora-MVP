@@ -7,6 +7,7 @@ import { requireAuth } from "../../middleware/require-auth";
 import { requireRole } from "../../middleware/require-role";
 import { upload as uploadAssetHandler, list as listAssetsHandler, update as updateAssetHandler, remove as removeAssetHandler } from "./asset.controller";
 import { list as listMessagesHandler, submit as submitContactHandler } from "./contact.controller";
+import { list as listNewsletterSubscribersHandler, subscribe as subscribeNewsletterHandler } from "./newsletter.controller";
 import {
   add as addDomainHandler,
   history as domainHistoryHandler,
@@ -33,6 +34,7 @@ import {
   patchDraftHandler,
   previewToken,
   publish,
+  renderDraftPreviewHandler,
   rollback,
   unpublish,
   update as updateSiteHandler,
@@ -70,6 +72,7 @@ siteRouter.post("/:id/variations/regenerate", requireAuth, staffOrOwner, siteGen
 siteRouter.get("/:id/versions", requireAuth, staffOrOwner, listVersionsHandler);
 siteRouter.get("/:id/versions/:vid", requireAuth, staffOrOwner, getVersionHandler);
 siteRouter.patch("/:id/draft", requireAuth, staffOrOwner, patchDraftHandler);
+siteRouter.post("/:id/draft/render", requireAuth, staffOrOwner, renderDraftPreviewHandler);
 
 // Scoring
 siteRouter.post("/:id/versions/:vid/score", requireAuth, staffOrOwner, runScoreHandler);
@@ -101,6 +104,8 @@ siteRouter.delete("/:id/domains/:did", requireAuth, staffOrOwner, removeDomainHa
 
 // Messages (dashboard inbox)
 siteRouter.get("/:id/messages", requireAuth, staffOrOwner, listMessagesHandler);
+siteRouter.get("/:id/newsletter-subscribers", requireAuth, staffOrOwner, listNewsletterSubscribersHandler);
 
 // Public, unauthenticated
 publicSiteRouter.post("/:id/contact", contactFormRateLimiter, submitContactHandler);
+publicSiteRouter.post("/:id/newsletter", contactFormRateLimiter, subscribeNewsletterHandler);

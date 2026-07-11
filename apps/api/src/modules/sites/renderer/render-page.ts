@@ -36,9 +36,10 @@ export function renderPage(input: RenderPageInput): string {
     currentPage: page,
     page,
     noindex,
+    faviconUrl: ctx.assets.faviconUrl,
   });
 
-  const css = renderThemeCss(theme, ctx.definition.colorSeed);
+  const css = renderThemeCss(theme, ctx.definition.colorSeed, ctx.definition.brandSettings);
   const headerNav = renderHeaderNav(ctx);
   const sections = renderSections(page.sections, ctx);
   const mobileActionBar = renderMobileActionBar(ctx);

@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { releaseStorage } from "../../lib/release-storage";
 import { getAssetSummary } from "./asset-summary";
 import { renderOgImageSvg } from "./renderer/og-image";
-import { renderAllPages } from "./renderer/render-site";
+import { renderAllPages, renderSitePage } from "./renderer/render-site";
 import { renderRobotsTxt, renderSitemapXml } from "./renderer/sitemap";
 import { NEUTRAL_BRAND_PROFILE_FOR_SCORING } from "./scoring/neutral-brand-profile";
 import { scoreSiteDefinition } from "./scoring/score-aggregator";
@@ -163,6 +163,22 @@ export async function patchDraft(restaurantId: string, siteId: string, patch: Pa
   const validated = siteDefinitionSchema.parse(merged);
 
   return prisma.siteVersion.update({ where: { id: draft.id }, data: { definition: toJson(validated) } });
+}
+
+/**
+ * §Task 5 STEP 1 — the Customization Studio's live preview. Takes an
+ * UNSAVED candidate definition straight from the request body (schema-
+ * validated, never persisted here) and renders it with the exact same
+ * `renderSitePage` the real publish path and the existing `/preview/:token`
+ * route both already call — zero new rendering logic, so what the owner
+ * sees while editing is provably what production would render for that
+ * definition. Decoupled from `patchDraft`'s persistence/debounce entirely:
+ * every keystroke can call this without writing to the draft.
+ */
+export async function renderDraftPreview(restaurantId: string, siteId: string, definition: SiteDefinition, slug: string): Promise<string | null> {
+  const site = await findOwnSiteById(restaurantId, siteId);
+  const siteUrl = await resolveSiteUrl(site);
+  return renderSitePage({ siteId: site.id, restaurantId, definition, siteUrl, noindex: true }, slug);
 }
 
 /**
@@ -331,6 +347,23 @@ export async function publishSite(restaurantId: string, siteId: string, publishe
         data: { status: "PUBLISHED", publishedAt: new Date(), publishedById },
       });
       await tx.site.update({ where: { id: site.id }, data: { status: "PUBLISHED", publishedVersionId: updated.id } });
+      // Sprint 20A Task 5: publishing a draft must not leave the owner
+      // without one to keep editing. Leave behind a fresh DRAFT copy of
+      // the just-published definition so the Customization Studio (and
+      // patchDraft's getActiveDraft lookup) keep working immediately
+      // after publish/republish, with zero changes needed anywhere else
+      // that already assumes "the draft" exists.
+      await tx.siteVersion.create({
+        data: {
+          siteId: site.id,
+          versionNo: draft.versionNo + 1,
+          definition: toJson(definition),
+          status: "DRAFT",
+          styleFamily: draft.styleFamily,
+          generationBatchId: draft.generationBatchId,
+          createdById: publishedById,
+        },
+      });
       return updated;
     });
 

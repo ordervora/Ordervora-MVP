@@ -88,6 +88,8 @@ const ASSET_KIND_LABEL: Record<AssetKind, string> = {
   GALLERY: "Gallery photo",
   LOGO: "Logo",
   OG: "Share image",
+  FAVICON: "Favicon",
+  HERO_BACKGROUND: "Hero background",
 };
 
 function autoGenerateAltText(kind: AssetKind, restaurantName: string, index: number): string {

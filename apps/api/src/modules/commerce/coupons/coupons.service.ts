@@ -10,6 +10,27 @@ export async function listCoupons(restaurantId: string): Promise<Coupon[]> {
   return prisma.coupon.findMany({ where: { restaurantId } });
 }
 
+/**
+ * Sprint 20A Task 5 — the storefront's "Offers" section needs only coupons
+ * a customer could actually redeem right now, not the owner's full
+ * (including expired/scheduled/disabled) list `listCoupons` returns. Same
+ * active-window semantics `validateCouponForRedemption` already enforces
+ * at checkout, factored out here so a coupon shown as "active" on the
+ * storefront and a coupon checkout actually accepts can never drift apart.
+ */
+export async function listActiveCoupons(restaurantId: string): Promise<Coupon[]> {
+  const now = new Date();
+  return prisma.coupon.findMany({
+    where: {
+      restaurantId,
+      isActive: true,
+      OR: [{ startsAt: null }, { startsAt: { lte: now } }],
+      AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] }],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function createCoupon(restaurantId: string, input: CreateCouponInput): Promise<Coupon> {
   try {
     return await prisma.coupon.create({ data: { restaurantId, ...input } });

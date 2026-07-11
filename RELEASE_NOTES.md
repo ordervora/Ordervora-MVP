@@ -3680,4 +3680,134 @@ sweep, the 90-day renewal window, and the history/event logging — is
 real and already wired for a real ACME client to be dropped in behind
 `issueCertificate()` without touching any other code.
 
-Sprint 20A stops here per instruction — Task 5 not started.
+## Sprint 20A Task 5 — Website Customization Studio
+
+Production sprint: built the full owner-facing Website Customization
+Studio on top of the existing storefront renderer, site drafts, brand
+concepts, publishing engine, and domain engine — zero second rendering
+system, zero disconnected controls.
+
+**Architecture:** live preview is powered by a new, purely-additive
+`POST /api/sites/:id/draft/render` endpoint that takes an **unsaved**
+candidate `SiteDefinition` straight from the request body and calls the
+exact same `renderSitePage()` the real publish path and `/preview/:token`
+already use — what the owner sees while editing is provably what
+production would render for that definition. Live-preview rendering
+(350ms debounce) is decoupled from persistence (`patchDraft`, 1200ms
+autosave debounce), so every keystroke never has to hit the database.
+
+**Database:**
+- `AssetKind` gained `FAVICON`, `HERO_BACKGROUND` (migration
+  `20260711030000_sprint20a_customization_asset_kinds`).
+- New `NewsletterSubscriber` model (migration
+  `20260711033000_sprint20a_newsletter_subscriber`), unique on
+  `[siteId, email]` so repeat signups are harmless no-ops.
+
+**Backend (`apps/api/src/modules/sites/`):**
+- `types.ts`: `SiteDefinition` extended with `brandSettings`, `header`,
+  `footer`, `productPresentation` (all optional, so existing definitions
+  keep validating unchanged), plus 9 new section types
+  (`featuredCategories`, `featuredProducts`, `bestSellers`, `offers`,
+  `reviews`, `loyalty`, `appPromotion`, `newsletter`, `customTextImage`)
+  and a `hidden` flag on section blocks (Hide keeps a block's props
+  intact but skips it at render time — distinct from Remove).
+- 9 new renderer components, each backed by a real data source where one
+  exists in this codebase: `featured-categories`/`featured-products` read
+  the live menu, `best-sellers` reads real order history (`getTopItems`),
+  `offers` reads real active coupons (new `listActiveCoupons`), `loyalty`
+  reads the real loyalty program (`getProgram`), `newsletter` posts to a
+  real subscribe endpoint. `reviews`, `appPromotion`, and
+  `customTextImage` have no automated data source in this codebase (same
+  as the pre-existing `testimonials`), so they render clearly
+  owner-authored content instead of fabricating data.
+- `chrome.ts`, `hero.ts`, `footer.ts`, `menu-section.ts` rewritten to
+  read the new settings surfaces (header layout/sticky/search/cart/
+  account/announcement bar; hero alignment/height/overlay/CTAs; footer
+  description/social/legal/newsletter — "Powered by OrderVora" stays
+  unconditional, since there's no plan/entitlement system yet to gate it
+  on; product card layout/density/price style/out-of-stock handling).
+  Cart/Order/Account links resolve to the separate ordering app via a new
+  `RenderContext.orderingBaseUrl`, resolved once from `FRONTEND_URL` at
+  the `render-site.ts` orchestration layer — never inside a leaf
+  component, preserving the renderer's "pure function of `RenderContext`"
+  contract.
+- `theme-css.ts` applies Brand Settings overrides (color scale
+  regeneration via the existing OKLCH `deriveColorScale`, button style,
+  border radius, shadow, page width, content spacing) on top of the
+  theme's own tokens.
+- Explicitly omitted rather than shipped as dead controls: `logoAssetId`/
+  `faviconAssetId` on `brandSettings` (the one-asset-per-kind upload
+  convention already solves this without an ID reference), and "image
+  ratio"/"dietary badges" in Product Presentation (`MenuItem` has neither
+  field).
+- `site.controller.ts`/`site.validation.ts`/`site.routes.ts`: new
+  `POST /:id/draft/render`, `GET /:id/newsletter-subscribers`,
+  `POST /public/sites/:id/newsletter` (honeypot-protected, rate limited).
+- `asset.controller.ts`: every asset response now includes a computed
+  `url` field.
+
+**Critical bug found and fixed during live verification (pre-existing,
+not introduced by this task — surfaced by it):** `publishSite` flipped
+the DRAFT `SiteVersion` it published to `PUBLISHED` without leaving any
+version behind with `status: "DRAFT"`. Every consumer that looks up "the
+draft" via `status: "DRAFT"` — `patchDraft`'s `getActiveDraft`, and the
+Studio's own page load — had nothing to find immediately after a
+publish, so reloading the editor after a successful publish showed the
+"no draft yet" empty state instead of the Studio, and further edits
+would have thrown `SiteVersionNotFoundError`. Root-caused by inspecting
+`site.service.ts` directly and confirmed live (published a real site via
+the staged publish flow, reloaded the editor, saw the literal empty-state
+text). Fixed by having `publishSite` leave behind a fresh `DRAFT` copy of
+the just-published definition, in the same transaction, as the new
+highest `versionNo` — zero changes needed anywhere else that already
+assumed "the draft" exists. Re-verified live: republishing now correctly
+leaves "Republish Website" / "Last published" / "View live" intact on
+reload, and the DB shows a new `DRAFT` row immediately after each
+publish.
+
+**Second bug found and fixed during live verification:** on mobile, the
+Studio's floating "Preview" trigger button (`fixed bottom-4`) sat behind
+the app's global bottom tab bar (`fixed inset-x-0 bottom-0 z-50`),
+making it unclickable — confirmed via a real click that timed out
+because the tab bar's `<nav>` intercepted the pointer event. Fixed by
+moving the button to `bottom-20`, matching the offset convention already
+used elsewhere in the dashboard (`dashboard-overview.tsx`) for floating
+elements that must clear the same tab bar. Re-verified live: the button
+is now clickable and opens the mobile preview sheet correctly.
+
+**Frontend (`apps/web/src/app/dashboard/website/editor/studio/`):**
+new Customization Studio — live preview (mobile/tablet/desktop viewports,
+fullscreen mode), Section Manager (add/remove/hide/duplicate/reorder),
+per-section dynamic field editor, Brand/Header/Footer/Product Presentation
+panels, Media panel (logo/favicon/hero/hero-background upload, gallery),
+undo/redo (derived from a single history stack — no desync possible),
+autosave with a saving/saved/error indicator and a `beforeunload` guard,
+and the existing `PublishFlowButton` from Task 3 reused directly, not
+duplicated. Old `draft-form.tsx`/`section-editor.tsx` deleted, fully
+superseded.
+
+**Verified:** typecheck and lint clean on both apps; full backend suite
+(1113 passed, 5 skipped — one pre-existing, unrelated flaky test);
+full frontend suite (132 passed); production build clean for both apps
+(42 web routes, all successful); live end-to-end run against a real
+local Postgres database and a real test account covering: publish → the
+post-publish draft-continuity fix (verified both the empty-state bug and
+its fix, and confirmed a fresh DRAFT row is created after every publish),
+Section Manager add/hide driven live in the browser, Brand Settings color
+change reflected instantly in the live preview, Header Settings toggle
+reflected live, Footer panel's "Powered by OrderVora" note, Media panel's
+four single-slot upload controls, desktop viewport switching, and the
+mobile floating-Preview-button fix (open the mobile preview sheet and
+confirm the real live storefront content renders inside it).
+
+**Remaining limitations / TODOs:** gallery multi-upload and the
+Header/Footer/Product-Presentation panels' full field surface were
+exercised live at a spot-check level (panel renders, one field changed
+and confirmed in the live preview) rather than every individual field;
+accessibility was verified via existing aria-label-driven test coverage
+and one live pass, not a full axe/keyboard-navigation audit; `newsletter`
+section's subscribe form posts to a real endpoint but has no admin UI yet
+for viewing collected subscribers beyond the raw `GET
+:id/newsletter-subscribers` API.
+
+Sprint 20A stops here per instruction — Task 6 not started.

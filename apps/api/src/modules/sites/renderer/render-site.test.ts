@@ -5,8 +5,14 @@ vi.mock("../../../lib/prisma", () => ({
 }));
 
 vi.mock("../../menu/menu.service", () => ({ listCategories: vi.fn() }));
+vi.mock("../../commerce/analytics/analytics.service", () => ({ getTopItems: vi.fn() }));
+vi.mock("../../commerce/coupons/coupons.service", () => ({ listActiveCoupons: vi.fn() }));
+vi.mock("../../commerce/loyalty/loyalty.service", () => ({ getProgram: vi.fn() }));
 
 import { prisma } from "../../../lib/prisma";
+import { getTopItems } from "../../commerce/analytics/analytics.service";
+import { listActiveCoupons } from "../../commerce/coupons/coupons.service";
+import { getProgram } from "../../commerce/loyalty/loyalty.service";
 import { listCategories } from "../../menu/menu.service";
 import { renderAllPages, renderSitePage, resolveLiveMenu, resolveRenderAssets } from "./render-site";
 import { THEME_CATALOG } from "../theme-catalog";
@@ -14,6 +20,9 @@ import type { SiteDefinition } from "../types";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 const mockListCategories = vi.mocked(listCategories);
+const mockGetTopItems = vi.mocked(getTopItems);
+const mockListActiveCoupons = vi.mocked(listActiveCoupons);
+const mockGetProgram = vi.mocked(getProgram);
 
 const theme = THEME_CATALOG.find((t) => t.key === "modern-bistro")!;
 
@@ -41,6 +50,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockListCategories.mockResolvedValue([]);
   mockPrisma.siteAsset.findMany.mockResolvedValue([]);
+  mockGetTopItems.mockResolvedValue([]);
+  mockListActiveCoupons.mockResolvedValue([]);
+  mockGetProgram.mockResolvedValue(null);
 });
 
 describe("resolveLiveMenu", () => {

@@ -357,6 +357,11 @@ enum AssetKind {
   GALLERY
   LOGO
   OG
+  FAVICON
+  // Sprint 20A Task 5 — a hero section's optional background image is a
+  // distinct slot from HERO (its foreground photo), since Hero Section
+  // settings let an owner set both independently.
+  HERO_BACKGROUND
 }
 
 enum GenerationStage {
@@ -393,12 +398,13 @@ model Site {
   brandProfile       Json?
   settings           Json?
 
-  versions         SiteVersion[]
-  domains          Domain[]
-  domainEvents     DomainEvent[]
-  assets           SiteAsset[]
-  generationJobs   GenerationJob[]
-  contactMessages  ContactMessage[]
+  versions              SiteVersion[]
+  domains               Domain[]
+  domainEvents          DomainEvent[]
+  assets                SiteAsset[]
+  generationJobs        GenerationJob[]
+  contactMessages       ContactMessage[]
+  newsletterSubscribers NewsletterSubscriber[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -565,6 +571,21 @@ model ContactMessage {
   ipHash    String
   createdAt DateTime @default(now())
 
+  @@index([siteId])
+}
+
+// Sprint 20A Task 5 — real signup capture for the storefront's "Newsletter"
+// section and the footer's optional inline form; @@unique so resubmitting
+// the same address (e.g. re-visiting the page) is a harmless no-op rather
+// than a duplicate row or a 409 the owner would need to handle.
+model NewsletterSubscriber {
+  id        String   @id @default(uuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id])
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([siteId, email])
   @@index([siteId])
 }
 

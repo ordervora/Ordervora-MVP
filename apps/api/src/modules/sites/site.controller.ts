@@ -11,6 +11,7 @@ import {
   listVersions,
   patchDraft,
   publishSite,
+  renderDraftPreview,
   resolveSiteUrl,
   rollbackSite,
   temporaryDomainFor,
@@ -18,7 +19,7 @@ import {
   updateSite,
   validatePublishReadiness,
 } from "./site.service";
-import { patchDraftSchema, updateSiteSchema } from "./site.validation";
+import { patchDraftSchema, renderPreviewSchema, updateSiteSchema } from "./site.validation";
 
 export async function getMine(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
@@ -102,6 +103,29 @@ export async function patchDraftHandler(req: Request, res: Response): Promise<vo
   try {
     const version = await patchDraft(restaurantId, paramId(req), parsed.data);
     res.status(200).json({ version });
+  } catch (err) {
+    if (!mapSiteError(err, res)) throw err;
+  }
+}
+
+/** POST /api/sites/:id/draft/render — Customization Studio live preview; renders an unsaved candidate definition with the real renderer, never persists it. */
+export async function renderDraftPreviewHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const parsed = renderPreviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const html = await renderDraftPreview(restaurantId, paramId(req), parsed.data.definition, parsed.data.path ?? "/");
+    if (html === null) {
+      res.status(404).json({ error: "No page at that path in this definition" });
+      return;
+    }
+    res.status(200).json({ html });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
