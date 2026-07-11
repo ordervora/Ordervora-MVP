@@ -129,6 +129,57 @@ Improvements are collected during Task reviews and are implemented later during 
 - **Reason:** The experience should feel polished and premium without unnecessary animation.
 - **Status:** Pending
 
+## Task 2 — AI Brand Concepts Review
+
+### IMP-011 — Replace Thumbnail-Like Concept Previews with Realistic Device Presentation
+
+- **Priority:** Critical
+- **Type:** Product presentation / preview UX
+- **Description:** Ensure every AI Brand Concept is presented inside a realistic mobile device frame rather than as a thumbnail-like screenshot.
+- **Requirement:** Each device frame should contain a storefront preview area that feels like a real phone screen, not an attached image artifact.
+- **Reason:** The customer should immediately understand that they are previewing a real mobile storefront experience.
+- **Status:** Pending
+
+### IMP-012 — Make Phone Preview Match the Real Published Storefront
+
+- **Priority:** Critical
+- **Type:** Product integrity / preview accuracy
+- **Description:** The phone preview should render the same real component tree, content structure, styling rules, and behavior that will be used by the published storefront.
+- **Reason:** Avoid divergence between the preview experience and the live site after publishing.
+- **Status:** Pending
+
+### IMP-013 — Add Light and Dark Appearance Preview Controls
+
+- **Priority:** Medium
+- **Type:** Brand preview enhancement
+- **Description:** Add a simple appearance toggle inside Brand Concept preview so customers can review supported light and dark presentation modes where the selected concept supports both.
+- **Reason:** Helps customers evaluate the identity across different visual environments without regenerating the concept.
+- **Status:** Pending
+
+### IMP-014 — Add Device Preview Selector
+
+- **Priority:** Medium
+- **Type:** Responsive preview UX
+- **Description:** Add a device selector for previewing supported storefront layouts across mobile device families.
+- **Suggested options:**
+  - iPhone
+  - Android
+- **Reason:** Makes the storefront preview more inclusive and gives customers confidence in cross-device presentation.
+- **Status:** Pending
+
+### IMP-015 — Add Brand Concept Evaluation Scores
+
+- **Priority:** High
+- **Type:** Decision support / AI explanation
+- **Description:** Add a concise evaluation panel to each Brand Concept to help the customer understand the strengths of each option.
+- **Suggested metrics:**
+  - Conversion Potential
+  - Luxury Feel
+  - Modern Feel
+  - Mobile Experience
+- **Reason:** Helps customers compare concepts based on business goals instead of choosing only by appearance.
+- **Status:** Pending
+
 ---
 
 # Future Ideas (Backlog)
