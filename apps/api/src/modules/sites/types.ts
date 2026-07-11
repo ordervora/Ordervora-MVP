@@ -40,6 +40,15 @@ export const sectionTypeSchema = z.enum([
   "newsletter",
   "customTextImage",
   "footer",
+  // Sprint 20A Task 6 — AI Content Generation Engine additions. Both are
+  // owner/AI-authored content with no other real data source to pull from
+  // (same category as "reviews"/"appPromotion"): "whyChooseUs" is short
+  // persuasive copy, "faq" is a real, useful question/answer list — never
+  // fabricated facts, since ai-content/content-engine.ts only ever writes
+  // prose here, and the FAQ answers about ordering/delivery/hours are
+  // generated from the site's own real `facts` (see ai-content/prompts.ts).
+  "whyChooseUs",
+  "faq",
 ]);
 export type SectionType = z.infer<typeof sectionTypeSchema>;
 
@@ -59,6 +68,13 @@ export const sitePageSchema = z.object({
   slug: z.enum(["/", "/menu", "/about", "/contact", "/gallery"]),
   title: z.string().min(1).max(70),
   metaDescription: z.string().min(1).max(160),
+  // Sprint 20A Task 6 — SEO Generator additions. Optional, falling back to
+  // `title`/`metaDescription` at render time (renderer/seo-head.ts) so
+  // every page persisted before this task still renders identically
+  // (same "safe defaults for existing sites" pattern as Task 5 §9).
+  keywords: z.array(z.string().min(1).max(60)).max(15).optional(),
+  ogTitle: z.string().min(1).max(70).optional(),
+  ogDescription: z.string().min(1).max(200).optional(),
   sections: z.array(sectionBlockSchema).min(1),
 });
 export type SitePage = z.infer<typeof sitePageSchema>;
@@ -346,6 +362,14 @@ export interface IngestData {
   menu: MenuItemSummary[];
   photoCount: number;
   logoColorSeed?: string;
+  // Sprint 20A Task 6 — the restaurant's real, owner-selected `BusinessType`
+  // (Sprint 18's Business Setup Wizard), e.g. "VAPE_SHOP"/"RETAIL". Distinct
+  // from `SiteDefinition.businessType`, which is an LLM-guessed free-text
+  // classification (see brand-analysis.ts) — the content engine uses this
+  // real, verified value instead of guessing, so CTA/content selection is
+  // always correct for what kind of business this actually is. Optional
+  // because it's new; ingest.ts always populates it going forward.
+  businessType?: string;
 }
 
 // ---------------------------------------------------------------------------

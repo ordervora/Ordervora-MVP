@@ -1,6 +1,7 @@
 import { AssetKind } from "@prisma/client";
 import { z } from "zod";
-import { siteDefinitionSchema, suggestionSchema } from "./types";
+import { CONTENT_SCOPES } from "./ai-content/types";
+import { siteDefinitionSchema, sitePageSchema, suggestionSchema } from "./types";
 
 export const updateSiteSchema = z.object({
   slug: z
@@ -58,3 +59,18 @@ export const newsletterSubscribeSchema = z.object({
   honeypot: z.string().max(200).optional(),
 });
 export type NewsletterSubscribeBody = z.infer<typeof newsletterSubscribeSchema>;
+
+/**
+ * Sprint 20A Task 6 — AI Content Generation Engine. `scope: "FULL"`
+ * generates every content piece at once ("Generate Website Content");
+ * any other scope regenerates just that one piece ("Regenerate Section")
+ * — the same endpoint serves both, since they're the same operation
+ * parameterized by scope. `pageSlug` reuses the site's own closed page-
+ * slug enum rather than a free string, so a request can never target a
+ * page that couldn't exist.
+ */
+export const generateContentSchema = z.object({
+  scope: z.enum(CONTENT_SCOPES),
+  pageSlug: sitePageSchema.shape.slug.optional(),
+});
+export type GenerateContentBody = z.infer<typeof generateContentSchema>;

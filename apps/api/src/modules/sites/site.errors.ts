@@ -75,3 +75,9 @@ export class SuggestionNotFoundError extends Error {
     super("Suggestion not found");
   }
 }
+
+export class ContentGenerationNotFoundError extends Error {
+  constructor() {
+    super("Content generation version not found");
+  }
+}

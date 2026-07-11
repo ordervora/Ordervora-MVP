@@ -7,6 +7,7 @@ import { patchDraft, type SiteAsset, type SiteStatus, type WebsiteSiteDefinition
 import { PublishFlowButton } from "../../studio/publish-flow";
 import { defaultPropsForType } from "./section-manager";
 import { LivePreview } from "./live-preview";
+import { AiContentPanel } from "./panels/ai-content-panel";
 import { BrandSettingsPanel } from "./panels/brand-settings-panel";
 import { FooterSettingsPanel } from "./panels/footer-settings-panel";
 import { HeaderSettingsPanel } from "./panels/header-settings-panel";
@@ -15,12 +16,13 @@ import { ProductPresentationPanel } from "./panels/product-presentation-panel";
 import { SectionSettingsPanel } from "./panels/section-settings-panel";
 import { SectionManager } from "./section-manager";
 
-type Tab = "sections" | "brand" | "header" | "footer" | "menu" | "media";
+type Tab = "sections" | "aiContent" | "brand" | "header" | "footer" | "menu" | "media";
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-const TABS: Tab[] = ["sections", "brand", "header", "footer", "menu", "media"];
+const TABS: Tab[] = ["sections", "aiContent", "brand", "header", "footer", "menu", "media"];
 const TAB_LABELS: Record<Tab, string> = {
   sections: "Sections",
+  aiContent: "AI Content",
   brand: "Brand",
   header: "Header",
   footer: "Footer",
@@ -199,6 +201,8 @@ export function CustomizationStudio({ siteId, siteStatus, liveUrl, lastPublished
               )}
             </div>
           )}
+
+          {tab === "aiContent" && <AiContentPanel siteId={siteId} activePageSlug={activePageSlug} onGenerated={(next) => commit(next)} />}
 
           {tab === "brand" && (
             <div className="flex flex-col gap-4">

@@ -7,6 +7,7 @@ import { requireAuth } from "../../middleware/require-auth";
 import { requireRole } from "../../middleware/require-role";
 import { upload as uploadAssetHandler, list as listAssetsHandler, update as updateAssetHandler, remove as removeAssetHandler } from "./asset.controller";
 import { list as listMessagesHandler, submit as submitContactHandler } from "./contact.controller";
+import { generate as generateContentHandler, listGenerations as listContentGenerationsHandler, restore as restoreContentGenerationHandler } from "./content-generation.controller";
 import { list as listNewsletterSubscribersHandler, subscribe as subscribeNewsletterHandler } from "./newsletter.controller";
 import {
   add as addDomainHandler,
@@ -73,6 +74,14 @@ siteRouter.get("/:id/versions", requireAuth, staffOrOwner, listVersionsHandler);
 siteRouter.get("/:id/versions/:vid", requireAuth, staffOrOwner, getVersionHandler);
 siteRouter.patch("/:id/draft", requireAuth, staffOrOwner, patchDraftHandler);
 siteRouter.post("/:id/draft/render", requireAuth, staffOrOwner, renderDraftPreviewHandler);
+
+// AI Content Generation Engine (Sprint 20A Task 6) — "generate" (scope
+// FULL) and "regenerate" (any other scope) share one endpoint; see
+// generateContentSchema's doc comment. Same rate limiter as whole-site
+// generation — every call here is at least one LLM request.
+siteRouter.post("/:id/content/generate", requireAuth, staffOrOwner, siteGenerationRateLimiter, generateContentHandler);
+siteRouter.get("/:id/content/generations", requireAuth, staffOrOwner, listContentGenerationsHandler);
+siteRouter.post("/:id/content/generations/:generationId/restore", requireAuth, staffOrOwner, restoreContentGenerationHandler);
 
 // Scoring
 siteRouter.post("/:id/versions/:vid/score", requireAuth, staffOrOwner, runScoreHandler);

@@ -24,22 +24,29 @@ export function renderSeoHead(input: SeoHeadInput): string {
 
   const robotsTag = input.noindex ? `<meta name="robots" content="noindex, nofollow" />` : "";
   const faviconTag = input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}" />` : "";
+  // Sprint 20A Task 6 SEO Generator — ogTitle/ogDescription/keywords are
+  // optional, generated fields; falling back to title/metaDescription
+  // keeps every page persisted before this task rendering identically.
+  const ogTitle = input.page.ogTitle ?? input.page.title;
+  const ogDescription = input.page.ogDescription ?? input.page.metaDescription;
+  const keywordsTag = input.page.keywords?.length ? `<meta name="keywords" content="${escapeHtml(input.page.keywords.join(", "))}" />` : "";
 
   return `<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(input.page.title)}</title>
 <meta name="description" content="${escapeHtml(input.page.metaDescription)}" />
+${keywordsTag}
 <link rel="canonical" href="${escapeHtml(canonical)}" />
 ${faviconTag}
 ${robotsTag}
-<meta property="og:title" content="${escapeHtml(input.page.title)}" />
-<meta property="og:description" content="${escapeHtml(input.page.metaDescription)}" />
+<meta property="og:title" content="${escapeHtml(ogTitle)}" />
+<meta property="og:description" content="${escapeHtml(ogDescription)}" />
 <meta property="og:type" content="restaurant.restaurant" />
 <meta property="og:url" content="${escapeHtml(canonical)}" />
 <meta property="og:image" content="${escapeHtml(ogImageUrl)}" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="${escapeHtml(input.page.title)}" />
-<meta name="twitter:description" content="${escapeHtml(input.page.metaDescription)}" />
+<meta name="twitter:title" content="${escapeHtml(ogTitle)}" />
+<meta name="twitter:description" content="${escapeHtml(ogDescription)}" />
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
 <script type="application/ld+json">${safeJsonLd(restaurantJsonLd)}</script>
 <script type="application/ld+json">${safeJsonLd(breadcrumbJsonLd)}</script>`;

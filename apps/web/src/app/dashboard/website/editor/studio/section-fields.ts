@@ -38,9 +38,11 @@ export const SECTION_LABELS: Record<string, string> = {
   newsletter: "Newsletter",
   customTextImage: "Custom Text & Image",
   footer: "Footer",
+  whyChooseUs: "Why Choose Us",
+  faq: "FAQ",
 };
 
-/** Section types an owner can add fresh via "Add Section" — excludes menu/contactForm/footer (one-per-site, already present) and signatureDishes (AI-curated, not hand-built). */
+/** Section types an owner can add fresh via "Add Section" — excludes menu/footer (one-per-site, already present) and signatureDishes (AI-curated, not hand-built). `contactForm` is addable (Sprint 20A Task 6 gave it a real editable `intro` field, unlike before). */
 export const ADDABLE_SECTION_TYPES = [
   "hero",
   "featuredCategories",
@@ -56,8 +58,11 @@ export const ADDABLE_SECTION_TYPES = [
   "appPromotion",
   "ctaBanner",
   "contactInfo",
+  "contactForm",
   "newsletter",
   "customTextImage",
+  "whyChooseUs",
+  "faq",
 ];
 
 const ALIGNMENT_OPTIONS: SelectOption[] = [
@@ -170,6 +175,7 @@ export const SECTION_FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: "address", label: "Address override", kind: "text" },
     { key: "phone", label: "Phone override", kind: "text" },
   ],
+  contactForm: [{ key: "intro", label: "Intro text", kind: "textarea" }],
   newsletter: [
     { key: "title", label: "Title", kind: "text" },
     { key: "description", label: "Description", kind: "textarea" },
@@ -189,4 +195,28 @@ export const SECTION_FIELD_DEFS: Record<string, FieldDef[]> = {
     },
   ],
   footer: [{ key: "restaurantName", label: "Business name override", kind: "text" }],
+  whyChooseUs: [
+    { key: "title", label: "Title", kind: "text" },
+    {
+      key: "items",
+      label: "Reasons",
+      kind: "list",
+      itemFields: [
+        { key: "heading", label: "Heading", kind: "text" },
+        { key: "description", label: "Description", kind: "textarea" },
+      ],
+    },
+  ],
+  faq: [
+    { key: "title", label: "Title", kind: "text" },
+    {
+      key: "items",
+      label: "Questions",
+      kind: "list",
+      itemFields: [
+        { key: "question", label: "Question", kind: "text" },
+        { key: "answer", label: "Answer", kind: "textarea" },
+      ],
+    },
+  ],
 };

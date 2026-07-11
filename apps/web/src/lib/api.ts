@@ -553,6 +553,10 @@ export interface SitePage {
   slug: string;
   title: string;
   metaDescription: string;
+  /** SEO Generator (Sprint 20A Task 6) — optional, falls back to title/metaDescription at render time. */
+  keywords?: string[];
+  ogTitle?: string;
+  ogDescription?: string;
   sections: SiteSectionBlock[];
 }
 
@@ -823,6 +827,50 @@ export function renderDraftPreview(siteId: string, definition: WebsiteSiteDefini
   return apiFetch<{ html: string }>(`/api/sites/${siteId}/draft/render`, {
     method: "POST",
     body: JSON.stringify({ definition, path }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AI Content Generation Engine (Sprint 20A Task 6)
+// ---------------------------------------------------------------------------
+
+export type ContentGenerationScope = "FULL" | "HERO" | "ABOUT" | "WHY_CHOOSE_US" | "FEATURED" | "CONTACT" | "FOOTER" | "SEO" | "CTA" | "FAQ";
+
+export interface ContentGeneration {
+  id: string;
+  siteId: string;
+  versionNo: number;
+  scope: ContentGenerationScope;
+  pageSlug: string | null;
+  status: "COMPLETED" | "FAILED";
+  provider: string | null;
+  restoredFromId: string | null;
+  createdAt: string;
+}
+
+/**
+ * "Generate Website Content" (scope "FULL") and "Regenerate Section" (any
+ * other scope) share this one endpoint — see the backend's
+ * generateContentSchema doc comment. Returns the updated definition
+ * straight from the server (already merged into the draft via the same
+ * patchDraft path any other edit uses), so the Studio can commit it into
+ * its own undo/redo history exactly like a manual edit — the existing
+ * live preview then updates with zero extra plumbing.
+ */
+export function generateContent(siteId: string, scope: ContentGenerationScope, pageSlug?: string) {
+  return apiFetch<{ generation: ContentGeneration; definition: WebsiteSiteDefinition }>(`/api/sites/${siteId}/content/generate`, {
+    method: "POST",
+    body: JSON.stringify({ scope, ...(pageSlug ? { pageSlug } : {}) }),
+  });
+}
+
+export function listContentGenerations(siteId: string) {
+  return apiFetch<{ generations: ContentGeneration[] }>(`/api/sites/${siteId}/content/generations`);
+}
+
+export function restoreContentGeneration(siteId: string, generationId: string) {
+  return apiFetch<{ generation: ContentGeneration; definition: WebsiteSiteDefinition }>(`/api/sites/${siteId}/content/generations/${generationId}/restore`, {
+    method: "POST",
   });
 }
 

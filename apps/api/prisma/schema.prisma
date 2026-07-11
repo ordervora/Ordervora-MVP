@@ -13,40 +13,41 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         Role
+  id            String  @id @default(uuid())
+  email         String  @unique
+  passwordHash  String
+  name          String
+  role          Role
   // Staff-only, optional — SMS driver-assignment offers (Sprint 07.6 C-10)
   // are skipped (not an error) for staff with no phone on file.
-  phone        String?
+  phone         String?
   // Owner-controlled kill switch for a staff account (Sprint 15). Owners
   // themselves are never deactivated through this flag — only staff they've
   // invited. Enforced at login and at refresh-token rotation, not on every
   // request, since access tokens are short-lived and this mirrors the
   // existing token-theft revocation check's granularity.
-  isActive     Boolean  @default(true)
+  isActive      Boolean @default(true)
   // Sprint 18 — owner/staff account completeness. Not enforced at login
   // (an unverified owner can still use the product; this only gates the
   // "Resend verification" banner/prompt), mirroring how most SaaS
   // products treat email verification as a nag, not a hard login gate.
   emailVerified Boolean @default(false)
 
-  invitedById String?
-  invitedBy   User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])
-  invitedUsers User[] @relation("StaffInvitedBy")
+  invitedById  String?
+  invitedBy    User?   @relation("StaffInvitedBy", fields: [invitedById], references: [id])
+  invitedUsers User[]  @relation("StaffInvitedBy")
 
-  restaurantId String?
-  restaurant   Restaurant? @relation("RestaurantMembers", fields: [restaurantId], references: [id])
+  restaurantId    String?
+  restaurant      Restaurant? @relation("RestaurantMembers", fields: [restaurantId], references: [id])
   ownedRestaurant Restaurant? @relation("RestaurantOwner")
 
-  refreshTokens RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
-  importJobs    ImportJob[]
-  siteVersionsCreated SiteVersion[] @relation("SiteVersionCreatedBy")
-  siteVersionsPublished SiteVersion[] @relation("SiteVersionPublishedBy")
+  importJobs              ImportJob[]
+  siteVersionsCreated     SiteVersion[]            @relation("SiteVersionCreatedBy")
+  siteVersionsPublished   SiteVersion[]            @relation("SiteVersionPublishedBy")
+  contentGenerations      ContentGeneration[]
 
   // --- Commerce & Fulfillment Engine (Sprint 07) ---
   driverAssignments    DriverAssignment[]
@@ -61,23 +62,25 @@ model User {
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  tokenHash String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
   // "Remember me" (Sprint 18) — decides whether the refresh-token cookie
   // is persistent (survives browser close) or session-only. Carried
   // forward across rotation so the original login choice holds for the
   // life of the session, not just its first refresh.
-  rememberMe Boolean  @default(true)
-  createdAt DateTime  @default(now())
+  rememberMe Boolean   @default(true)
+  createdAt  DateTime  @default(now())
 
   @@index([userId])
 }
 
-/** Mirrors CustomerPasswordResetToken exactly, for the User (owner/staff) table (Sprint 18). */
+/**
+ * Mirrors CustomerPasswordResetToken exactly, for the User (owner/staff) table (Sprint 18).
+ */
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
@@ -103,35 +106,35 @@ model EmailVerificationToken {
 }
 
 model Restaurant {
-  id          String   @id @default(uuid())
-  ownerId     String   @unique
-  owner       User     @relation("RestaurantOwner", fields: [ownerId], references: [id])
-  name        String
+  id              String       @id @default(uuid())
+  ownerId         String       @unique
+  owner           User         @relation("RestaurantOwner", fields: [ownerId], references: [id])
+  name            String
   // Sprint 18 — Business Setup Wizard. "Business" is the umbrella term
   // across every business type below (a coffee shop or retail store is
   // still a "Restaurant" row internally — renaming the table platform-wide
   // was out of scope; only user-facing copy says "Business").
-  businessType BusinessType @default(OTHER)
+  businessType    BusinessType @default(OTHER)
   // Tracks which wizard step the owner should resume at if they close the
   // tab mid-setup and log back in later (from any device) — DONE means
   // the wizard has been completed and the owner sees the normal dashboard.
-  setupStep    SetupStep    @default(BUSINESS_TYPE)
-  description String?
-  address     String?
+  setupStep       SetupStep    @default(BUSINESS_TYPE)
+  description     String?
+  address         String?
   // Geocoded restaurant location — required for the Smart Routing
   // Engine's delivery-distance calculation (delivery-rules/geometry.ts).
   // Nullable: a restaurant that hasn't set this yet simply can't offer
   // distance-based delivery routing until it does.
-  lat         Float?
-  lng         Float?
-  phone       String?
-  isPublished Boolean  @default(false)
+  lat             Float?
+  lng             Float?
+  phone           String?
+  isPublished     Boolean      @default(false)
   // Platform-admin kill switch (Sprint 16) — distinct from isPublished,
   // which the owner controls for their own storefront. A suspended
   // restaurant is blocked at checkout (quote.service.ts) regardless of
   // isPublished, for platform-level enforcement (e.g. a ToS violation)
   // that the owner themselves can't toggle back on.
-  isSuspended     Boolean @default(false)
+  isSuspended     Boolean      @default(false)
   suspendedReason String?
 
   // Platform referral program (Sprint 17) — tracking only for now (no
@@ -180,11 +183,11 @@ model Restaurant {
 }
 
 model MenuCategory {
-  id           String   @id @default(uuid())
+  id           String     @id @default(uuid())
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
   name         String
-  sortOrder    Int      @default(0)
+  sortOrder    Int        @default(0)
 
   items MenuItem[]
 
@@ -195,7 +198,7 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id           String   @id @default(uuid())
+  id           String       @id @default(uuid())
   restaurantId String
   restaurant   Restaurant   @relation(fields: [restaurantId], references: [id])
   categoryId   String
@@ -203,8 +206,8 @@ model MenuItem {
   name         String
   description  String?
   priceCents   Int
-  isAvailable  Boolean  @default(true)
-  sortOrder    Int      @default(0)
+  isAvailable  Boolean      @default(true)
+  sortOrder    Int          @default(0)
 
   // --- Commerce & Fulfillment Engine (Sprint 07) ---
   variants       MenuItemVariant[]
@@ -382,6 +385,29 @@ enum GenerationStatus {
   FAILED
 }
 
+// Sprint 20A Task 6 — AI Content Generation Engine. One row per generation
+// or regeneration call, kept forever (never overwritten/deleted) so past
+// content can always be restored — distinct from SiteVersion (which
+// tracks whole-definition draft/publish state) and from GenerationJob
+// (which tracks the original one-time 3-variation site-generation batch).
+enum ContentGenerationScope {
+  FULL
+  HERO
+  ABOUT
+  WHY_CHOOSE_US
+  FEATURED
+  CONTACT
+  FOOTER
+  SEO
+  CTA
+  FAQ
+}
+
+enum ContentGenerationStatus {
+  COMPLETED
+  FAILED
+}
+
 model Site {
   id                 String     @id @default(uuid())
   restaurantId       String     @unique
@@ -403,6 +429,7 @@ model Site {
   domainEvents          DomainEvent[]
   assets                SiteAsset[]
   generationJobs        GenerationJob[]
+  contentGenerations    ContentGeneration[]
   contactMessages       ContactMessage[]
   newsletterSubscribers NewsletterSubscriber[]
 
@@ -411,24 +438,24 @@ model Site {
 }
 
 model SiteVersion {
-  id                  String            @id @default(uuid())
-  siteId              String
-  site                Site              @relation(fields: [siteId], references: [id])
-  versionNo           Int
-  definition          Json
-  status              SiteVersionStatus @default(VARIATION)
+  id                String            @id @default(uuid())
+  siteId            String
+  site              Site              @relation(fields: [siteId], references: [id])
+  versionNo         Int
+  definition        Json
+  status            SiteVersionStatus @default(VARIATION)
   // Which style family this version originated from; retained (not cleared)
   // after selection into DRAFT so the editor can still show its origin.
-  styleFamily         StyleFamily?
-  generationBatchId   String?
-  createdById         String
-  createdBy           User              @relation("SiteVersionCreatedBy", fields: [createdById], references: [id])
-  publishedAt         DateTime?
+  styleFamily       StyleFamily?
+  generationBatchId String?
+  createdById       String
+  createdBy         User              @relation("SiteVersionCreatedBy", fields: [createdById], references: [id])
+  publishedAt       DateTime?
   // Who actually clicked Publish for this release (Sprint 20A) — distinct
   // from createdBy, which is whoever generated/edited the draft. Nullable
   // because older releases predate this field and were never backfilled.
-  publishedById       String?
-  publishedBy         User?             @relation("SiteVersionPublishedBy", fields: [publishedById], references: [id])
+  publishedById     String?
+  publishedBy       User?             @relation("SiteVersionPublishedBy", fields: [publishedById], references: [id])
 
   scores SiteScore[]
 
@@ -462,46 +489,46 @@ model Theme {
 }
 
 model SiteScore {
-  id                String      @id @default(uuid())
-  siteVersionId     String
-  siteVersion       SiteVersion @relation(fields: [siteVersionId], references: [id])
-  overall           Int
-  seo               Int
-  performance       Int
-  accessibility     Int
-  brandConsistency  Int
-  conversion        Int
-  suggestions       Json
-  measuredAt        DateTime    @default(now())
-  source            ScoreSource @default(AUTO)
+  id               String      @id @default(uuid())
+  siteVersionId    String
+  siteVersion      SiteVersion @relation(fields: [siteVersionId], references: [id])
+  overall          Int
+  seo              Int
+  performance      Int
+  accessibility    Int
+  brandConsistency Int
+  conversion       Int
+  suggestions      Json
+  measuredAt       DateTime    @default(now())
+  source           ScoreSource @default(AUTO)
 
   @@index([siteVersionId])
 }
 
 model Domain {
-  id                 String                    @id @default(uuid())
+  id                 String                   @id @default(uuid())
   siteId             String
-  site               Site                      @relation(fields: [siteId], references: [id])
-  hostname           String                    @unique
+  site               Site                     @relation(fields: [siteId], references: [id])
+  hostname           String                   @unique
   type               DomainType
-  verificationStatus DomainVerificationStatus  @default(PENDING)
+  verificationStatus DomainVerificationStatus @default(PENDING)
   // Random per-domain proof-of-control token (Sprint 20A Task 4): the
   // owner must publish it in a `_ordervora-challenge.<hostname>` TXT
   // record alongside the CNAME before verification succeeds — proves they
   // control DNS for this exact hostname, not just that some CNAME already
   // happens to point at our shared edge.
-  verificationToken  String                    @default(uuid())
+  verificationToken  String                   @default(uuid())
   lastCheckedAt      DateTime?
-  tlsStatus          DomainTlsStatus           @default(PENDING)
+  tlsStatus          DomainTlsStatus          @default(PENDING)
   // Set once tlsStatus becomes ACTIVE (Sprint 20A Task 4); the renewal
   // sweep (ssl-issuance-scheduler.ts) flips ACTIVE -> EXPIRED once this
   // passes, mirroring a real certificate's validity window.
   tlsExpiresAt       DateTime?
-  isPrimary          Boolean                   @default(false)
+  isPrimary          Boolean                  @default(false)
 
   events    DomainEvent[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   @@index([siteId])
 }
@@ -527,14 +554,14 @@ model DomainEvent {
 }
 
 model SiteAsset {
-  id          String    @id @default(uuid())
-  siteId      String
-  site        Site      @relation(fields: [siteId], references: [id])
-  kind        AssetKind
-  storageKey  String
-  renditions  Json?
-  altText     String?
-  sortOrder   Int       @default(0)
+  id         String    @id @default(uuid())
+  siteId     String
+  site       Site      @relation(fields: [siteId], references: [id])
+  kind       AssetKind
+  storageKey String
+  renditions Json?
+  altText    String?
+  sortOrder  Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -543,12 +570,12 @@ model SiteAsset {
 }
 
 model GenerationJob {
-  id         String            @id @default(uuid())
+  id         String           @id @default(uuid())
   siteId     String
-  site       Site              @relation(fields: [siteId], references: [id])
+  site       Site             @relation(fields: [siteId], references: [id])
   batchId    String
-  stage      GenerationStage   @default(INGEST)
-  status     GenerationStatus  @default(PENDING)
+  stage      GenerationStage  @default(INGEST)
+  status     GenerationStatus @default(PENDING)
   error      String?
   tokensUsed Int?
   costCents  Int?
@@ -559,6 +586,34 @@ model GenerationJob {
 
   @@index([siteId])
   @@index([batchId])
+}
+
+// Sprint 20A Task 6 — immutable history of every AI content generation/
+// regeneration call for a site, so a previous generation can always be
+// restored. `content` is the exact generated payload for `scope` (see
+// ai-content/types.ts), independent of whatever the current draft
+// definition has since been edited to — restoring re-applies this payload
+// via the same patchDraft path a fresh generation uses, it never rewrites
+// this row.
+model ContentGeneration {
+  id             String                  @id @default(uuid())
+  siteId         String
+  site           Site                    @relation(fields: [siteId], references: [id])
+  versionNo      Int
+  scope          ContentGenerationScope
+  pageSlug       String?
+  content        Json
+  status         ContentGenerationStatus
+  provider       String?
+  error          String?
+  restoredFromId String?
+  createdById    String
+  createdBy      User                    @relation(fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([siteId, versionNo])
+  @@index([siteId, scope])
 }
 
 model ContactMessage {
@@ -640,16 +695,16 @@ model Customer {
   name         String
   phone        String?
 
-  addresses         CustomerAddress[]
-  favorites         CustomerFavorite[]
-  paymentMethods    CustomerPaymentMethod[]
-  orders            Order[]
-  carts             Cart[]
-  loyaltyAccounts   LoyaltyAccount[]
-  couponRedemptions CouponRedemption[]
-  refreshTokens     CustomerRefreshToken[]
+  addresses           CustomerAddress[]
+  favorites           CustomerFavorite[]
+  paymentMethods      CustomerPaymentMethod[]
+  orders              Order[]
+  carts               Cart[]
+  loyaltyAccounts     LoyaltyAccount[]
+  couponRedemptions   CouponRedemption[]
+  refreshTokens       CustomerRefreshToken[]
   passwordResetTokens CustomerPasswordResetToken[]
-  reviews           Review[]
+  reviews             Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -787,31 +842,31 @@ enum CartStatus {
 }
 
 model Cart {
-  id                 String           @id @default(uuid())
-  restaurantId       String
-  restaurant         Restaurant       @relation(fields: [restaurantId], references: [id])
-  customerId         String?
-  customer           Customer?        @relation(fields: [customerId], references: [id])
-  guestSessionId     String?
-  fulfillmentType    FulfillmentType  @default(PICKUP)
-  status             CartStatus       @default(ACTIVE)
-  scheduledFor       DateTime?
-  deliveryAddressId  String?
-  deliveryAddress    CustomerAddress? @relation(fields: [deliveryAddressId], references: [id])
-  tableId            String?
-  table              Table?           @relation(fields: [tableId], references: [id])
-  notes              String?
+  id                    String           @id @default(uuid())
+  restaurantId          String
+  restaurant            Restaurant       @relation(fields: [restaurantId], references: [id])
+  customerId            String?
+  customer              Customer?        @relation(fields: [customerId], references: [id])
+  guestSessionId        String?
+  fulfillmentType       FulfillmentType  @default(PICKUP)
+  status                CartStatus       @default(ACTIVE)
+  scheduledFor          DateTime?
+  deliveryAddressId     String?
+  deliveryAddress       CustomerAddress? @relation(fields: [deliveryAddressId], references: [id])
+  tableId               String?
+  table                 Table?           @relation(fields: [tableId], references: [id])
+  notes                 String?
   // The currently-applied coupon code, re-validated (never trusted as
   // still-valid) at both quote and placement time via
   // validateCouponForRedemption — this field only remembers the
   // customer's selection between requests.
-  couponCode         String?
+  couponCode            String?
   // Loyalty points the customer has chosen to redeem toward this cart's
   // total, mirroring couponCode's "remembers the selection, re-validated
   // fresh at quote and placement time" pattern — never trusted as still
   // redeemable just because it's set here.
   loyaltyPointsToRedeem Int?
-  expiresAt          DateTime
+  expiresAt             DateTime
 
   items CartItem[]
   order Order?
@@ -882,39 +937,39 @@ enum OrderFulfillmentStatus {
 }
 
 model Order {
-  id                   String                  @id @default(uuid())
+  id                   String                 @id @default(uuid())
   // Sequential per restaurant (not globally), human-readable (e.g. #1042).
   orderNumber          Int
   restaurantId         String
-  restaurant           Restaurant              @relation(fields: [restaurantId], references: [id])
+  restaurant           Restaurant             @relation(fields: [restaurantId], references: [id])
   customerId           String?
-  customer             Customer?               @relation(fields: [customerId], references: [id])
+  customer             Customer?              @relation(fields: [customerId], references: [id])
   guestCustomerId      String?
-  guestCustomer         GuestCustomer?          @relation(fields: [guestCustomerId], references: [id])
-  cartId               String?                 @unique
-  cart                 Cart?                   @relation(fields: [cartId], references: [id])
+  guestCustomer        GuestCustomer?         @relation(fields: [guestCustomerId], references: [id])
+  cartId               String?                @unique
+  cart                 Cart?                  @relation(fields: [cartId], references: [id])
   fulfillmentType      FulfillmentType
   // Attribution/reporting only — never a trust or authorization boundary.
-  source               OrderSource             @default(WEBSITE)
+  source               OrderSource            @default(WEBSITE)
   tableId              String?
-  table                Table?                  @relation(fields: [tableId], references: [id])
-  status               OrderStatus             @default(PENDING_PAYMENT)
-  paymentStatus        OrderPaymentStatus      @default(UNPAID)
-  fulfillmentStatus    OrderFulfillmentStatus  @default(UNASSIGNED)
+  table                Table?                 @relation(fields: [tableId], references: [id])
+  status               OrderStatus            @default(PENDING_PAYMENT)
+  paymentStatus        OrderPaymentStatus     @default(UNPAID)
+  fulfillmentStatus    OrderFulfillmentStatus @default(UNASSIGNED)
   subtotalCents        Int
-  taxCents             Int                     @default(0)
-  tipCents             Int                     @default(0)
-  deliveryFeeCents     Int                     @default(0)
-  serviceFeeCents      Int                     @default(0)
-  discountCents        Int                     @default(0)
+  taxCents             Int                    @default(0)
+  tipCents             Int                    @default(0)
+  deliveryFeeCents     Int                    @default(0)
+  serviceFeeCents      Int                    @default(0)
+  discountCents        Int                    @default(0)
   totalCents           Int
-  currency             String                  @default("usd")
+  currency             String                 @default("usd")
   scheduledFor         DateTime?
   deliveryAddressId    String?
-  deliveryAddress      CustomerAddress?        @relation(fields: [deliveryAddressId], references: [id])
+  deliveryAddress      CustomerAddress?       @relation(fields: [deliveryAddressId], references: [id])
   deliveryInstructions String?
   notes                String?
-  placedAt             DateTime                @default(now())
+  placedAt             DateTime               @default(now())
   confirmedAt          DateTime?
   readyAt              DateTime?
   completedAt          DateTime?
@@ -1028,14 +1083,14 @@ enum OrderEventActorType {
 // an order. Includes internal/noisy events that must never reach a
 // customer-facing tracking page (see OrderTimeline below).
 model OrderEvent {
-  id        String               @id @default(uuid())
+  id        String              @id @default(uuid())
   orderId   String
-  order     Order                @relation(fields: [orderId], references: [id])
+  order     Order               @relation(fields: [orderId], references: [id])
   type      OrderEventType
   payload   Json?
-  actorType OrderEventActorType  @default(SYSTEM)
+  actorType OrderEventActorType @default(SYSTEM)
   actorId   String?
-  createdAt DateTime             @default(now())
+  createdAt DateTime            @default(now())
 
   @@index([orderId, createdAt])
 }
@@ -1200,14 +1255,14 @@ enum GiftCardTxnType {
 // SAME provider type. priority/isDefault drive orchestration-level failover
 // (see payments/orchestrator.ts) when a method's primary provider is down.
 model PaymentProvider {
-  id                     String                    @id @default(uuid())
+  id                     String                   @id @default(uuid())
   restaurantId           String
-  restaurant             Restaurant                @relation(fields: [restaurantId], references: [id])
+  restaurant             Restaurant               @relation(fields: [restaurantId], references: [id])
   providerType           PaymentProviderType
   displayName            String?
-  status                 ProviderConnectionStatus  @default(PENDING_CONNECTION)
-  priority               Int                       @default(0)
-  isDefault              Boolean                   @default(false)
+  status                 ProviderConnectionStatus @default(PENDING_CONNECTION)
+  priority               Int                      @default(0)
+  isDefault              Boolean                  @default(false)
   credentialsEncrypted   String?
   externalAccountId      String?
   webhookSecretEncrypted String?
@@ -1215,7 +1270,7 @@ model PaymentProvider {
   // credentialsEncrypted's secret key); powers the checkout page's Stripe
   // Elements integration (Sprint 07.6 C-1).
   publicKey              String?
-  implemented            Boolean                   @default(false)
+  implemented            Boolean                  @default(false)
   connectedAt            DateTime?
 
   paymentMethods         PaymentMethod[]
@@ -1251,14 +1306,14 @@ model PaymentMethod {
 // One row per authorization try — attemptNumber counts across all providers
 // tried for an order, not just retries within one (provider-level failover).
 model PaymentAttempt {
-  id                      String                @id @default(uuid())
+  id                      String               @id @default(uuid())
   orderId                 String
-  order                   Order                 @relation(fields: [orderId], references: [id])
+  order                   Order                @relation(fields: [orderId], references: [id])
   providerId              String
-  provider                PaymentProvider       @relation(fields: [providerId], references: [id])
+  provider                PaymentProvider      @relation(fields: [providerId], references: [id])
   methodType              PaymentMethodType
   attemptNumber           Int
-  status                  PaymentAttemptStatus  @default(PENDING)
+  status                  PaymentAttemptStatus @default(PENDING)
   providerPaymentIntentId String?
   failureCode             String?
   failureMessage          String?
@@ -1274,17 +1329,17 @@ model PaymentAttempt {
 
 // The settled record for an order, aggregating across attempts.
 model Payment {
-  id                    String           @id @default(uuid())
-  orderId               String           @unique
-  order                 Order            @relation(fields: [orderId], references: [id])
+  id                    String          @id @default(uuid())
+  orderId               String          @unique
+  order                 Order           @relation(fields: [orderId], references: [id])
   providerId            String
-  provider              PaymentProvider  @relation(fields: [providerId], references: [id])
-  successfulAttemptId   String?          @unique
-  successfulAttempt     PaymentAttempt?  @relation(fields: [successfulAttemptId], references: [id])
-  status                PaymentStatus    @default(PENDING)
-  authorizedAmountCents Int              @default(0)
-  capturedAmountCents   Int              @default(0)
-  refundedAmountCents   Int              @default(0)
+  provider              PaymentProvider @relation(fields: [providerId], references: [id])
+  successfulAttemptId   String?         @unique
+  successfulAttempt     PaymentAttempt? @relation(fields: [successfulAttemptId], references: [id])
+  status                PaymentStatus   @default(PENDING)
+  authorizedAmountCents Int             @default(0)
+  capturedAmountCents   Int             @default(0)
+  refundedAmountCents   Int             @default(0)
   capturedAt            DateTime?
 
   refunds Refund[]
@@ -1346,13 +1401,13 @@ model Tip {
 // Order.taxCents is a frozen snapshot computed at order time, never
 // retroactively recalculated if a Tax row changes later.
 model Tax {
-  id              String        @id @default(uuid())
+  id              String       @id @default(uuid())
   restaurantId    String
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
+  restaurant      Restaurant   @relation(fields: [restaurantId], references: [id])
   jurisdiction    String
   rateBasisPoints Int
-  appliesTo       TaxAppliesTo  @default(ALL)
-  isActive        Boolean       @default(true)
+  appliesTo       TaxAppliesTo @default(ALL)
+  isActive        Boolean      @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1361,19 +1416,19 @@ model Tax {
 }
 
 model Coupon {
-  id                         String     @id @default(uuid())
-  restaurantId               String
-  restaurant                 Restaurant @relation(fields: [restaurantId], references: [id])
-  code                        String
-  type                        CouponType
-  value                        Int
-  minOrderCents                Int?
-  maxDiscountCents              Int?
-  startsAt                    DateTime?
-  expiresAt                   DateTime?
-  maxRedemptions               Int?
-  maxRedemptionsPerCustomer      Int?
-  isActive                    Boolean    @default(true)
+  id                        String     @id @default(uuid())
+  restaurantId              String
+  restaurant                Restaurant @relation(fields: [restaurantId], references: [id])
+  code                      String
+  type                      CouponType
+  value                     Int
+  minOrderCents             Int?
+  maxDiscountCents          Int?
+  startsAt                  DateTime?
+  expiresAt                 DateTime?
+  maxRedemptions            Int?
+  maxRedemptionsPerCustomer Int?
+  isActive                  Boolean    @default(true)
 
   redemptions CouponRedemption[]
 
@@ -1573,18 +1628,18 @@ enum DriverAssignmentStatus {
 // One per order — tracks execution, distinct from Order.fulfillmentType
 // (the customer's choice).
 model Fulfillment {
-  id                  String                   @id @default(uuid())
-  orderId             String                   @unique
-  order               Order                    @relation(fields: [orderId], references: [id])
+  id                  String                  @id @default(uuid())
+  orderId             String                  @unique
+  order               Order                   @relation(fields: [orderId], references: [id])
   restaurantId        String
   method              FulfillmentMethod
-  status              FulfillmentDetailStatus  @default(UNASSIGNED)
+  status              FulfillmentDetailStatus @default(UNASSIGNED)
   estimatedReadyAt    DateTime?
   estimatedDeliveryAt DateTime?
   actualPickedUpAt    DateTime?
   actualDeliveredAt   DateTime?
   providerId          String?
-  provider            FulfillmentProvider?     @relation(fields: [providerId], references: [id])
+  provider            FulfillmentProvider?    @relation(fields: [providerId], references: [id])
   externalDeliveryId  String?
 
   driverAssignment DriverAssignment?
@@ -1598,13 +1653,13 @@ model Fulfillment {
 // A restaurant's BYO-delivery connection — same multi-provider-capable
 // shape as PaymentProvider.
 model FulfillmentProvider {
-  id                   String                    @id @default(uuid())
+  id                   String                   @id @default(uuid())
   restaurantId         String
-  restaurant           Restaurant                @relation(fields: [restaurantId], references: [id])
+  restaurant           Restaurant               @relation(fields: [restaurantId], references: [id])
   providerType         FulfillmentProviderType
-  status               ProviderConnectionStatus  @default(PENDING_CONNECTION)
+  status               ProviderConnectionStatus @default(PENDING_CONNECTION)
   credentialsEncrypted String?
-  implemented          Boolean                   @default(false)
+  implemented          Boolean                  @default(false)
 
   fulfillments Fulfillment[]
 
@@ -1617,14 +1672,14 @@ model FulfillmentProvider {
 // For RESTAURANT_DRIVER only — reuses the existing staff User identity
 // rather than inventing a parallel Driver model.
 model DriverAssignment {
-  id             String                  @id @default(uuid())
-  fulfillmentId  String                  @unique
-  fulfillment    Fulfillment             @relation(fields: [fulfillmentId], references: [id])
+  id             String                 @id @default(uuid())
+  fulfillmentId  String                 @unique
+  fulfillment    Fulfillment            @relation(fields: [fulfillmentId], references: [id])
   driverId       String
-  driver         User                    @relation(fields: [driverId], references: [id])
-  assignedAt     DateTime                @default(now())
+  driver         User                   @relation(fields: [driverId], references: [id])
+  assignedAt     DateTime               @default(now())
   acceptedAt     DateTime?
-  status         DriverAssignmentStatus  @default(OFFERED)
+  status         DriverAssignmentStatus @default(OFFERED)
   // Set whenever a fresh OFFERED assignment is created; a scheduled sweep
   // (expireStaleOffers) transitions any assignment still OFFERED past this
   // time to EXPIRED (Sprint 07.6 C-11).
@@ -1673,19 +1728,19 @@ model DeliveryZone {
 }
 
 model DeliveryRule {
-  id                String             @id @default(uuid())
+  id                String            @id @default(uuid())
   restaurantId      String
-  restaurant        Restaurant         @relation(fields: [restaurantId], references: [id])
+  restaurant        Restaurant        @relation(fields: [restaurantId], references: [id])
   zoneId            String?
-  zone              DeliveryZone?      @relation(fields: [zoneId], references: [id])
+  zone              DeliveryZone?     @relation(fields: [zoneId], references: [id])
   minDistanceMiles  Float?
   maxDistanceMiles  Float?
   fulfillmentMethod FulfillmentMethod
-  priority          Int                @default(0)
+  priority          Int               @default(0)
   fallbackToRuleId  String?
-  fallbackToRule    DeliveryRule?      @relation("DeliveryRuleFallback", fields: [fallbackToRuleId], references: [id])
-  fallbackFromRules DeliveryRule[]     @relation("DeliveryRuleFallback")
-  isActive          Boolean            @default(true)
+  fallbackToRule    DeliveryRule?     @relation("DeliveryRuleFallback", fields: [fallbackToRuleId], references: [id])
+  fallbackFromRules DeliveryRule[]    @relation("DeliveryRuleFallback")
+  isActive          Boolean           @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1827,14 +1882,14 @@ enum POSSyncStatus {
 // false) — the interface, schema, and registry are proven now without a
 // live POS integration shipping this sprint.
 model POSProvider {
-  id                   String                    @id @default(uuid())
+  id                   String                   @id @default(uuid())
   restaurantId         String
-  restaurant           Restaurant                @relation(fields: [restaurantId], references: [id])
+  restaurant           Restaurant               @relation(fields: [restaurantId], references: [id])
   providerType         POSProviderType
-  status               ProviderConnectionStatus  @default(PENDING_CONNECTION)
+  status               ProviderConnectionStatus @default(PENDING_CONNECTION)
   credentialsEncrypted String?
-  syncDirection        POSSyncDirection          @default(MENU_IMPORT)
-  implemented          Boolean                   @default(false)
+  syncDirection        POSSyncDirection         @default(MENU_IMPORT)
+  implemented          Boolean                  @default(false)
   connectedAt          DateTime?
 
   syncLogs POSSyncLog[]
@@ -1946,14 +2001,14 @@ enum NotificationStatus {
 // SKIPPED_CHANNEL_DISABLED), so gaps are auditable rather than silently
 // absent.
 model NotificationLog {
-  id                String               @id @default(uuid())
+  id                String              @id @default(uuid())
   orderId           String?
-  order             Order?               @relation(fields: [orderId], references: [id])
+  order             Order?              @relation(fields: [orderId], references: [id])
   restaurantId      String?
   customerId        String?
   channel           NotificationChannel
   type              NotificationType
-  status            NotificationStatus   @default(QUEUED)
+  status            NotificationStatus  @default(QUEUED)
   providerMessageId String?
   error             String?
 
@@ -2023,15 +2078,15 @@ enum FraudSignalSeverity {
 }
 
 model FraudSignal {
-  id           String               @id @default(uuid())
+  id           String              @id @default(uuid())
   orderId      String
-  order        Order                @relation(fields: [orderId], references: [id])
+  order        Order               @relation(fields: [orderId], references: [id])
   signalType   FraudSignalType
-  severity     FraudSignalSeverity  @default(LOW)
+  severity     FraudSignalSeverity @default(LOW)
   details      Json?
   resolvedAt   DateTime?
   resolvedById String?
-  resolvedBy   User?                @relation(fields: [resolvedById], references: [id])
+  resolvedBy   User?               @relation(fields: [resolvedById], references: [id])
 
   createdAt DateTime @default(now())
 

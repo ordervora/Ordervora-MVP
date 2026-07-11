@@ -17,11 +17,16 @@ export function renderContactInfo(section: SectionBlock, ctx: RenderContext): st
  * §7 — spam-protected with a honeypot field (invisible to real users via
  * CSS, mirrors the server-side check in contact.service.ts) plus the
  * server's own rate limiting. Submits to the public, unauthenticated
- * contact endpoint for this site.
+ * contact endpoint for this site. `intro` (Sprint 20A Task 6 — AI Content
+ * Generation Engine's "Contact Section" copy) is optional so every
+ * contactForm block persisted before this task still renders identically.
  */
-export function renderContactForm(_section: SectionBlock, ctx: RenderContext): string {
+export function renderContactForm(section: SectionBlock, ctx: RenderContext): string {
+  const intro = typeof section.props.intro === "string" ? section.props.intro : "";
+
   return `<section class="contact-form">
   <h2>Send us a message</h2>
+  ${intro ? `<p>${escapeHtml(intro)}</p>` : ""}
   <form method="post" action="/public/sites/${escapeHtml(ctx.siteId)}/contact" data-site-contact-form>
     <label>Name<br /><input type="text" name="name" required /></label><br />
     <label>Email<br /><input type="email" name="email" required /></label><br />

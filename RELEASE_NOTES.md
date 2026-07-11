@@ -3810,4 +3810,152 @@ section's subscribe form posts to a real endpoint but has no admin UI yet
 for viewing collected subscribers beyond the raw `GET
 :id/newsletter-subscribers` API.
 
-Sprint 20A stops here per instruction — Task 6 not started.
+## Sprint 20A Task 6 — AI Content Generation Engine
+
+Production sprint: built the AI Content Generation Engine that powers
+website copy for every business type on the platform, on the branch
+`claude/sprint-20a-ai-content` (created fresh from `main` after Tasks
+1–5 were merged and deployed). Zero changes to any Tasks 1–5
+functionality — every addition below is new code or a strictly
+additive, backward-compatible extension of an existing schema/renderer.
+
+**Architecture:** reuses the existing multi-vendor `AIProvider`
+abstraction at `apps/api/src/lib/ai/` (`getAIProvider()` — OpenAI →
+Anthropic → Gemini by whichever `*_API_KEY` is configured, already used
+by the original site-generation pipeline's `content-generator.ts` and
+`brand-analysis.ts`) rather than building a second one. Every prompt
+lives in a dedicated, reusable builder (`ai-content/prompts.ts`) that
+takes structured input and returns a string — no prompt is ever
+inlined next to a provider call, so swapping providers is purely an
+environment-variable change. Every generation call follows the same
+never-throw-with-fallback shape those two existing modules already
+established: build a prompt, call the provider, `JSON.parse` +
+zod-validate the response, sanitize through the existing
+`claims-filter.ts`, and fall back to deterministic templated copy on
+any failure (empty response, malformed JSON, schema mismatch, thrown
+error, or — as hit live in this sandbox, see below — no network route
+to the provider at all) so generation can never fail the caller.
+
+**New module (`apps/api/src/modules/sites/ai-content/`):** `types.ts`
+(one zod schema per content scope), `prompts.ts` (the reusable prompt
+builders), `content-engine.ts` (one `generate*` function per scope,
+provider-agnostic), `cta-options.ts` (deterministic, business-type-aware
+CTA selection — kept as a separate function from the pre-existing
+`cta.ts`'s `computeCtaLabel`, which stays completely untouched, since
+that one only ever chose between order/reserve/menu for restaurants;
+the new one covers the full Restaurant/Cafe/Bakery/Pizza/Vape
+Shop/Convenience Store/Retail/etc. taxonomy plus a generic fallback for
+any future business type), `apply-content.ts` (maps generated content
+onto a `SiteDefinition` patch by upserting section props — merging onto
+an existing block of that type on the target page if one exists,
+appending a new one otherwise, always inserted **before** `footer`
+rather than at the array's end — a real bug caught live, see below).
+
+**Database (migration `20260711040341_sprint20a_task6_ai_content_generation`):**
+new `ContentGeneration` model — one immutable row per generate/regenerate/
+restore call (`siteId`, `versionNo`, `scope`, `pageSlug`, `content` JSON,
+`status`, `provider`, `restoredFromId`, `createdById`, `createdAt`).
+Deliberately a new, minimal model rather than reusing `SiteVersion`
+(whole-definition draft/publish state, a different concept) or
+`GenerationJob` (the original one-time 3-variation batch pipeline) —
+"never overwrite previous generated content" and "allow future
+rollback" both fall out of this table being append-only.
+
+**Content generated, per scope:** Hero (headline/subhead), About
+(story + homepage excerpt), Why Choose Us (title + 3-4 reasons — new),
+Featured (categories + products intro copy), Contact (form intro —
+new field on the existing `contactForm` section, which previously
+ignored its own `props` entirely), Footer (description, via the
+existing Task 5 `footerSettings.description` field), SEO (page
+title/meta description/keywords/OG title/OG description — keywords and
+OG fields are new, optional `SitePage` fields consumed by
+`seo-head.ts`), CTA (deterministic, business-type-aware button copy),
+FAQ (minimum 5 Q&A pairs — new). Two new, purely additive section types
+— `whyChooseUs` and `faq` — plus their renderer components
+(`renderer/components/why-choose-us.ts`, `faq.ts`, the latter a
+zero-JavaScript `<details>/<summary>` accordion, same "no framework
+needed" philosophy as `gallery.ts`'s native `<dialog>` lightbox) and
+registry entries; every generated field is a normal, owner-editable
+prop or page field, wired into the existing Section Manager/dynamic
+field editor (`section-fields.ts`) exactly like every Task 5 field, so
+nothing generated is a dead-end control.
+
+**API routes** (`apps/api/src/modules/sites/site.routes.ts`, same
+`siteGenerationRateLimiter` as the original whole-site generation
+endpoint — every call here is at least one LLM request):
+`POST /:id/content/generate` (body `{ scope, pageSlug? }` — `scope:
+"FULL"` is "Generate Website Content", any other scope is "Regenerate
+Section"; the same endpoint serves both since they're the same
+operation parameterized by scope), `GET /:id/content/generations`
+("Get Generated Content" / version history), `POST
+/:id/content/generations/:generationId/restore` ("Restore Previous
+Version" — re-applies a past generation's stored content through the
+same `apply-content.ts` mapping a fresh generation uses, and records
+the restore as a new row pointing at `restoredFromId` rather than
+mutating or deleting the original).
+
+**Persistence reuses `patchDraft`** (Task 5's existing constrained-
+editing mutation, whole-object re-validated before saving) for every
+generate/regenerate/restore — no parallel mutation path. `site.service.ts`
+gained one small additive export, `getDraftDefinition()`, so the new
+service can read the current draft without duplicating `patchDraft`'s
+tenant-check-plus-draft-lookup logic.
+
+**Frontend:** a new "AI Content" tab in the Customization Studio
+(`editor/studio/panels/ai-content-panel.tsx`) with a "Generate Website
+Content" primary action, a 9-button "Regenerate a Section" grid, and a
+Version History list with per-entry Restore — loading/success/error
+states throughout. Every generate/regenerate/restore call returns the
+server's already-merged `definition` and hands it straight to the
+Studio's existing `commit()`, so undo/redo, autosave, and the live
+preview all update with **zero new plumbing** — satisfying "Live
+Preview updates immediately, no page refresh" for free, by construction
+rather than by building a second live-update mechanism.
+
+**Bug found and fixed during live verification:** `apply-content.ts`'s
+section upsert originally appended a brand-new section block to the
+*end* of a page's section array. Live-tested by regenerating FAQ on a
+page that already had a `footer` block — the FAQ accordion rendered
+*below* the footer in the real preview. Root-caused immediately (naive
+`[...sections, newBlock]`) and fixed by inserting before the existing
+`footer` block when one is present; added a regression test
+(`apply-content.test.ts`) and re-verified live that FAQ (and, by the
+same code path, Why Choose Us and any other newly-added generated
+section) now renders in the correct position.
+
+**Verified:** typecheck and lint clean on both apps; full backend
+suite (1190 passed, 5 skipped — same one pre-existing, unrelated flaky
+test as every prior task); full frontend suite (139 passed, 7 new);
+production build clean for both apps. Live end-to-end run against a
+real local Postgres database and a real test account with a `VAPE_SHOP`
+business type (chosen specifically to prove per-business-type
+differentiation, not just re-test the restaurant path): "Generate
+Website Content" produced business-type-correct CTAs ("Shop Online" /
+"View Collection" — the exact example given for vape shops) and a
+business-type-aware footer/contact intro; individual Regenerate calls
+for FAQ and SEO both worked independently; Restore correctly reverted
+to an earlier generation and was itself recorded as a new, separate
+history entry.
+
+**Known limitation (sandbox-specific, not a code defect):** this
+sandbox's network egress to `api.openai.com` returns `403` on the
+CONNECT tunnel (confirmed directly via `curl`), so every live-verified
+generation in this environment exercised the deterministic template
+fallback path rather than a real model response — the exact same class
+of limitation already documented for Task 4's ACME/SSL integration.
+Every fallback produced valid, non-generic, business-type-differentiated
+copy (confirmed live), and the real-provider path is fully covered by
+mocked-provider unit tests in `content-engine.test.ts` (success,
+malformed JSON, schema-invalid response, empty response, and thrown-error
+cases, for every scope).
+
+**Remaining limitations / TODOs:** four new product-polish ideas were
+logged to `docs/PRODUCT_IMPROVEMENT_LOG.md` (IMP-016 through IMP-019)
+per the standing per-task review process rather than implemented now —
+surfacing the detected business type in the panel, explaining the
+"template" provider label, a before/after preview on regenerate, and
+grouping Version History by generation batch. CTA generation is
+deterministic by design (mirrors `cta.ts`'s existing "never guessed by
+an LLM" principle for the underlying action), not AI-generated text.
+
+Sprint 20A Task 6 complete. Stopping here per instruction — Task 7 not started.

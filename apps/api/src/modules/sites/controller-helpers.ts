@@ -3,6 +3,7 @@ import { NoRestaurantError } from "../restaurants/restaurant.errors";
 import { getOwnRestaurantId } from "../restaurants/restaurant.service";
 import {
   AssetNotFoundError,
+  ContentGenerationNotFoundError,
   DomainAlreadyClaimedError,
   DomainNotFoundError,
   InvalidDomainError,
@@ -42,7 +43,8 @@ export function mapSiteError(err: unknown, res: Response): boolean {
     err instanceof AssetNotFoundError ||
     err instanceof DomainNotFoundError ||
     err instanceof SuggestionNotFoundError ||
-    err instanceof VariationNotFoundError
+    err instanceof VariationNotFoundError ||
+    err instanceof ContentGenerationNotFoundError
   ) {
     res.status(404).json({ error: err.message });
     return true;

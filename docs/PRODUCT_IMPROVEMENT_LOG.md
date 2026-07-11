@@ -180,6 +180,44 @@ Improvements are collected during Task reviews and are implemented later during 
 - **Reason:** Helps customers compare concepts based on business goals instead of choosing only by appearance.
 - **Status:** Pending
 
+## Task 6 — AI Content Generation Engine Review
+
+### IMP-016 — Surface a Business-Type Override in the AI Content Panel
+
+- **Priority:** Medium
+- **Type:** Personalization / AI input control
+- **Description:** The content engine already keys its prompts and CTA choices off the restaurant's real Business Type (set once during onboarding), but the owner has no way to see or change that value from inside the AI Content panel itself.
+- **Suggested addition:** Show the detected business type in the panel ("Generating for: Vape Shop") with a link to Restaurant Settings to change it.
+- **Reason:** Right now a wrong or outdated business type silently produces mismatched CTA/copy with no visible explanation — surfacing it closes that gap without adding new business logic.
+- **Status:** Pending
+
+### IMP-017 — Explain the "template" Provider Label
+
+- **Priority:** Medium
+- **Type:** Trust / AI transparency
+- **Description:** Version History shows either a real provider name (e.g. "openai") or "template" when generation fell back to deterministic copy, but doesn't explain the difference.
+- **Suggested addition:** A short tooltip or inline note on "template" entries: "Generated from a smart template — AI service was unavailable."
+- **Reason:** An owner comparing two history entries shouldn't have to guess why one says "openai" and another says "template."
+- **Status:** Pending
+
+### IMP-018 — Before/After Preview on Regenerate
+
+- **Priority:** Low
+- **Type:** Confidence / undo clarity
+- **Description:** Regenerating a section replaces its content immediately (recoverable via Undo or Version History), but the owner doesn't see what changed until after committing.
+- **Suggested addition:** A lightweight side-by-side or diff preview before applying a regeneration, at least for the higher-stakes "Generate Website Content" (scope FULL) action.
+- **Reason:** Reduces hesitation around a full-site regeneration, especially once an owner has already hand-edited several sections.
+- **Status:** Pending
+
+### IMP-019 — Group Version History by Generation Batch
+
+- **Priority:** Low
+- **Type:** Information architecture
+- **Description:** A single "Generate Website Content" click creates one history row per sub-scope internally is stored as one FULL entry today, but once an owner also regenerates individual sections, the flat list can get long.
+- **Suggested addition:** Collapse/group consecutive entries from the same session, or add simple date-based section headers.
+- **Reason:** Keeps Version History scannable as it grows past a handful of entries.
+- **Status:** Pending
+
 ---
 
 # Future Ideas (Backlog)

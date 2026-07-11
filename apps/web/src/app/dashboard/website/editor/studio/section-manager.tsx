@@ -30,6 +30,8 @@ export function defaultPropsForType(type: string): Record<string, unknown> {
   if (type === "contactInfo") return {};
   if (type === "newsletter") return { title: "Stay in the loop" };
   if (type === "customTextImage") return { heading: "", body: "" };
+  if (type === "whyChooseUs") return { title: "Why Choose Us", items: [{ heading: "", description: "" }] };
+  if (type === "faq") return { title: "Frequently Asked Questions", items: [{ question: "", answer: "" }] };
   return {};
 }
 

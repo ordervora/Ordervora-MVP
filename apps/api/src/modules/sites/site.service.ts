@@ -148,6 +148,20 @@ async function getActiveDraft(siteId: string): Promise<SiteVersion> {
 }
 
 /**
+ * Sprint 20A Task 6 — the AI Content Generation Engine needs the current
+ * draft's parsed definition (to know which pages/sections already exist
+ * before generating/applying content) without duplicating the tenant
+ * check + draft lookup `patchDraft` already does. Read-only; callers still
+ * persist through `patchDraft` itself, which re-validates the whole
+ * merged object before saving.
+ */
+export async function getDraftDefinition(restaurantId: string, siteId: string): Promise<{ site: Site; definition: SiteDefinition }> {
+  const site = await findOwnSiteById(restaurantId, siteId);
+  const draft = await getActiveDraft(site.id);
+  return { site, definition: siteDefinitionSchema.parse(draft.definition) };
+}
+
+/**
  * PATCH /api/sites/:id/draft — constrained editing only (§12): section
  * variant swap/show/hide/reorder and design-token changes land here as a
  * partial SiteDefinition patch, re-validated as a whole before saving so a

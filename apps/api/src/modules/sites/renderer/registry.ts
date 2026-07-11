@@ -5,6 +5,7 @@ import { renderBestSellers } from "./components/best-sellers";
 import { renderContactForm, renderContactInfo } from "./components/contact";
 import { renderCtaBanner } from "./components/cta-banner";
 import { renderCustomTextImage } from "./components/custom-text-image";
+import { renderFaq } from "./components/faq";
 import { renderFeaturedCategories } from "./components/featured-categories";
 import { renderFeaturedProducts } from "./components/featured-products";
 import { renderFooter } from "./components/footer";
@@ -17,6 +18,7 @@ import { renderNewsletter } from "./components/newsletter";
 import { renderOffers } from "./components/offers";
 import { renderReviews } from "./components/reviews";
 import { renderSignatureDishes } from "./components/signature-dishes";
+import { renderWhyChooseUs } from "./components/why-choose-us";
 import type { RenderContext } from "./render-context";
 
 export type SectionRenderer = (section: SectionBlock, ctx: RenderContext) => string;
@@ -53,6 +55,8 @@ const REGISTRY: Partial<Record<SectionType, SectionRenderer>> = {
   newsletter: renderNewsletter,
   customTextImage: renderCustomTextImage,
   footer: renderFooter,
+  whyChooseUs: renderWhyChooseUs,
+  faq: renderFaq,
 };
 
 export function getSectionRenderer(type: SectionType): SectionRenderer | undefined {

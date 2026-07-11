@@ -48,6 +48,23 @@ describe("ingestRestaurantData", () => {
     expect(result.restaurantName).toBe("Trattoria Bella");
   });
 
+  it("passes through the restaurant's real BusinessType (Sprint 20A Task 6)", async () => {
+    mockPrisma.restaurant.findUniqueOrThrow.mockResolvedValue({
+      id: "r1",
+      name: "Trattoria Bella",
+      description: null,
+      address: null,
+      phone: null,
+      businessType: "VAPE_SHOP",
+      categories: [],
+    } as never);
+    mockPrisma.siteAsset.count.mockResolvedValue(0);
+
+    const result = await ingestRestaurantData("r1");
+
+    expect(result.businessType).toBe("VAPE_SHOP");
+  });
+
   it("excludes unavailable items from the ingested menu", async () => {
     mockPrisma.restaurant.findUniqueOrThrow.mockResolvedValue({
       id: "r1",
