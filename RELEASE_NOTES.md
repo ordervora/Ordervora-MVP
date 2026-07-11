@@ -3423,3 +3423,59 @@ real scoring and traffic data; wire AI Suggestions' "Fix Now" to real
 actions; wire the domain card to a real assigned domain once one
 exists; decide whether Website Messages needs a dedicated entry point
 on the new hub (currently reachable only by direct URL).
+
+## Sprint 20A Task 2 — AI Brand Concepts Experience
+
+UI-only sprint, built on Task 1's foundation: turned the 3 static
+placeholder concept cards into a complete, simulated brand-generation
+workflow. No real AI, no OpenAI calls, no backend/database changes —
+still entirely placeholder data, now with real interaction depth.
+
+**New:** a `brand-concepts/` module (`concept-data.ts`,
+`generate-concepts-button.tsx`, `concept-phone-preview.tsx`,
+`concept-details.tsx`, `brand-concept-card.tsx`, `compare-concepts.tsx`)
+replacing the single-file Task 1 version of `ai-brand-concepts.tsx`,
+which is now a thin orchestrator over these pieces.
+
+- **Generate New Brand Concepts** — a primary button that runs a
+  simulated 5-stage loading sequence (Analyzing your business… →
+  Building your brand identity… → Creating layouts… → Designing mobile
+  experience… → Preparing storefront…) in a modal, each stage
+  transitioning through pending/active/done states, then advances all
+  3 concepts to their next placeholder variation.
+- **Richer concept cards** — each now shows Business Style, Best For,
+  three labeled color swatches, and 5 style tags (Typography/Button/
+  Navigation/Product Card/Animation Style), on top of the name and
+  description from Task 1.
+- **Interactive iPhone Preview** — each concept's phone mockup now has
+  a real 5-screen tab switcher (Home/Menu/Product/Cart/Checkout), each
+  screen a distinct placeholder layout using that concept's own colors.
+- **Compare Concepts** — a toggleable, horizontally-scrollable
+  comparison table showing all 3 concepts' key attributes side by side,
+  in place, without navigating away.
+- **Selection Experience** — selecting a concept immediately shows a
+  "Selected Brand · Current Active Concept" confirmation banner above
+  the cards and a "Selected" badge + ring highlight on the chosen card.
+- **Regenerate** — per-card, cycles that concept to its next placeholder
+  variation with a brief spinner; each of the 3 concept families now has
+  3 variations (added a third to each during this task, after live
+  testing showed a 2-variation cycle felt repetitive against this
+  sprint's "Apple-quality" bar).
+- **Concept Details** — a smooth-animated accordion per card revealing
+  Brand Philosophy, Color Palette, Typography, Experience, Target
+  Audience, Conversion Focus, and Business Personality.
+
+**Verified:** typecheck, lint, production build (all clean, as
+requested), plus the full test suite as an extra regression check (113
+passed, unchanged) and live Playwright verification at iPhone SE
+(375×667), iPhone 14/15 (390×844), iPhone Pro Max via the existing
+studio page, tablet (768×1024), and desktop (1440×1000) — zero
+horizontal overflow, zero console errors at any width, and every
+interaction (Generate flow, Select, Compare, Regenerate, Concept
+Details expand, phone-preview screen switching) confirmed working live.
+
+**TODOs for Task 3** (explicitly not started here): connect Generate/
+Regenerate to real AI brand generation; persist the selected concept;
+wire the phone preview to real generated content instead of static
+placeholder blocks; connect Concept Details' copy to real generated
+brand reasoning instead of the fixed placeholder pool.
