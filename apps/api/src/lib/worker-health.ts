@@ -9,7 +9,7 @@
  * mechanism — the underlying work itself (OutboxEvent rows, stale driver
  * offers) is already durable in Postgres regardless of this module.
  */
-export const WORKER_NAMES = ["outboxWorker", "staleOfferSweep"] as const;
+export const WORKER_NAMES = ["outboxWorker", "staleOfferSweep", "sslIssuanceSweep"] as const;
 export type WorkerName = (typeof WORKER_NAMES)[number];
 
 interface WorkerPollState {
@@ -21,6 +21,7 @@ function initialState(): Record<WorkerName, WorkerPollState> {
   return {
     outboxWorker: { lastSuccessAt: null, lastError: null },
     staleOfferSweep: { lastSuccessAt: null, lastError: null },
+    sslIssuanceSweep: { lastSuccessAt: null, lastError: null },
   };
 }
 

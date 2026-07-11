@@ -636,13 +636,46 @@ export interface GenerationJob {
   error: string | null;
 }
 
+export type DomainVerificationStatus = "PENDING" | "VERIFIED" | "FAILED";
+export type DomainTlsStatus = "PENDING" | "GENERATING" | "ACTIVE" | "EXPIRED" | "FAILED";
+export type DomainEventType =
+  | "CREATED"
+  | "VERIFIED"
+  | "VERIFICATION_FAILED"
+  | "SSL_GENERATING"
+  | "SSL_ACTIVE"
+  | "SSL_FAILED"
+  | "PRIMARY_CHANGED"
+  | "DISCONNECTED";
+
+export interface DnsRecordInstruction {
+  type: "CNAME" | "TXT";
+  name: string;
+  value: string;
+}
+
 export interface SiteDomain {
   id: string;
   hostname: string;
   type: "PLATFORM" | "CUSTOM";
-  verificationStatus: "PENDING" | "VERIFIED" | "FAILED";
-  tlsStatus: "PENDING" | "ISSUED" | "FAILED";
+  verificationStatus: DomainVerificationStatus;
+  verificationToken: string;
+  lastCheckedAt: string | null;
+  tlsStatus: DomainTlsStatus;
+  tlsExpiresAt: string | null;
   isPrimary: boolean;
+  dnsRecords: DnsRecordInstruction[];
+  createdAt: string;
+}
+
+export interface DomainEvent {
+  id: string;
+  siteId: string;
+  domainId: string | null;
+  hostname: string;
+  type: DomainEventType;
+  message: string | null;
+  createdAt: string;
 }
 
 export interface ContactMessageRecord {
@@ -654,11 +687,19 @@ export interface ContactMessageRecord {
 }
 
 export function getMySite() {
-  return apiFetch<{ site: WebsiteSite; url: string }>("/api/sites/me");
+  return apiFetch<{ site: WebsiteSite; url: string; temporaryDomain: string }>("/api/sites/me");
 }
 
 export function createSite() {
   return apiFetch<{ site: WebsiteSite }>("/api/sites", { method: "POST" });
+}
+
+/** PATCH /api/sites/:id — currently only used to edit the temporary domain's slug before publishing. */
+export function updateSite(siteId: string, input: { slug?: string }) {
+  return apiFetch<{ site: WebsiteSite }>(`/api/sites/${siteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function startGeneration(siteId: string) {
@@ -765,6 +806,11 @@ export function setPrimaryDomain(siteId: string, domainId: string) {
 
 export function removeDomain(siteId: string, domainId: string) {
   return apiFetch<void>(`/api/sites/${siteId}/domains/${domainId}`, { method: "DELETE" });
+}
+
+/** GET /api/sites/:id/domain-history — full domain lifecycle timeline (Sprint 20A Task 4), survives individual domains being disconnected. */
+export function listDomainHistory(siteId: string) {
+  return apiFetch<{ events: DomainEvent[] }>(`/api/sites/${siteId}/domain-history`);
 }
 
 export function listMessages(siteId: string) {

@@ -3561,4 +3561,123 @@ local disk (this environment's stand-in for object storage + CDN
 invalidation) — swapping in real object storage is an infrastructure
 choice for deployment, not a Task 3 gap.
 
-Sprint 20A stops here per instruction — Task 4 not started.
+## Sprint 20A Task 4 — Temporary Domain & Custom Domain Engine
+
+Production sprint: extended the existing domain infrastructure
+(`Domain` model, real CNAME DNS verification, primary-domain resolution
+— all pre-existing from earlier sprints) with proof-of-control TXT
+verification, a real SSL certificate state machine, durable domain
+history, and a premium Domain Management UI on the Studio hub.
+
+**Database (migration `20260711013000_sprint20a_domain_engine`):**
+- `DomainTlsStatus` enum: `PENDING, ISSUED, FAILED` → `PENDING,
+  GENERATING, ACTIVE, EXPIRED, FAILED` (any pre-existing `ISSUED` rows
+  are backfilled to `PENDING` before the type swap, since `ISSUED` has
+  no equivalent in the new enum).
+- `Domain` gained `verificationToken` (random per-domain proof-of-
+  control token, default-backfilled for existing rows), `lastCheckedAt`,
+  `tlsExpiresAt`.
+- New `DomainEvent` model + `DomainEventType` enum (`CREATED, VERIFIED,
+  VERIFICATION_FAILED, SSL_GENERATING, SSL_ACTIVE, SSL_FAILED,
+  PRIMARY_CHANGED, DISCONNECTED`) — deliberately not only reachable
+  through `Domain`: `hostname`/`siteId` are denormalized and `domainId`
+  is nullable (`SetNull` on delete), so a domain's full history —
+  including its own "disconnected" event — survives the `Domain` row
+  being hard-deleted by `removeDomain`. Verified live: after removing a
+  test domain, its full timeline (Connected → DNS failed → Disconnected)
+  remained visible in the history section.
+
+**Backend (`apps/api/src/modules/sites/domain.service.ts` — extended,
+not rebuilt):**
+- DNS verification now requires BOTH a CNAME pointing at the platform
+  edge (pre-existing check) AND a TXT record at
+  `_ordervora-challenge.<hostname>` matching a random per-domain token
+  (new) — proves the caller actually controls DNS for that exact
+  hostname, not just that some CNAME happens to point at the shared
+  edge. A failed check returns a specific, actionable reason (missing
+  CNAME vs. missing/wrong TXT vs. both) via `DomainEvent`, surfaced
+  live in the wizard.
+- `addDomain` rejects hostnames that are (or are a subdomain of) the
+  platform's own domain — hijack/reserved-domain prevention — and
+  every mutation now logs a `DomainEvent`.
+- New `runSslIssuanceSweep()` + `ssl-issuance-scheduler.ts` (mirrors
+  the existing `stale-offer-scheduler.ts`/`outbox-scheduler.ts`
+  process-local interval pattern, wired into `index.ts`'s startup/
+  graceful-shutdown alongside them, tracked via `worker-health.ts`'s
+  new `sslIssuanceSweep` key): sweeps domains in `GENERATING` and
+  issues a certificate via a stubbed `issueCertificate()` call — see
+  "Known limitation" below — then separately sweeps `ACTIVE` domains
+  past their 90-day `tlsExpiresAt` and flips them to `EXPIRED`, a real
+  renewal-window check even though the certificate itself is simulated.
+- `site.service.ts`: `updateSite`'s slug (the temporary domain) is now
+  auto-conflict-resolving (reuses `createSite`'s numeric-suffix
+  strategy instead of throwing a raw Prisma unique-constraint error)
+  and rejects edits once the site is no longer `DRAFT` (new
+  `SlugNotEditableError`) — "editable before publishing," literally.
+  New `temporaryDomainFor()` helper shared by `resolveSiteUrl` and the
+  controller, so `GET /api/sites/me` now also returns a `temporaryDomain`
+  field (real, DB-backed — `Site.slug` + the platform domain — not a
+  guessed string).
+
+**API routes:** `GET /:id/domain-history` (new). `verify`/`setPrimary`
+domain responses now include `dnsRecords` (fixed live — see below).
+
+**Frontend (`apps/web/src/app/dashboard/website/studio/domain/`):**
+- `domain-dashboard.tsx` — Primary Domain / Temporary Domain cards
+  (Visit/Copy/Change), Connect Domain entry point, and an Additional
+  Domains list (DNS/SSL/Last Checked badges, Check DNS / Make Primary /
+  Remove).
+- `connect-domain-wizard.tsx` — the 6-step flow (Enter Domain → Validate
+  format → Generate DNS Records → Verify DNS → Issue SSL → Activate) as
+  a real modal calling the real `addDomain`/`verifyDomain` APIs; a
+  failed verification shows the backend's specific DNS guidance and
+  lets the owner retry without losing the records already shown.
+- `edit-temporary-domain.tsx` — inline slug editor, only rendered while
+  the site is still a draft.
+- `domain-history.tsx` — the full lifecycle timeline.
+- `lib/api.ts` — `DomainTlsStatus`/`DomainVerificationStatus`/
+  `DomainEventType`/`DnsRecordInstruction`/`DomainEvent` types,
+  `SiteDomain` extended with the new fields, `updateSite()` and
+  `listDomainHistory()` client functions.
+
+**Bug caught and fixed by live verification** (not by the test suite —
+worth naming explicitly): the `verify` and `setPrimary` domain
+controller endpoints returned the raw `Domain` row without the
+`dnsRecords` field that `add`/`list` already included, which crashed
+the wizard's "records" step (`Cannot read properties of undefined
+(reading 'find')`) the moment a verification attempt failed and the UI
+tried to keep showing the CNAME/TXT records for a retry. Caught via a
+real browser run against the real API, fixed by wrapping both
+endpoints' responses the same way `add`/`list` already did, then
+re-verified live that a failed verification correctly re-shows the
+records with the specific failure reason instead of crashing.
+
+**Verified:** typecheck, lint, full backend test suite (1091 passed,
+including 27 new/updated domain tests covering TXT verification, DNS
+record generation, event logging, the SSL sweep, and slug conflict
+auto-resolution), full frontend test suite (113 passed, unchanged),
+production build for both apps (all routes clean), and a live
+end-to-end run against a real local Postgres database and a real test
+account covering: Domain Dashboard rendering with the real temporary
+domain, editing the temporary domain slug live, connecting a real
+external hostname through the full wizard (DNS records genuinely did
+not resolve for a fabricated test domain, so the failure-guidance path
+is what's live-verified end-to-end; the success path — a CNAME/TXT
+that actually matches — is covered by `domain.service.test.ts`'s
+mocked-DNS unit tests, since this sandbox has no external domain it
+can point real DNS at), the Additional Domains list showing live
+DNS/SSL badges, Remove, and Domain History surviving the domain's
+deletion.
+
+**Known limitation (explicitly scoped, not a placeholder left by
+choice):** `issueCertificate()` in `domain.service.ts` is a stubbed ACME
+call — this sandbox has no publicly reachable edge server for a real
+Certificate Authority's HTTP-01/DNS-01 challenge to reach, so a genuine
+Let's Encrypt handshake cannot succeed here regardless of implementation
+effort. Everything around that one call — the persisted state machine
+(`PENDING → GENERATING → ACTIVE → EXPIRED/FAILED`), the background
+sweep, the 90-day renewal window, and the history/event logging — is
+real and already wired for a real ACME client to be dropped in behind
+`issueCertificate()` without touching any other code.
+
+Sprint 20A stops here per instruction — Task 5 not started.

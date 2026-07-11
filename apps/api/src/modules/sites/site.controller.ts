@@ -13,6 +13,7 @@ import {
   publishSite,
   resolveSiteUrl,
   rollbackSite,
+  temporaryDomainFor,
   unpublishSite,
   updateSite,
   validatePublishReadiness,
@@ -26,7 +27,8 @@ export async function getMine(req: Request, res: Response): Promise<void> {
   try {
     const site = await getOwnSite(restaurantId);
     const url = await resolveSiteUrl(site);
-    res.status(200).json({ site, url });
+    const temporaryDomain = `https://${temporaryDomainFor(site)}`;
+    res.status(200).json({ site, url, temporaryDomain });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }

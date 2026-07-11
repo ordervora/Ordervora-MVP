@@ -9,6 +9,7 @@ import { upload as uploadAssetHandler, list as listAssetsHandler, update as upda
 import { list as listMessagesHandler, submit as submitContactHandler } from "./contact.controller";
 import {
   add as addDomainHandler,
+  history as domainHistoryHandler,
   list as listDomainsHandler,
   remove as removeDomainHandler,
   setPrimary as setPrimaryDomainHandler,
@@ -93,6 +94,7 @@ siteRouter.post("/:id/unpublish", requireAuth, staffOrOwner, unpublish);
 
 siteRouter.post("/:id/domains", requireAuth, staffOrOwner, addDomainHandler);
 siteRouter.get("/:id/domains", requireAuth, staffOrOwner, listDomainsHandler);
+siteRouter.get("/:id/domain-history", requireAuth, staffOrOwner, domainHistoryHandler);
 siteRouter.post("/:id/domains/:did/verify", requireAuth, staffOrOwner, verifyDomainHandler);
 siteRouter.post("/:id/domains/:did/primary", requireAuth, staffOrOwner, setPrimaryDomainHandler);
 siteRouter.delete("/:id/domains/:did", requireAuth, staffOrOwner, removeDomainHandler);

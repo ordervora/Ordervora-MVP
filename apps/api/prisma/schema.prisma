@@ -335,8 +335,21 @@ enum DomainVerificationStatus {
 
 enum DomainTlsStatus {
   PENDING
-  ISSUED
+  GENERATING
+  ACTIVE
+  EXPIRED
   FAILED
+}
+
+enum DomainEventType {
+  CREATED
+  VERIFIED
+  VERIFICATION_FAILED
+  SSL_GENERATING
+  SSL_ACTIVE
+  SSL_FAILED
+  PRIMARY_CHANGED
+  DISCONNECTED
 }
 
 enum AssetKind {
@@ -382,6 +395,7 @@ model Site {
 
   versions         SiteVersion[]
   domains          Domain[]
+  domainEvents     DomainEvent[]
   assets           SiteAsset[]
   generationJobs   GenerationJob[]
   contactMessages  ContactMessage[]
@@ -465,13 +479,45 @@ model Domain {
   hostname           String                    @unique
   type               DomainType
   verificationStatus DomainVerificationStatus  @default(PENDING)
+  // Random per-domain proof-of-control token (Sprint 20A Task 4): the
+  // owner must publish it in a `_ordervora-challenge.<hostname>` TXT
+  // record alongside the CNAME before verification succeeds — proves they
+  // control DNS for this exact hostname, not just that some CNAME already
+  // happens to point at our shared edge.
+  verificationToken  String                    @default(uuid())
+  lastCheckedAt      DateTime?
   tlsStatus          DomainTlsStatus           @default(PENDING)
+  // Set once tlsStatus becomes ACTIVE (Sprint 20A Task 4); the renewal
+  // sweep (ssl-issuance-scheduler.ts) flips ACTIVE -> EXPIRED once this
+  // passes, mirroring a real certificate's validity window.
+  tlsExpiresAt       DateTime?
   isPrimary          Boolean                   @default(false)
 
+  events    DomainEvent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([siteId])
+}
+
+// Sprint 20A Task 4 — durable domain lifecycle history. Deliberately not
+// only reachable through Domain: hostname/siteId are denormalized and
+// domainId is nullable (SetNull on delete) so a domain's full history
+// (including its own "disconnected" event) survives the Domain row being
+// hard-deleted by removeDomain.
+model DomainEvent {
+  id        String          @id @default(uuid())
+  siteId    String
+  site      Site            @relation(fields: [siteId], references: [id])
+  domainId  String?
+  domain    Domain?         @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  hostname  String
+  type      DomainEventType
+  message   String?
+  createdAt DateTime        @default(now())
+
+  @@index([siteId])
+  @@index([domainId])
 }
 
 model SiteAsset {

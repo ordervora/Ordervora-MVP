@@ -38,7 +38,7 @@ import {
   unpublishSite,
   updateSite,
 } from "./site.service";
-import { PrePublishCheckFailedError, SiteAlreadyExistsError, SiteNotFoundError, SiteVersionNotFoundError } from "./site.errors";
+import { PrePublishCheckFailedError, SiteAlreadyExistsError, SiteNotFoundError, SiteVersionNotFoundError, SlugNotEditableError } from "./site.errors";
 import { THEME_CATALOG } from "./theme-catalog";
 import type { SiteDefinition } from "./types";
 
@@ -139,6 +139,49 @@ describe("updateSite / listVersions / getVersion (tenant isolation)", () => {
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
     await listVersions("restaurant-1", "site-1");
     expect(mockPrisma.siteVersion.findMany).toHaveBeenCalledWith({ where: { siteId: "site-1" }, orderBy: { versionNo: "desc" } });
+  });
+});
+
+describe("updateSite — temporary domain (slug) editing (Sprint 20A Task 4)", () => {
+  it("updates the slug as-is when it's free", async () => {
+    mockPrisma.site.findUnique
+      .mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never)
+      .mockResolvedValueOnce(null); // slug-uniqueness check for "new-name"
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "new-name" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "new-name" });
+
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { slug: "new-name" } });
+  });
+
+  it("auto-resolves a slug conflict by appending a numeric suffix instead of erroring", async () => {
+    mockPrisma.site.findUnique
+      .mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never)
+      .mockResolvedValueOnce({ id: "other-site" } as never) // "new-name" taken by someone else
+      .mockResolvedValueOnce(null); // "new-name-2" free
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "new-name-2" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "new-name" });
+
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { slug: "new-name-2" } });
+  });
+
+  it("lets a site keep re-requesting its own current slug without treating it as a conflict", async () => {
+    mockPrisma.site.findUnique.mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never);
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "trattoria-bella" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "trattoria-bella" });
+
+    // No extra findUnique for the uniqueness check — same slug is a no-op, not a lookup.
+    expect(mockPrisma.site.findUnique).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: {} });
+  });
+
+  it("throws SlugNotEditableError once the site is no longer a DRAFT", async () => {
+    mockPrisma.site.findUnique.mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "PUBLISHED" } as never);
+
+    await expect(updateSite("restaurant-1", "site-1", { slug: "new-name" })).rejects.toBeInstanceOf(SlugNotEditableError);
+    expect(mockPrisma.site.update).not.toHaveBeenCalled();
   });
 });
 

@@ -14,18 +14,24 @@ import {
   SiteAlreadyExistsError,
   SiteNotFoundError,
   SiteVersionNotFoundError,
+  SlugNotEditableError,
 } from "./site.errors";
 import { THEME_CATALOG } from "./theme-catalog";
 import { brandProfileSchema, siteDefinitionSchema, type AssetSummary, type SiteDefinition } from "./types";
 
 const PLATFORM_DOMAIN = getStringEnv("SITE_PLATFORM_DOMAIN", "sites.ordervora.example");
 
+/** The auto-generated `businessname.ordervora.app`-style domain (Sprint 20A Task 4) — always available, editable pre-publish, and stored via `Site.slug`. */
+export function temporaryDomainFor(site: Pick<Site, "slug">): string {
+  return `${site.slug}.${PLATFORM_DOMAIN}`;
+}
+
 /** §20 — a verified, primary custom domain wins; otherwise the platform subdomain. */
 export async function resolveSiteUrl(site: Site): Promise<string> {
   const primaryDomain = await prisma.domain.findFirst({
     where: { siteId: site.id, isPrimary: true, verificationStatus: "VERIFIED" },
   });
-  const host = primaryDomain ? primaryDomain.hostname : `${site.slug}.${PLATFORM_DOMAIN}`;
+  const host = primaryDomain ? primaryDomain.hostname : temporaryDomainFor(site);
   return `https://${host}`;
 }
 
@@ -44,15 +50,20 @@ function slugify(name: string): string {
   return base || "restaurant";
 }
 
-async function generateUniqueSlug(restaurantName: string): Promise<string> {
-  const base = slugify(restaurantName);
+/** SEO-friendly, unique, auto-resolves conflicts by appending a numeric suffix (Sprint 20A Task 4 §1) — `excludeSiteId` lets a site keep its own current slug when re-checking availability during an edit. */
+async function findAvailableSlug(base: string, excludeSiteId?: string): Promise<string> {
   let candidate = base;
   let suffix = 1;
-  while (await prisma.site.findUnique({ where: { slug: candidate } })) {
+  for (;;) {
+    const existing = await prisma.site.findUnique({ where: { slug: candidate } });
+    if (!existing || existing.id === excludeSiteId) return candidate;
     suffix += 1;
     candidate = `${base}-${suffix}`;
   }
-  return candidate;
+}
+
+async function generateUniqueSlug(restaurantName: string): Promise<string> {
+  return findAvailableSlug(slugify(restaurantName));
 }
 
 /** POST /api/sites — one site shell per restaurant. */
@@ -86,12 +97,23 @@ export interface UpdateSiteInput {
   settings?: Record<string, unknown>;
 }
 
-/** GET/PATCH /api/sites/:id — settings, slug, theme selection metadata. */
+/**
+ * GET/PATCH /api/sites/:id — settings, slug, theme selection metadata.
+ * The temporary domain (`Site.slug`) is only editable before the site is
+ * published (Sprint 20A Task 4 §1) — once live, changing it would silently
+ * break the site's current URL. A requested slug that's already taken by
+ * another site auto-resolves to the next free numeric suffix rather than
+ * erroring, matching the same conflict-resolution createSite already uses.
+ */
 export async function updateSite(restaurantId: string, siteId: string, input: UpdateSiteInput): Promise<Site> {
   const site = await findOwnSiteById(restaurantId, siteId);
+  if (input.slug && input.slug !== site.slug && site.status !== "DRAFT") {
+    throw new SlugNotEditableError();
+  }
+  const slug = input.slug && input.slug !== site.slug ? await findAvailableSlug(input.slug, site.id) : undefined;
   return prisma.site.update({
     where: { id: site.id },
-    data: { ...(input.slug ? { slug: input.slug } : {}), ...(input.settings ? { settings: toJson(input.settings) } : {}) },
+    data: { ...(slug ? { slug } : {}), ...(input.settings ? { settings: toJson(input.settings) } : {}) },
   });
 }
 

@@ -52,6 +52,18 @@ export class DomainNotFoundError extends Error {
   }
 }
 
+export class InvalidDomainError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export class SlugNotEditableError extends Error {
+  constructor() {
+    super("The temporary domain can only be changed before the site is published — unpublish first, or use a custom domain instead.");
+  }
+}
+
 export class AssetNotFoundError extends Error {
   constructor() {
     super("Asset not found");

@@ -7,6 +7,7 @@ import { prisma } from "./lib/prisma";
 import { redis } from "./lib/redis";
 import { startOutboxWorker } from "./modules/commerce/events/outbox-scheduler";
 import { startStaleOfferScheduler } from "./modules/commerce/fulfillment/stale-offer-scheduler";
+import { startSslIssuanceScheduler } from "./modules/sites/ssl-issuance-scheduler";
 
 const logger = createLogger("index");
 
@@ -56,6 +57,7 @@ const server = app.listen(port, () => {
 
 const staleOfferTimer = startStaleOfferScheduler();
 const outboxTimer = startOutboxWorker();
+const sslIssuanceTimer = startSslIssuanceScheduler();
 
 // Graceful shutdown (Production Hardening Phase 4) — required for a
 // zero-downtime rolling deploy: when an orchestrator sends SIGTERM to an
@@ -74,6 +76,7 @@ function shutdown(signal: string) {
 
   clearInterval(staleOfferTimer);
   clearInterval(outboxTimer);
+  clearInterval(sslIssuanceTimer);
 
   server.close((err) => {
     if (err) {
