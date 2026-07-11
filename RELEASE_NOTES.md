@@ -3354,3 +3354,72 @@ render correctly with no regressions from today's changes.
 tests incl. 3 new, 1073 API tests incl. 2 new, all passing), production
 build (both apps, all routes clean), and the live verification described
 above.
+
+## Sprint 20A Task 1 — AI Website Studio Foundation
+
+UI-foundation-only sprint: renamed "Website Builder"/"Website" to "AI
+Website Studio" across every nav surface, and replaced the Website hub
+page with a new premium, placeholder-driven layout. No AI generation, no
+publishing, no domain logic, no backend or database changes — this is
+scaffolding for Task 2 to wire real logic into.
+
+**Renamed** ("Website" → "AI Website Studio"): the desktop pill nav and
+"More" sheet in `DashboardNav`, the slide-in `DashboardDrawer`, the
+Dashboard Overview's own desktop sidebar, and the public marketing
+landing page's AI-modules feature list. The Dashboard Overview's
+5-column bottom tab bar uses "Studio" instead of the full label — live-
+verified the full string doesn't fit that column width without visual
+crowding; every other nav surface (sidebar, drawer, "More" sheet) shows
+the complete "AI Website Studio" name. Confirmed via grep: zero
+remaining "Website Builder" references anywhere in the frontend.
+
+**Replaced** `apps/web/src/app/dashboard/website/page.tsx` entirely — the
+previous version (a single zinc/dark-styled card wired to real site-
+generation status) is gone from this route; its underlying real
+sub-pages (`/website/editor`, `/publish`, `/score`, `/messages`,
+`/variations`) are untouched and still fully functional, just not all
+individually linked from this specific redesigned hub in this task.
+
+**New page, 7 sections, all placeholder data:**
+1. **Website Status** — a status card introducing the Studio.
+2. **Current Website** — a domain card showing
+   `https://{slugified-restaurant-name}.ordervora.app` with working
+   Open Website, Copy Link (clipboard), Share (native share sheet with
+   a clipboard fallback), and QR Code (real `qrcode.react` code of the
+   placeholder URL) — all pure client-side UI, no backend calls.
+3. **Website Health** — 6 score-ring cards (Overall, SEO, Performance,
+   Mobile, Accessibility, Conversion) with static placeholder scores.
+4. **AI Brand Concepts** — 3 concept cards (Modern Minimal / Warm Craft
+   / Bold Contemporary), each with a phone-frame preview mockup and
+   Preview/Select/Regenerate controls. Select toggles a local visual
+   selection state only — no generation, no persistence.
+5. **Quick Actions** — 6 cards (Preview Website, Customize Website,
+   Publish Website, Connect Domain, Analytics, SEO). Customize/Publish/
+   SEO link to the real, already-working editor/publish/score pages
+   (preserving existing functionality); Connect Domain also routes to
+   the existing publish page (domains live there already); Analytics
+   scroll-links to this same page's Analytics section; Preview Website
+   opens the placeholder domain.
+6. **AI Suggestions** — 5 static suggestions (Improve Hero/SEO, Enable
+   Loyalty, Optimize Menu, Improve Images), each with a styled but
+   inert "Fix Now" button.
+7. **Website Analytics** — placeholder stat tiles (Visitors, Orders,
+   Conversion, Returning Customers), a single-hue 7-day visitor bar
+   chart, and a Top Products ranked list — reusing the same accent
+   color already used for Dashboard Overview's revenue chart, per this
+   codebase's existing single-series chart convention.
+
+**Verified:** typecheck, lint, full test suite (113 passed, 2 nav tests
+updated for the rename), production build (all 53 routes clean), and
+live Playwright verification at iPhone SE (375×667), iPhone 14/15
+(390×844), and iPhone Pro Max (430×932) plus a 1440px desktop pass —
+zero horizontal overflow, zero console/page errors, all interactive
+elements (Copy Link, QR Code toggle, brand-concept Select, Quick
+Action navigation) confirmed working live.
+
+**TODOs for Task 2** (explicitly not started here): wire AI Brand
+Concepts to real theme generation; wire Website Health/Analytics to
+real scoring and traffic data; wire AI Suggestions' "Fix Now" to real
+actions; wire the domain card to a real assigned domain once one
+exists; decide whether Website Messages needs a dedicated entry point
+on the new hub (currently reachable only by direct URL).

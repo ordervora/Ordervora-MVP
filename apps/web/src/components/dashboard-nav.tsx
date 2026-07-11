@@ -15,7 +15,7 @@ const MOBILE_ITEMS = [
 const MORE_ITEMS = [
   ["Launch", "/dashboard/launch"],
   ["Import", "/dashboard/import"],
-  ["Website", "/dashboard/website"],
+  ["AI Website Studio", "/dashboard/website"],
   ["Analytics", "/dashboard/analytics"],
   ["Restaurant", "/dashboard/restaurant"],
   ["Profile", "/dashboard/profile"],
@@ -27,7 +27,7 @@ const DESKTOP_ITEMS = [
   ["Orders", "/dashboard/orders"],
   ["Menu", "/dashboard/menu"],
   ["Import", "/dashboard/import"],
-  ["Website", "/dashboard/website"],
+  ["AI Website Studio", "/dashboard/website"],
   ["Analytics", "/dashboard/analytics"],
   ["Restaurant", "/dashboard/restaurant"],
   ["Profile", "/dashboard/profile"],

@@ -43,12 +43,12 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
 
 const NAV_ITEMS: Array<[string, string, IconName]> = [
   ["Dashboard", "/dashboard", "home"], ["Orders", "/dashboard/orders", "orders"], ["Menu", "/dashboard/menu", "menu"],
-  ["Website", "/dashboard/website", "website"], ["Customers", "/dashboard/customers", "customers"], ["Marketing", "/dashboard/marketing", "marketing"],
+  ["AI Website Studio", "/dashboard/website", "website"], ["Customers", "/dashboard/customers", "customers"], ["Marketing", "/dashboard/marketing", "marketing"],
   ["Analytics", "/dashboard/analytics", "analytics"], ["Staff", "/dashboard/staff", "staff"], ["Settings", "/dashboard/restaurant", "settings"],
 ];
 
 const MOBILE_TABS: Array<[string, string, IconName]> = [
-  ["Home", "/dashboard", "home"], ["Orders", "/dashboard/orders", "orders"], ["Menu", "/dashboard/menu", "menu"], ["Website", "/dashboard/website", "website"],
+  ["Home", "/dashboard", "home"], ["Orders", "/dashboard/orders", "orders"], ["Menu", "/dashboard/menu", "menu"], ["Studio", "/dashboard/website", "website"],
 ];
 
 // Everything reachable from the desktop sidebar (NAV_ITEMS) or Quick Actions that doesn't
