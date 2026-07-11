@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/prisma", () => ({
   prisma: {
-    coupon: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    coupon: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
     couponRedemption: { count: vi.fn() },
   },
 }));
@@ -10,7 +10,7 @@ vi.mock("../../../lib/prisma", () => ({
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { CouponCodeInUseError, CouponInvalidError, CouponNotFoundError } from "./coupons.errors";
-import { createCoupon, deleteCoupon, validateCouponForRedemption } from "./coupons.service";
+import { createCoupon, deleteCoupon, listActiveCoupons, validateCouponForRedemption } from "./coupons.service";
 
 const mockPrisma = vi.mocked(prisma, { deep: true });
 
@@ -141,5 +141,30 @@ describe("validateCouponForRedemption", () => {
     mockPrisma.coupon.findUnique.mockResolvedValue(coupon({ type: "FREE_DELIVERY", value: 0 }));
     const result = await validateCouponForRedemption("r1", "SAVE10", 1000);
     expect(result.discountCents).toBe(0);
+  });
+});
+
+describe("listActiveCoupons (Sprint 20A Task 5 — storefront Offers section)", () => {
+  it("scopes to isActive plus the same start/expiry window validateCouponForRedemption enforces, newest first", async () => {
+    mockPrisma.coupon.findMany.mockResolvedValue([] as never);
+
+    await listActiveCoupons("r1");
+
+    expect(mockPrisma.coupon.findMany).toHaveBeenCalledWith({
+      where: {
+        restaurantId: "r1",
+        isActive: true,
+        OR: [{ startsAt: null }, { startsAt: { lte: expect.any(Date) } }],
+        AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gte: expect.any(Date) } }] }],
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  });
+
+  it("returns whatever the scoped query resolves", async () => {
+    mockPrisma.coupon.findMany.mockResolvedValue([coupon({ code: "SAVE10" })] as never);
+    const result = await listActiveCoupons("r1");
+    expect(result).toHaveLength(1);
+    expect(result[0].code).toBe("SAVE10");
   });
 });

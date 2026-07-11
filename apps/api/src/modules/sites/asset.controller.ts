@@ -1,7 +1,21 @@
+import type { SiteAsset } from "@prisma/client";
 import type { Request, Response } from "express";
+import { resolveAssetRenditionKey } from "../../lib/image-processing";
 import { mapSiteError, paramId, requireOwnRestaurantId } from "./controller-helpers";
 import { deleteAsset, listAssets, updateAsset, uploadAsset } from "./asset.service";
+import { assetUrl } from "./renderer/asset-url";
 import { updateAssetSchema, uploadAssetKindSchema } from "./site.validation";
+
+/**
+ * The frontend has no business replicating asset-url.ts's storage-backend
+ * branching (local disk vs. proxied vs. direct-CDN) — that's exactly the
+ * "one seam to swap" asset-url.ts's own doc comment describes. Resolving
+ * it once here, the same way render-site.ts's resolveRenderAssets already
+ * does for the storefront renderer, keeps it in the one place that knows.
+ */
+function withUrl(asset: SiteAsset) {
+  return { ...asset, url: assetUrl(resolveAssetRenditionKey(asset, "card")) };
+}
 
 export async function upload(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
@@ -23,7 +37,7 @@ export async function upload(req: Request, res: Response): Promise<void> {
       mimeType: req.file.mimetype,
       originalName: req.file.originalname,
     });
-    res.status(201).json({ asset });
+    res.status(201).json({ asset: withUrl(asset) });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
@@ -35,7 +49,7 @@ export async function list(req: Request, res: Response): Promise<void> {
 
   try {
     const assets = await listAssets(restaurantId, paramId(req));
-    res.status(200).json({ assets });
+    res.status(200).json({ assets: assets.map(withUrl) });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
@@ -53,7 +67,7 @@ export async function update(req: Request, res: Response): Promise<void> {
 
   try {
     const asset = await updateAsset(restaurantId, paramId(req), paramId(req, "assetId"), parsed.data);
-    res.status(200).json({ asset });
+    res.status(200).json({ asset: withUrl(asset) });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }

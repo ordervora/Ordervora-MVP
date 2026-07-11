@@ -4,7 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { releaseStorage } from "../../lib/release-storage";
 import { getAssetSummary } from "./asset-summary";
 import { renderOgImageSvg } from "./renderer/og-image";
-import { renderAllPages } from "./renderer/render-site";
+import { renderAllPages, renderSitePage } from "./renderer/render-site";
 import { renderRobotsTxt, renderSitemapXml } from "./renderer/sitemap";
 import { NEUTRAL_BRAND_PROFILE_FOR_SCORING } from "./scoring/neutral-brand-profile";
 import { scoreSiteDefinition } from "./scoring/score-aggregator";
@@ -14,18 +14,24 @@ import {
   SiteAlreadyExistsError,
   SiteNotFoundError,
   SiteVersionNotFoundError,
+  SlugNotEditableError,
 } from "./site.errors";
 import { THEME_CATALOG } from "./theme-catalog";
 import { brandProfileSchema, siteDefinitionSchema, type AssetSummary, type SiteDefinition } from "./types";
 
 const PLATFORM_DOMAIN = getStringEnv("SITE_PLATFORM_DOMAIN", "sites.ordervora.example");
 
+/** The auto-generated `businessname.ordervora.app`-style domain (Sprint 20A Task 4) — always available, editable pre-publish, and stored via `Site.slug`. */
+export function temporaryDomainFor(site: Pick<Site, "slug">): string {
+  return `${site.slug}.${PLATFORM_DOMAIN}`;
+}
+
 /** §20 — a verified, primary custom domain wins; otherwise the platform subdomain. */
 export async function resolveSiteUrl(site: Site): Promise<string> {
   const primaryDomain = await prisma.domain.findFirst({
     where: { siteId: site.id, isPrimary: true, verificationStatus: "VERIFIED" },
   });
-  const host = primaryDomain ? primaryDomain.hostname : `${site.slug}.${PLATFORM_DOMAIN}`;
+  const host = primaryDomain ? primaryDomain.hostname : temporaryDomainFor(site);
   return `https://${host}`;
 }
 
@@ -44,15 +50,20 @@ function slugify(name: string): string {
   return base || "restaurant";
 }
 
-async function generateUniqueSlug(restaurantName: string): Promise<string> {
-  const base = slugify(restaurantName);
+/** SEO-friendly, unique, auto-resolves conflicts by appending a numeric suffix (Sprint 20A Task 4 §1) — `excludeSiteId` lets a site keep its own current slug when re-checking availability during an edit. */
+async function findAvailableSlug(base: string, excludeSiteId?: string): Promise<string> {
   let candidate = base;
   let suffix = 1;
-  while (await prisma.site.findUnique({ where: { slug: candidate } })) {
+  for (;;) {
+    const existing = await prisma.site.findUnique({ where: { slug: candidate } });
+    if (!existing || existing.id === excludeSiteId) return candidate;
     suffix += 1;
     candidate = `${base}-${suffix}`;
   }
-  return candidate;
+}
+
+async function generateUniqueSlug(restaurantName: string): Promise<string> {
+  return findAvailableSlug(slugify(restaurantName));
 }
 
 /** POST /api/sites — one site shell per restaurant. */
@@ -86,12 +97,23 @@ export interface UpdateSiteInput {
   settings?: Record<string, unknown>;
 }
 
-/** GET/PATCH /api/sites/:id — settings, slug, theme selection metadata. */
+/**
+ * GET/PATCH /api/sites/:id — settings, slug, theme selection metadata.
+ * The temporary domain (`Site.slug`) is only editable before the site is
+ * published (Sprint 20A Task 4 §1) — once live, changing it would silently
+ * break the site's current URL. A requested slug that's already taken by
+ * another site auto-resolves to the next free numeric suffix rather than
+ * erroring, matching the same conflict-resolution createSite already uses.
+ */
 export async function updateSite(restaurantId: string, siteId: string, input: UpdateSiteInput): Promise<Site> {
   const site = await findOwnSiteById(restaurantId, siteId);
+  if (input.slug && input.slug !== site.slug && site.status !== "DRAFT") {
+    throw new SlugNotEditableError();
+  }
+  const slug = input.slug && input.slug !== site.slug ? await findAvailableSlug(input.slug, site.id) : undefined;
   return prisma.site.update({
     where: { id: site.id },
-    data: { ...(input.slug ? { slug: input.slug } : {}), ...(input.settings ? { settings: toJson(input.settings) } : {}) },
+    data: { ...(slug ? { slug } : {}), ...(input.settings ? { settings: toJson(input.settings) } : {}) },
   });
 }
 
@@ -144,6 +166,22 @@ export async function patchDraft(restaurantId: string, siteId: string, patch: Pa
 }
 
 /**
+ * §Task 5 STEP 1 — the Customization Studio's live preview. Takes an
+ * UNSAVED candidate definition straight from the request body (schema-
+ * validated, never persisted here) and renders it with the exact same
+ * `renderSitePage` the real publish path and the existing `/preview/:token`
+ * route both already call — zero new rendering logic, so what the owner
+ * sees while editing is provably what production would render for that
+ * definition. Decoupled from `patchDraft`'s persistence/debounce entirely:
+ * every keystroke can call this without writing to the draft.
+ */
+export async function renderDraftPreview(restaurantId: string, siteId: string, definition: SiteDefinition, slug: string): Promise<string | null> {
+  const site = await findOwnSiteById(restaurantId, siteId);
+  const siteUrl = await resolveSiteUrl(site);
+  return renderSitePage({ siteId: site.id, restaurantId, definition, siteUrl, noindex: true }, slug);
+}
+
+/**
  * §19.1's checklist is: "required fields present, contrast passes, images
  * processed, schema valid." Three of those four are already hard
  * guarantees elsewhere and would be dead checks if repeated here:
@@ -161,6 +199,68 @@ function runPrePublishChecks(assets: AssetSummary): string[] {
     issues.push(`${assets.unprocessedRenditionsCount} image(s) haven't finished processing yet`);
   }
   return issues;
+}
+
+export interface PublishIssue {
+  code: "BUSINESS_NAME" | "THEME_SELECTED" | "WEBSITE_CONTENT" | "REQUIRED_PAGES" | "MENU" | "NAVIGATION" | "ASSETS";
+  message: string;
+}
+
+export interface PublishReadiness {
+  ready: boolean;
+  issues: PublishIssue[];
+}
+
+/**
+ * Sprint 20A — a read-only version of the pre-publish gate the owner can
+ * call *before* clicking Publish, so the Studio's staged workflow can show
+ * "helpful guidance" up front instead of only discovering a problem after
+ * starting the flow. `publishSite` below runs the same checks again (never
+ * trusts the client skipped this) and throws `PrePublishCheckFailedError`
+ * if anything is still missing.
+ */
+export async function validatePublishReadiness(restaurantId: string, siteId: string): Promise<PublishReadiness> {
+  const site = await findOwnSiteById(restaurantId, siteId);
+  const issues: PublishIssue[] = [];
+
+  const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
+  if (!restaurant || !restaurant.name.trim()) {
+    issues.push({ code: "BUSINESS_NAME", message: "Add your business name in Restaurant settings before publishing." });
+  }
+
+  const draft = await prisma.siteVersion.findFirst({ where: { siteId: site.id, status: "DRAFT" }, orderBy: { versionNo: "desc" } });
+  if (!draft) {
+    issues.push({ code: "THEME_SELECTED", message: "Choose a brand concept/theme before publishing — no draft has been selected yet." });
+    // Nothing else below is checkable without a draft.
+    return { ready: issues.length === 0, issues };
+  }
+
+  const parsedDefinition = siteDefinitionSchema.safeParse(draft.definition);
+  if (!parsedDefinition.success) {
+    issues.push({ code: "WEBSITE_CONTENT", message: "Your website content is incomplete or invalid — reopen the editor to finish it." });
+  } else {
+    if (parsedDefinition.data.pages.length === 0) {
+      issues.push({ code: "REQUIRED_PAGES", message: "Your website needs at least one page before it can go live." });
+    } else if (!parsedDefinition.data.pages.some((page) => page.slug === "/")) {
+      issues.push({ code: "REQUIRED_PAGES", message: "Your website needs a home page before it can go live." });
+    }
+    if (parsedDefinition.data.pages.length < 2) {
+      issues.push({ code: "NAVIGATION", message: "Add at least one more page (like Menu or About) so visitors have somewhere to navigate." });
+    }
+  }
+
+  const menuItemCount = await prisma.menuItem.count({ where: { restaurantId } });
+  if (menuItemCount === 0) {
+    issues.push({ code: "MENU", message: "Add at least one menu item before publishing — an empty menu isn't ready for customers." });
+  }
+
+  const assets = await getAssetSummary(site.id);
+  const assetIssues = runPrePublishChecks(assets);
+  for (const message of assetIssues) {
+    issues.push({ code: "ASSETS", message });
+  }
+
+  return { ready: issues.length === 0, issues };
 }
 
 export interface PublishResult {
@@ -185,60 +285,96 @@ async function pruneOldReleases(siteId: string): Promise<void> {
  * the score-delta comparison against the live version is advisory only —
  * it warns but never blocks (§29: "publish never hard-blocked on score
  * alone"). Retention keeps the most recent 10 releases (§21).
+ *
+ * Sprint 20A: the site's `status` is now a real, persisted signal for the
+ * duration of this call — PUBLISHING for a site's first release,
+ * REPUBLISHING when one is already live — flipped to PUBLISHED on success
+ * or FAILED if anything below throws, so a crashed/interrupted publish
+ * never silently leaves the site claiming a status that isn't true. The
+ * caller (the Studio's staged publish flow) polls/observes this via the
+ * same `GET /api/sites/me` it already fetches.
  */
-export async function publishSite(restaurantId: string, siteId: string): Promise<PublishResult> {
+export async function publishSite(restaurantId: string, siteId: string, publishedById: string): Promise<PublishResult> {
   const site = await findOwnSiteById(restaurantId, siteId);
-  const draft = await getActiveDraft(site.id);
-  const definition = siteDefinitionSchema.parse(draft.definition);
-  const assets = await getAssetSummary(site.id);
-
-  const issues = runPrePublishChecks(assets);
-  if (issues.length > 0) {
-    throw new PrePublishCheckFailedError(issues);
+  const readiness = await validatePublishReadiness(restaurantId, siteId);
+  if (!readiness.ready) {
+    throw new PrePublishCheckFailedError(readiness.issues.map((issue) => issue.message));
   }
 
-  const theme = THEME_CATALOG.find((t) => t.key === definition.themeKey && t.version === definition.themeVersion);
-  let scoreDelta: number | undefined;
-  let warning: string | undefined;
+  const wasAlreadyPublished = site.status === "PUBLISHED";
+  await prisma.site.update({ where: { id: site.id }, data: { status: wasAlreadyPublished ? "REPUBLISHING" : "PUBLISHING" } });
 
-  if (theme) {
-    const brandProfile = site.brandProfile ? brandProfileSchema.parse(site.brandProfile) : NEUTRAL_BRAND_PROFILE_FOR_SCORING;
-    const newScore = await scoreSiteDefinition(definition, { brandProfile, theme, assets });
+  try {
+    const draft = await getActiveDraft(site.id);
+    const definition = siteDefinitionSchema.parse(draft.definition);
+    const assets = await getAssetSummary(site.id);
 
-    const previousScore = site.publishedVersionId
-      ? await prisma.siteScore.findFirst({ where: { siteVersionId: site.publishedVersionId }, orderBy: { measuredAt: "desc" } })
-      : null;
+    const theme = THEME_CATALOG.find((t) => t.key === definition.themeKey && t.version === definition.themeVersion);
+    let scoreDelta: number | undefined;
+    let warning: string | undefined;
 
-    if (previousScore && newScore.overall < previousScore.overall) {
-      scoreDelta = newScore.overall - previousScore.overall;
-      warning = `Overall score dropped by ${Math.abs(scoreDelta)} point(s) compared to the current live version.`;
+    if (theme) {
+      const brandProfile = site.brandProfile ? brandProfileSchema.parse(site.brandProfile) : NEUTRAL_BRAND_PROFILE_FOR_SCORING;
+      const newScore = await scoreSiteDefinition(definition, { brandProfile, theme, assets });
+
+      const previousScore = site.publishedVersionId
+        ? await prisma.siteScore.findFirst({ where: { siteVersionId: site.publishedVersionId }, orderBy: { measuredAt: "desc" } })
+        : null;
+
+      if (previousScore && newScore.overall < previousScore.overall) {
+        scoreDelta = newScore.overall - previousScore.overall;
+        warning = `Overall score dropped by ${Math.abs(scoreDelta)} point(s) compared to the current live version.`;
+      }
+
+      await prisma.siteScore.create({
+        data: {
+          siteVersionId: draft.id,
+          overall: newScore.overall,
+          seo: newScore.seo,
+          performance: newScore.performance,
+          accessibility: newScore.accessibility,
+          brandConsistency: newScore.brandConsistency,
+          conversion: newScore.conversion,
+          suggestions: toJson(newScore.suggestions),
+          source: "PUBLISH",
+        },
+      });
     }
 
-    await prisma.siteScore.create({
-      data: {
-        siteVersionId: draft.id,
-        overall: newScore.overall,
-        seo: newScore.seo,
-        performance: newScore.performance,
-        accessibility: newScore.accessibility,
-        brandConsistency: newScore.brandConsistency,
-        conversion: newScore.conversion,
-        suggestions: toJson(newScore.suggestions),
-        source: "PUBLISH",
-      },
+    const published = await prisma.$transaction(async (tx) => {
+      const updated = await tx.siteVersion.update({
+        where: { id: draft.id },
+        data: { status: "PUBLISHED", publishedAt: new Date(), publishedById },
+      });
+      await tx.site.update({ where: { id: site.id }, data: { status: "PUBLISHED", publishedVersionId: updated.id } });
+      // Sprint 20A Task 5: publishing a draft must not leave the owner
+      // without one to keep editing. Leave behind a fresh DRAFT copy of
+      // the just-published definition so the Customization Studio (and
+      // patchDraft's getActiveDraft lookup) keep working immediately
+      // after publish/republish, with zero changes needed anywhere else
+      // that already assumes "the draft" exists.
+      await tx.siteVersion.create({
+        data: {
+          siteId: site.id,
+          versionNo: draft.versionNo + 1,
+          definition: toJson(definition),
+          status: "DRAFT",
+          styleFamily: draft.styleFamily,
+          generationBatchId: draft.generationBatchId,
+          createdById: publishedById,
+        },
+      });
+      return updated;
     });
+
+    await materializeStaticRelease(site, published.id, definition);
+    await pruneOldReleases(site.id);
+
+    return { version: published, scoreDelta, warning };
+  } catch (err) {
+    await prisma.site.update({ where: { id: site.id }, data: { status: "FAILED" } });
+    throw err;
   }
-
-  const published = await prisma.$transaction(async (tx) => {
-    const updated = await tx.siteVersion.update({ where: { id: draft.id }, data: { status: "PUBLISHED", publishedAt: new Date() } });
-    await tx.site.update({ where: { id: site.id }, data: { status: "PUBLISHED", publishedVersionId: updated.id } });
-    return updated;
-  });
-
-  await materializeStaticRelease(site, published.id, definition);
-  await pruneOldReleases(site.id);
-
-  return { version: published, scoreDelta, warning };
 }
 
 /**
@@ -287,9 +423,17 @@ export async function revalidatePublishedSite(restaurantId: string): Promise<voi
 }
 
 /** GET releases list — every PUBLISHED (non-archived) version, newest first. */
-export async function listReleases(restaurantId: string, siteId: string): Promise<SiteVersion[]> {
+export interface ReleaseWithPublisher extends SiteVersion {
+  publishedBy: { name: string } | null;
+}
+
+export async function listReleases(restaurantId: string, siteId: string): Promise<ReleaseWithPublisher[]> {
   const site = await findOwnSiteById(restaurantId, siteId);
-  return prisma.siteVersion.findMany({ where: { siteId: site.id, status: "PUBLISHED" }, orderBy: { publishedAt: "desc" } });
+  return prisma.siteVersion.findMany({
+    where: { siteId: site.id, status: "PUBLISHED" },
+    orderBy: { publishedAt: "desc" },
+    include: { publishedBy: { select: { name: true } } },
+  });
 }
 
 /** POST /api/sites/:id/rollback/:vid — one click to any prior release (§19.5). */

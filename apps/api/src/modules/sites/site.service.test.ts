@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     site: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    siteVersion: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    siteVersion: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     siteScore: { create: vi.fn(), findFirst: vi.fn() },
     domain: { findFirst: vi.fn() },
+    restaurant: { findUnique: vi.fn() },
+    menuItem: { count: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -16,12 +18,12 @@ vi.mock("../../lib/release-storage", () => ({
 
 vi.mock("./asset-summary", () => ({ getAssetSummary: vi.fn() }));
 vi.mock("./scoring/score-aggregator", () => ({ scoreSiteDefinition: vi.fn() }));
-vi.mock("./renderer/render-site", () => ({ renderAllPages: vi.fn() }));
+vi.mock("./renderer/render-site", () => ({ renderAllPages: vi.fn(), renderSitePage: vi.fn() }));
 
 import { releaseStorage } from "../../lib/release-storage";
 import { prisma } from "../../lib/prisma";
 import { getAssetSummary } from "./asset-summary";
-import { renderAllPages } from "./renderer/render-site";
+import { renderAllPages, renderSitePage } from "./renderer/render-site";
 import { scoreSiteDefinition } from "./scoring/score-aggregator";
 import {
   createSite,
@@ -30,13 +32,14 @@ import {
   listVersions,
   patchDraft,
   publishSite,
+  renderDraftPreview,
   resolveSiteUrl,
   revalidatePublishedSite,
   rollbackSite,
   unpublishSite,
   updateSite,
 } from "./site.service";
-import { PrePublishCheckFailedError, SiteAlreadyExistsError, SiteNotFoundError, SiteVersionNotFoundError } from "./site.errors";
+import { PrePublishCheckFailedError, SiteAlreadyExistsError, SiteNotFoundError, SiteVersionNotFoundError, SlugNotEditableError } from "./site.errors";
 import { THEME_CATALOG } from "./theme-catalog";
 import type { SiteDefinition } from "./types";
 
@@ -44,6 +47,7 @@ const mockPrisma = vi.mocked(prisma, { deep: true });
 const mockGetAssetSummary = vi.mocked(getAssetSummary);
 const mockScoreSiteDefinition = vi.mocked(scoreSiteDefinition);
 const mockRenderAllPages = vi.mocked(renderAllPages);
+const mockRenderSitePage = vi.mocked(renderSitePage);
 const mockReleaseStorage = vi.mocked(releaseStorage, { deep: true });
 
 const theme = THEME_CATALOG.find((t) => t.key === "modern-bistro")!;
@@ -68,6 +72,12 @@ function validDefinition(overrides: Partial<SiteDefinition> = {}): SiteDefinitio
         metaDescription: "Handmade pasta, made fresh daily in our kitchen.",
         sections: [{ type: "hero", props: {} }, { type: "footer", props: {} }],
       },
+      {
+        slug: "/about",
+        title: "About — Trattoria Bella | Italian",
+        metaDescription: "Learn about our family recipes and story.",
+        sections: [{ type: "hero", props: {} }, { type: "footer", props: {} }],
+      },
     ],
     ...overrides,
   };
@@ -79,6 +89,8 @@ beforeEach(() => {
   mockScoreSiteDefinition.mockResolvedValue({ overall: 90, seo: 90, performance: 90, accessibility: 90, brandConsistency: 90, conversion: 90, suggestions: [] });
   mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => Promise<unknown>) => fn(mockPrisma));
   mockPrisma.domain.findFirst.mockResolvedValue(null);
+  mockPrisma.restaurant.findUnique.mockResolvedValue({ name: "Trattoria Bella" } as never);
+  mockPrisma.menuItem.count.mockResolvedValue(1);
   mockRenderAllPages.mockResolvedValue(new Map([["/", "<html>home</html>"]]));
   mockReleaseStorage.savePage.mockResolvedValue(undefined);
   mockReleaseStorage.saveAsset.mockResolvedValue(undefined);
@@ -132,6 +144,49 @@ describe("updateSite / listVersions / getVersion (tenant isolation)", () => {
   });
 });
 
+describe("updateSite — temporary domain (slug) editing (Sprint 20A Task 4)", () => {
+  it("updates the slug as-is when it's free", async () => {
+    mockPrisma.site.findUnique
+      .mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never)
+      .mockResolvedValueOnce(null); // slug-uniqueness check for "new-name"
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "new-name" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "new-name" });
+
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { slug: "new-name" } });
+  });
+
+  it("auto-resolves a slug conflict by appending a numeric suffix instead of erroring", async () => {
+    mockPrisma.site.findUnique
+      .mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never)
+      .mockResolvedValueOnce({ id: "other-site" } as never) // "new-name" taken by someone else
+      .mockResolvedValueOnce(null); // "new-name-2" free
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "new-name-2" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "new-name" });
+
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { slug: "new-name-2" } });
+  });
+
+  it("lets a site keep re-requesting its own current slug without treating it as a conflict", async () => {
+    mockPrisma.site.findUnique.mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "DRAFT" } as never);
+    mockPrisma.site.update.mockResolvedValue({ id: "site-1", slug: "trattoria-bella" } as never);
+
+    await updateSite("restaurant-1", "site-1", { slug: "trattoria-bella" });
+
+    // No extra findUnique for the uniqueness check — same slug is a no-op, not a lookup.
+    expect(mockPrisma.site.findUnique).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: {} });
+  });
+
+  it("throws SlugNotEditableError once the site is no longer a DRAFT", async () => {
+    mockPrisma.site.findUnique.mockResolvedValueOnce({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", status: "PUBLISHED" } as never);
+
+    await expect(updateSite("restaurant-1", "site-1", { slug: "new-name" })).rejects.toBeInstanceOf(SlugNotEditableError);
+    expect(mockPrisma.site.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("patchDraft", () => {
   it("throws SiteVersionNotFoundError when there's no active draft", async () => {
     mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1" } as never);
@@ -165,27 +220,49 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", definition: validDefinition() } as never);
     mockGetAssetSummary.mockResolvedValue({ totalPhotoAssets: 3, altTextMissingCount: 0, unprocessedRenditionsCount: 2 });
 
-    await expect(publishSite("restaurant-1", "site-1")).rejects.toBeInstanceOf(PrePublishCheckFailedError);
+    await expect(publishSite("restaurant-1", "site-1", "user-1")).rejects.toBeInstanceOf(PrePublishCheckFailedError);
   });
 
   it("rejects a malformed stored definition before running any checks (schema-valid gate)", async () => {
     mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", brandProfile: null, publishedVersionId: null } as never);
     mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", definition: { garbage: true } } as never);
 
-    await expect(publishSite("restaurant-1", "site-1")).rejects.toThrow();
+    await expect(publishSite("restaurant-1", "site-1", "user-1")).rejects.toThrow();
   });
 
   it("publishes a valid draft and points the site at the new published version", async () => {
     mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", brandProfile: null, publishedVersionId: null } as never);
-    mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", definition: validDefinition() } as never);
+    mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", versionNo: 1, definition: validDefinition() } as never);
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    const result = await publishSite("restaurant-1", "site-1");
+    const result = await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(result.version).toEqual({ id: "draft-1", status: "PUBLISHED" });
     expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "PUBLISHED", publishedVersionId: "draft-1" } });
     expect(result.warning).toBeUndefined();
+  });
+
+  it("leaves behind a fresh DRAFT version (a copy of the just-published definition) so editing can continue immediately (Sprint 20A Task 5)", async () => {
+    const definition = validDefinition();
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", brandProfile: null, publishedVersionId: null } as never);
+    mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", versionNo: 1, definition, styleFamily: "MODERN", generationBatchId: "batch-1" } as never);
+    mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
+    mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
+
+    await publishSite("restaurant-1", "site-1", "user-1");
+
+    expect(mockPrisma.siteVersion.create).toHaveBeenCalledWith({
+      data: {
+        siteId: "site-1",
+        versionNo: 2,
+        definition,
+        status: "DRAFT",
+        styleFamily: "MODERN",
+        generationBatchId: "batch-1",
+        createdById: "user-1",
+      },
+    });
   });
 
   it("warns (without throwing) when the new score is lower than the live version's score", async () => {
@@ -196,7 +273,7 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    const result = await publishSite("restaurant-1", "site-1");
+    const result = await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(result.warning).toMatch(/dropped/i);
     expect(result.scoreDelta).toBe(-15);
@@ -210,7 +287,7 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    await publishSite("restaurant-1", "site-1");
+    await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(mockRenderAllPages).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: "site-1", restaurantId: "restaurant-1", siteUrl: "https://trattoria-bella.sites.ordervora.example" }),
@@ -228,7 +305,7 @@ describe("publishSite", () => {
     const existingReleases = Array.from({ length: 12 }, (_, i) => ({ id: `release-${i}` }));
     mockPrisma.siteVersion.findMany.mockResolvedValue(existingReleases as never);
 
-    await publishSite("restaurant-1", "site-1");
+    await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(mockPrisma.siteVersion.updateMany).toHaveBeenCalledWith({
       where: { id: { in: existingReleases.slice(10).map((v) => v.id) } },
@@ -285,7 +362,11 @@ describe("listReleases / rollbackSite / unpublishSite", () => {
 
     await listReleases("restaurant-1", "site-1");
 
-    expect(mockPrisma.siteVersion.findMany).toHaveBeenCalledWith({ where: { siteId: "site-1", status: "PUBLISHED" }, orderBy: { publishedAt: "desc" } });
+    expect(mockPrisma.siteVersion.findMany).toHaveBeenCalledWith({
+      where: { siteId: "site-1", status: "PUBLISHED" },
+      orderBy: { publishedAt: "desc" },
+      include: { publishedBy: { select: { name: true } } },
+    });
   });
 });
 
@@ -307,6 +388,39 @@ describe("resolveSiteUrl", () => {
     expect(mockPrisma.domain.findFirst).toHaveBeenCalledWith({
       where: { siteId: "site-1", isPrimary: true, verificationStatus: "VERIFIED" },
     });
+  });
+});
+
+describe("renderDraftPreview (Sprint 20A Task 5 Customization Studio)", () => {
+  it("throws SiteNotFoundError for a site owned by a different restaurant (tenant isolation)", async () => {
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "someone-else", slug: "trattoria-bella" } as never);
+    await expect(renderDraftPreview("restaurant-1", "site-1", validDefinition(), "/")).rejects.toBeInstanceOf(SiteNotFoundError);
+    expect(mockRenderSitePage).not.toHaveBeenCalled();
+  });
+
+  it("renders the given unsaved definition with the real renderer, without persisting anything", async () => {
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella" } as never);
+    mockPrisma.domain.findFirst.mockResolvedValue(null);
+    mockRenderSitePage.mockResolvedValue("<html>preview</html>");
+
+    const definition = validDefinition({ tagline: "A brand new tagline" });
+    const html = await renderDraftPreview("restaurant-1", "site-1", definition, "/");
+
+    expect(html).toBe("<html>preview</html>");
+    expect(mockRenderSitePage).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: "site-1", restaurantId: "restaurant-1", definition, noindex: true }),
+      "/",
+    );
+    expect(mockPrisma.siteVersion.update).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the requested path has no matching page (delegated to renderSitePage)", async () => {
+    mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella" } as never);
+    mockPrisma.domain.findFirst.mockResolvedValue(null);
+    mockRenderSitePage.mockResolvedValue(null);
+
+    const html = await renderDraftPreview("restaurant-1", "site-1", validDefinition(), "/nope");
+    expect(html).toBeNull();
   });
 });
 

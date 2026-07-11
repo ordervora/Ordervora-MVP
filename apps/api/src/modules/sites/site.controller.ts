@@ -11,11 +11,15 @@ import {
   listVersions,
   patchDraft,
   publishSite,
+  renderDraftPreview,
+  resolveSiteUrl,
   rollbackSite,
+  temporaryDomainFor,
   unpublishSite,
   updateSite,
+  validatePublishReadiness,
 } from "./site.service";
-import { patchDraftSchema, updateSiteSchema } from "./site.validation";
+import { patchDraftSchema, renderPreviewSchema, updateSiteSchema } from "./site.validation";
 
 export async function getMine(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
@@ -23,7 +27,9 @@ export async function getMine(req: Request, res: Response): Promise<void> {
 
   try {
     const site = await getOwnSite(restaurantId);
-    res.status(200).json({ site });
+    const url = await resolveSiteUrl(site);
+    const temporaryDomain = `https://${temporaryDomainFor(site)}`;
+    res.status(200).json({ site, url, temporaryDomain });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
@@ -102,13 +108,49 @@ export async function patchDraftHandler(req: Request, res: Response): Promise<vo
   }
 }
 
+/** POST /api/sites/:id/draft/render — Customization Studio live preview; renders an unsaved candidate definition with the real renderer, never persists it. */
+export async function renderDraftPreviewHandler(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  const parsed = renderPreviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+
+  try {
+    const html = await renderDraftPreview(restaurantId, paramId(req), parsed.data.definition, parsed.data.path ?? "/");
+    if (html === null) {
+      res.status(404).json({ error: "No page at that path in this definition" });
+      return;
+    }
+    res.status(200).json({ html });
+  } catch (err) {
+    if (!mapSiteError(err, res)) throw err;
+  }
+}
+
 export async function publish(req: Request, res: Response): Promise<void> {
   const restaurantId = await requireOwnRestaurantId(req, res);
   if (!restaurantId) return;
 
   try {
-    const result = await publishSite(restaurantId, paramId(req));
+    const result = await publishSite(restaurantId, paramId(req), req.user!.id);
     res.status(200).json(result);
+  } catch (err) {
+    if (!mapSiteError(err, res)) throw err;
+  }
+}
+
+/** GET /api/sites/:id/publish-check — read-only pre-publish validation the Studio calls before starting the staged publish flow. */
+export async function checkPublishReadiness(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  try {
+    const readiness = await validatePublishReadiness(restaurantId, paramId(req));
+    res.status(200).json(readiness);
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }

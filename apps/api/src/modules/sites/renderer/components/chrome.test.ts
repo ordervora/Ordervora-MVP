@@ -16,7 +16,7 @@ function definition(overrides: Partial<SiteDefinition["facts"]> = {}, family: Si
 }
 
 function ctx(def: SiteDefinition): RenderContext {
-  return { siteId: "site-1", definition: def, liveMenu: [], assets: { galleryImages: [] } };
+  return { siteId: "site-1", restaurantId: "restaurant-1", orderingBaseUrl: "http://localhost:3000", bestSellers: [], activeOffers: [], loyaltyProgram: null, definition: def, liveMenu: [], assets: { galleryImages: [] } };
 }
 
 describe("renderHeaderNav", () => {

@@ -30,7 +30,7 @@ describe("DashboardDrawer (Sprint 19B-1)", () => {
 
     expect(screen.getByRole("link", { name: "Menu" })).toHaveAttribute("href", "/dashboard/menu");
     expect(screen.getByRole("link", { name: "AI" })).toHaveAttribute("href", "/dashboard/builder");
-    expect(screen.getByRole("link", { name: "Website" })).toHaveAttribute("href", "/dashboard/website");
+    expect(screen.getByRole("link", { name: "AI Website Studio" })).toHaveAttribute("href", "/dashboard/website");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/dashboard/restaurant");
   });
 

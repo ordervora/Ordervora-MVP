@@ -5,11 +5,13 @@ import {
   AssetNotFoundError,
   DomainAlreadyClaimedError,
   DomainNotFoundError,
+  InvalidDomainError,
   NoPublishedVersionError,
   PrePublishCheckFailedError,
   SiteAlreadyExistsError,
   SiteNotFoundError,
   SiteVersionNotFoundError,
+  SlugNotEditableError,
   SuggestionNotFoundError,
   VariationNotFoundError,
 } from "./site.errors";
@@ -55,6 +57,10 @@ export function mapSiteError(err: unknown, res: Response): boolean {
   }
   if (err instanceof NoPublishedVersionError) {
     res.status(409).json({ error: err.message });
+    return true;
+  }
+  if (err instanceof InvalidDomainError || err instanceof SlugNotEditableError) {
+    res.status(400).json({ error: err.message });
     return true;
   }
   return false;

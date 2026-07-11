@@ -1,121 +1,49 @@
-import Link from "next/link";
 import { PageShell } from "@/components/ui";
-import type { GenerationJob, SiteVersion, WebsiteScore, WebsiteSite } from "@/lib/api";
+import type { DomainEvent, Restaurant, SiteDomain, SiteVersion, WebsiteSite } from "@/lib/api";
 import { serverFetch } from "@/lib/server-api";
-import { GenerateButton } from "./generate-button";
+import { AiBrandConcepts } from "./studio/ai-brand-concepts";
+import { AiSuggestions } from "./studio/ai-suggestions";
+import { CurrentWebsiteCard } from "./studio/current-website-card";
+import { DomainDashboard } from "./studio/domain/domain-dashboard";
+import { DomainHistory } from "./studio/domain/domain-history";
+import { PublishingHistory } from "./studio/publishing-history";
+import { QuickActions } from "./studio/quick-actions";
+import { slugify } from "./studio/slugify";
+import { WebsiteAnalytics } from "./studio/website-analytics";
+import { WebsiteHealthCard } from "./studio/website-health-card";
+import { WebsiteStatusCard } from "./studio/website-status-card";
 
 export default async function WebsiteHubPage() {
-  const siteResult = await serverFetch<{ site: WebsiteSite }>("/api/sites/me");
+  const restaurantResult = await serverFetch<{ restaurant: Restaurant }>("/api/restaurants/me");
+  const restaurantName = restaurantResult.ok ? restaurantResult.data.restaurant.name : "your business";
 
-  if (!siteResult.ok) {
-    return (
-      <PageShell maxWidth="2xl">
-        <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <h1 className="text-lg font-semibold text-black dark:text-zinc-50">Website</h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            You haven&apos;t generated a website yet. One click builds three complete design variations from your
-            menu and restaurant profile — pick the one you like, then publish it.
-          </p>
-          <GenerateButton mode="create" />
-        </div>
-      </PageShell>
-    );
-  }
+  const siteResult = await serverFetch<{ site: WebsiteSite; url: string; temporaryDomain: string }>("/api/sites/me");
+  const site = siteResult.ok ? siteResult.data.site : null;
+  const domain = siteResult.ok ? siteResult.data.url : `https://${slugify(restaurantName)}.ordervora.app`;
+  const temporaryDomain = siteResult.ok ? siteResult.data.temporaryDomain : domain;
 
-  const { site } = siteResult.data;
-  const [jobResult, versionsResult] = await Promise.all([
-    serverFetch<{ job: GenerationJob | null }>(`/api/sites/${site.id}/generation`),
-    serverFetch<{ versions: SiteVersion[] }>(`/api/sites/${site.id}/versions`),
-  ]);
-
-  const job = jobResult.ok ? jobResult.data.job : null;
-  const versions = versionsResult.ok ? versionsResult.data.versions : [];
-  const draft = versions.find((v) => v.status === "DRAFT");
-  const published = versions.find((v) => v.id === site.publishedVersionId);
-  const scoreTarget = draft ?? published;
-  const scoreResult = scoreTarget
-    ? await serverFetch<{ score: WebsiteScore | null }>(`/api/sites/${site.id}/versions/${scoreTarget.id}/score`)
-    : null;
-  const latestScore = scoreResult?.ok ? scoreResult.data.score : null;
-
-  const isGenerating = job && (job.status === "PENDING" || job.status === "RUNNING");
+  const [releases, domains, domainEvents] = site
+    ? await Promise.all([
+        serverFetch<{ releases: SiteVersion[] }>(`/api/sites/${site.id}/releases`).then((r) => (r.ok ? r.data.releases : [])),
+        serverFetch<{ domains: SiteDomain[] }>(`/api/sites/${site.id}/domains`).then((r) => (r.ok ? r.data.domains : [])),
+        serverFetch<{ events: DomainEvent[] }>(`/api/sites/${site.id}/domain-history`).then((r) => (r.ok ? r.data.events : [])),
+      ])
+    : [[] as SiteVersion[], [] as SiteDomain[], [] as DomainEvent[]];
 
   return (
-    <PageShell maxWidth="2xl">
-        <div className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-6 dark:border-white/[.145] dark:bg-zinc-950">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold text-black dark:text-zinc-50">Website</h1>
-            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              {site.status}
-            </span>
-          </div>
-
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Slug: <span className="font-mono">{site.slug}</span>
-            {site.status === "PUBLISHED" && (
-              <>
-                {" · "}
-                <span className="font-mono">{site.slug}.sites.ordervora.example</span>
-              </>
-            )}
-          </p>
-
-          {latestScore && (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Website Score: <span className="font-semibold text-black dark:text-zinc-50">{latestScore.overall}</span>/100
-            </p>
-          )}
-
-          {isGenerating && (
-            <p className="text-sm text-amber-600 dark:text-amber-400">
-              Generating your three design variations ({job.stage.toLowerCase().replace(/_/g, " ")})…
-            </p>
-          )}
-
-          {job?.status === "FAILED" && (
-            <p className="text-sm text-red-600">Last generation failed: {job.error}</p>
-          )}
-
-          <div className="flex flex-wrap gap-3">
-            <GenerateButton siteId={site.id} mode={versions.length > 0 ? "regenerate" : "create"} />
-            {versions.some((v) => v.status === "VARIATION") && (
-              <Link
-                href="/dashboard/website/variations"
-                className="rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black dark:border-white/[.145] dark:text-zinc-50"
-              >
-                View variations
-              </Link>
-            )}
-            {draft && (
-              <>
-                <Link
-                  href="/dashboard/website/editor"
-                  className="rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black dark:border-white/[.145] dark:text-zinc-50"
-                >
-                  Editor
-                </Link>
-                <Link
-                  href="/dashboard/website/score"
-                  className="rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black dark:border-white/[.145] dark:text-zinc-50"
-                >
-                  Score
-                </Link>
-                <Link
-                  href="/dashboard/website/publish"
-                  className="rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black dark:border-white/[.145] dark:text-zinc-50"
-                >
-                  Publish &amp; Domains
-                </Link>
-              </>
-            )}
-            <Link
-              href="/dashboard/website/messages"
-              className="rounded-full border border-black/[.08] px-4 py-2 text-sm font-medium text-black dark:border-white/[.145] dark:text-zinc-50"
-            >
-              Messages
-            </Link>
-          </div>
-        </div>
+    <PageShell maxWidth="5xl">
+      <div className="flex flex-col gap-5">
+        <WebsiteStatusCard restaurantName={restaurantName} status={site?.status ?? null} />
+        <CurrentWebsiteCard domain={domain} status={site?.status ?? null} />
+        <DomainDashboard siteId={site?.id ?? null} siteStatus={site?.status ?? null} temporaryDomain={temporaryDomain} primaryUrl={domain} domains={domains} />
+        <WebsiteHealthCard />
+        <AiBrandConcepts />
+        <QuickActions domain={domain} siteId={site?.id ?? null} alreadyPublished={site?.status === "PUBLISHED"} />
+        <PublishingHistory releases={releases} currentVersionId={site?.publishedVersionId ?? null} />
+        <DomainHistory events={domainEvents} />
+        <AiSuggestions />
+        <WebsiteAnalytics />
+      </div>
     </PageShell>
   );
 }

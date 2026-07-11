@@ -511,7 +511,7 @@ export function updateImportJobData(id: string, data: ExtractedMenuData) {
 // ---------------------------------------------------------------------------
 
 export type StyleFamily = "LUXURY" | "MODERN" | "MINIMAL";
-export type SiteStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+export type SiteStatus = "DRAFT" | "PUBLISHING" | "REPUBLISHING" | "PUBLISHED" | "FAILED" | "UNPUBLISHED";
 export type SiteVersionStatus = "VARIATION" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type GenerationStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 export type GenerationStage =
@@ -545,6 +545,8 @@ export interface SiteSectionBlock {
   type: string;
   variant?: string;
   props: Record<string, unknown>;
+  /** Section Management (Sprint 20A Task 5) — kept in the array (with its props) but skipped at render time. */
+  hidden?: boolean;
 }
 
 export interface SitePage {
@@ -552,6 +554,81 @@ export interface SitePage {
   title: string;
   metaDescription: string;
   sections: SiteSectionBlock[];
+}
+
+// ---------------------------------------------------------------------------
+// Website Customization Studio (Sprint 20A Task 5) — every field mirrors
+// apps/api/src/modules/sites/types.ts's zod schemas 1:1 and is optional for
+// the same reason: a definition saved before this task has none of these,
+// and every renderer component falls back to a sensible default.
+// ---------------------------------------------------------------------------
+
+export type ButtonStyle = "rounded" | "pill" | "square";
+export type ShadowIntensity = "none" | "soft" | "medium" | "strong";
+export type PageWidth = "narrow" | "standard" | "wide" | "full";
+export type ContentSpacing = "compact" | "comfortable" | "spacious";
+
+export interface BrandSettings {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  headingFont?: string;
+  bodyFont?: string;
+  buttonStyle?: ButtonStyle;
+  borderRadius?: number;
+  shadowIntensity?: ShadowIntensity;
+  pageWidth?: PageWidth;
+  contentSpacing?: ContentSpacing;
+}
+
+export interface AnnouncementBar {
+  enabled: boolean;
+  text?: string;
+  link?: string;
+}
+
+export interface HeaderSettings {
+  logoPosition?: "left" | "center";
+  headerLayout?: "standard" | "minimal" | "centered";
+  stickyHeader?: boolean;
+  announcementBar?: AnnouncementBar;
+  showSearch?: boolean;
+  showCart?: boolean;
+  showAccount?: boolean;
+  showOrderButton?: boolean;
+  mobileNavStyle?: "drawer" | "bottomTabs";
+}
+
+export interface FooterSocialLink {
+  platform: "instagram" | "facebook" | "tiktok" | "x" | "youtube" | "website";
+  url: string;
+}
+
+export interface LegalLink {
+  label: string;
+  url: string;
+}
+
+export interface FooterSettings {
+  description?: string;
+  showContactInfo?: boolean;
+  socialLinks?: FooterSocialLink[];
+  legalLinks?: LegalLink[];
+  showHours?: boolean;
+  newsletterEnabled?: boolean;
+  copyrightText?: string;
+}
+
+export interface ProductPresentation {
+  categoryNavStyle?: "sticky" | "simple";
+  cardLayout?: "grid" | "list";
+  infoDensity?: "compact" | "detailed";
+  showModifiersBadge?: boolean;
+  priceStyle?: "standard" | "bold" | "minimal";
+  outOfStockAppearance?: "dimmed" | "hidden" | "badge";
+  addToCartStyle?: "button" | "iconButton" | "stepper";
 }
 
 export interface WebsiteSiteDefinition {
@@ -574,6 +651,10 @@ export interface WebsiteSiteDefinition {
     hasOnlineOrdering: boolean;
     hasReservations: boolean;
   };
+  brandSettings?: BrandSettings;
+  header?: HeaderSettings;
+  footer?: FooterSettings;
+  productPresentation?: ProductPresentation;
   pages: SitePage[];
 }
 
@@ -609,6 +690,8 @@ export interface SiteVersion {
   styleFamily: StyleFamily | null;
   generationBatchId: string | null;
   publishedAt: string | null;
+  publishedById?: string | null;
+  publishedBy?: { name: string } | null;
   createdAt: string;
   scores?: WebsiteScore[];
 }
@@ -634,13 +717,46 @@ export interface GenerationJob {
   error: string | null;
 }
 
+export type DomainVerificationStatus = "PENDING" | "VERIFIED" | "FAILED";
+export type DomainTlsStatus = "PENDING" | "GENERATING" | "ACTIVE" | "EXPIRED" | "FAILED";
+export type DomainEventType =
+  | "CREATED"
+  | "VERIFIED"
+  | "VERIFICATION_FAILED"
+  | "SSL_GENERATING"
+  | "SSL_ACTIVE"
+  | "SSL_FAILED"
+  | "PRIMARY_CHANGED"
+  | "DISCONNECTED";
+
+export interface DnsRecordInstruction {
+  type: "CNAME" | "TXT";
+  name: string;
+  value: string;
+}
+
 export interface SiteDomain {
   id: string;
   hostname: string;
   type: "PLATFORM" | "CUSTOM";
-  verificationStatus: "PENDING" | "VERIFIED" | "FAILED";
-  tlsStatus: "PENDING" | "ISSUED" | "FAILED";
+  verificationStatus: DomainVerificationStatus;
+  verificationToken: string;
+  lastCheckedAt: string | null;
+  tlsStatus: DomainTlsStatus;
+  tlsExpiresAt: string | null;
   isPrimary: boolean;
+  dnsRecords: DnsRecordInstruction[];
+  createdAt: string;
+}
+
+export interface DomainEvent {
+  id: string;
+  siteId: string;
+  domainId: string | null;
+  hostname: string;
+  type: DomainEventType;
+  message: string | null;
+  createdAt: string;
 }
 
 export interface ContactMessageRecord {
@@ -652,11 +768,19 @@ export interface ContactMessageRecord {
 }
 
 export function getMySite() {
-  return apiFetch<{ site: WebsiteSite }>("/api/sites/me");
+  return apiFetch<{ site: WebsiteSite; url: string; temporaryDomain: string }>("/api/sites/me");
 }
 
 export function createSite() {
   return apiFetch<{ site: WebsiteSite }>("/api/sites", { method: "POST" });
+}
+
+/** PATCH /api/sites/:id — currently only used to edit the temporary domain's slug before publishing. */
+export function updateSite(siteId: string, input: { slug?: string }) {
+  return apiFetch<{ site: WebsiteSite }>(`/api/sites/${siteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function startGeneration(siteId: string) {
@@ -694,6 +818,67 @@ export function patchDraft(siteId: string, patch: Partial<WebsiteSiteDefinition>
   });
 }
 
+/** Customization Studio live preview (Sprint 20A Task 5) — renders an unsaved candidate definition with the real renderer; never persists it. */
+export function renderDraftPreview(siteId: string, definition: WebsiteSiteDefinition, path = "/") {
+  return apiFetch<{ html: string }>(`/api/sites/${siteId}/draft/render`, {
+    method: "POST",
+    body: JSON.stringify({ definition, path }),
+  });
+}
+
+export type SiteAssetKind = "HERO" | "HERO_BACKGROUND" | "GALLERY" | "LOGO" | "FAVICON" | "OG";
+
+export interface SiteAssetRenditions {
+  thumbnail?: string;
+  card?: string;
+  full?: string;
+}
+
+export interface SiteAsset {
+  id: string;
+  siteId: string;
+  kind: SiteAssetKind;
+  storageKey: string;
+  renditions: SiteAssetRenditions | null;
+  altText: string | null;
+  sortOrder: number;
+  url: string;
+}
+
+export function listSiteAssets(siteId: string) {
+  return apiFetch<{ assets: SiteAsset[] }>(`/api/sites/${siteId}/assets`);
+}
+
+/** Bypasses apiFetch's forced JSON Content-Type — multipart needs the browser to set its own boundary, same pattern as createImportJob above. */
+export async function uploadSiteAsset(siteId: string, kind: SiteAssetKind, file: File): Promise<{ asset: SiteAsset }> {
+  const formData = new FormData();
+  formData.append("kind", kind);
+  formData.append("file", file);
+
+  const res = await fetch(`/api/sites/${siteId}/assets`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error ?? "Upload failed");
+  }
+  return data as { asset: SiteAsset };
+}
+
+export function updateSiteAsset(siteId: string, assetId: string, patch: { altText?: string; sortOrder?: number }) {
+  return apiFetch<{ asset: SiteAsset }>(`/api/sites/${siteId}/assets/${assetId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function removeSiteAsset(siteId: string, assetId: string) {
+  return apiFetch<void>(`/api/sites/${siteId}/assets/${assetId}`, { method: "DELETE" });
+}
+
 export function getLatestScore(siteId: string, versionId: string) {
   return apiFetch<{ score: WebsiteScore | null }>(`/api/sites/${siteId}/versions/${versionId}/score`);
 }
@@ -707,6 +892,21 @@ export function applySuggestion(siteId: string, versionId: string, suggestion: S
     method: "POST",
     body: JSON.stringify(suggestion),
   });
+}
+
+export interface PublishIssue {
+  code: "BUSINESS_NAME" | "THEME_SELECTED" | "WEBSITE_CONTENT" | "REQUIRED_PAGES" | "MENU" | "NAVIGATION" | "ASSETS";
+  message: string;
+}
+
+export interface PublishReadiness {
+  ready: boolean;
+  issues: PublishIssue[];
+}
+
+/** GET /api/sites/:id/publish-check — read-only validation the Studio's staged publish flow runs before starting. */
+export function checkPublishReadiness(siteId: string) {
+  return apiFetch<PublishReadiness>(`/api/sites/${siteId}/publish-check`);
 }
 
 export function publishSite(siteId: string) {
@@ -748,6 +948,11 @@ export function setPrimaryDomain(siteId: string, domainId: string) {
 
 export function removeDomain(siteId: string, domainId: string) {
   return apiFetch<void>(`/api/sites/${siteId}/domains/${domainId}`, { method: "DELETE" });
+}
+
+/** GET /api/sites/:id/domain-history — full domain lifecycle timeline (Sprint 20A Task 4), survives individual domains being disconnected. */
+export function listDomainHistory(siteId: string) {
+  return apiFetch<{ events: DomainEvent[] }>(`/api/sites/${siteId}/domain-history`);
 }
 
 export function listMessages(siteId: string) {

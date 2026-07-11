@@ -17,6 +17,13 @@ export type UpdateSiteBody = z.infer<typeof updateSiteSchema>;
 export const patchDraftSchema = siteDefinitionSchema.partial();
 export type PatchDraftBody = z.infer<typeof patchDraftSchema>;
 
+/** Customization Studio (Sprint 20A Task 5) — a full, unsaved candidate definition to render for live preview, never persisted by this request. */
+export const renderPreviewSchema = z.object({
+  definition: siteDefinitionSchema,
+  path: z.string().min(1).max(20).optional(),
+});
+export type RenderPreviewBody = z.infer<typeof renderPreviewSchema>;
+
 export const applySuggestionSchema = suggestionSchema;
 
 export const uploadAssetKindSchema = z.object({ kind: z.enum(AssetKind) });
@@ -44,3 +51,10 @@ export const contactMessageSchema = z.object({
   honeypot: z.string().max(200).optional(),
 });
 export type ContactMessageBody = z.infer<typeof contactMessageSchema>;
+
+export const newsletterSubscribeSchema = z.object({
+  email: z.email(),
+  // Honeypot: real users never see or fill this field in the UI.
+  honeypot: z.string().max(200).optional(),
+});
+export type NewsletterSubscribeBody = z.infer<typeof newsletterSubscribeSchema>;

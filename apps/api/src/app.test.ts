@@ -48,6 +48,7 @@ describe("createApp", () => {
     expect(res.body.workers).toEqual({
       outboxWorker: { lastSuccessAt: null, lastError: null },
       staleOfferSweep: { lastSuccessAt: null, lastError: null },
+      sslIssuanceSweep: { lastSuccessAt: null, lastError: null },
     });
   });
 

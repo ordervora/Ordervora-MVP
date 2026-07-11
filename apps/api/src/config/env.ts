@@ -224,6 +224,7 @@ const KNOWN_ENV_KEYS = [
   "DRIVER_OFFER_TIMEOUT_MS",
   "DRIVER_OFFER_SWEEP_INTERVAL_MS",
   "OUTBOX_POLL_INTERVAL_MS",
+  "SSL_ISSUANCE_SWEEP_INTERVAL_MS",
   // Production Hardening Phase 5 — deliberately outside the core schema:
   // Redis is an optional accelerator (distributed rate-limit store), not a
   // boot requirement. Unset means every rate limiter runs in-process only

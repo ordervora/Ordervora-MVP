@@ -29,7 +29,7 @@ const DRAWER_ITEMS: DrawerItem[] = [
   { label: "Menu", href: "/dashboard/menu", icon: UtensilsCrossed },
   { label: "Customers", href: null, icon: Users },
   { label: "AI", href: "/dashboard/builder", icon: Sparkles },
-  { label: "Website", href: "/dashboard/website", icon: Globe },
+  { label: "AI Website Studio", href: "/dashboard/website", icon: Globe },
   { label: "Marketing", href: null, icon: Megaphone },
   { label: "Settings", href: "/dashboard/restaurant", icon: Settings },
   { label: "Help", href: null, icon: HelpCircle },

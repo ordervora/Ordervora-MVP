@@ -9,15 +9,36 @@ import { z } from "zod";
 export const sectionTypeSchema = z.enum([
   "hero",
   "signatureDishes",
+  // Sprint 20A Task 5 — Website Customization Studio additions. Each new
+  // type has a real data source (see renderer/components/*.ts's doc
+  // comments for exactly which): featuredCategories/featuredProducts read
+  // the live menu like "menu" already does; bestSellers reads real order
+  // history via analytics.service.ts's getTopItems; offers reads real
+  // active Coupon rows; loyalty reads the real LoyaltyProgram row;
+  // newsletter is a real, persisted signup capture. "reviews" and
+  // "appPromotion" and "customTextImage" are owner-authored static content
+  // (this data model has no customer-review or app-store-metadata source
+  // to pull from — same documented gap "testimonials" already had; owner
+  // typing the words in is the real, non-fabricated content here, not a
+  // placeholder).
+  "featuredCategories",
+  "featuredProducts",
+  "bestSellers",
+  "offers",
   "aboutTeaser",
   "aboutStory",
   "hoursLocation",
   "testimonials",
+  "reviews",
   "gallery",
+  "loyalty",
+  "appPromotion",
   "ctaBanner",
   "menu",
   "contactInfo",
   "contactForm",
+  "newsletter",
+  "customTextImage",
   "footer",
 ]);
 export type SectionType = z.infer<typeof sectionTypeSchema>;
@@ -26,6 +47,11 @@ export const sectionBlockSchema = z.object({
   type: sectionTypeSchema,
   variant: z.string().optional(),
   props: z.record(z.string(), z.unknown()),
+  // Section Management (Task 5 §5) — Hide keeps the block (and its props)
+  // in the definition but skips it at render time; distinct from Remove,
+  // which drops the array entry entirely. Defaults to visible (false/
+  // absent) so every pre-Task-5 definition renders exactly as before.
+  hidden: z.boolean().optional(),
 });
 export type SectionBlock = z.infer<typeof sectionBlockSchema>;
 
@@ -55,6 +81,102 @@ export type SiteFacts = z.infer<typeof siteFactsSchema>;
 export const styleFamilySchema = z.enum(["LUXURY", "MODERN", "MINIMAL"]);
 export type StyleFamilyValue = z.infer<typeof styleFamilySchema>;
 
+// ---------------------------------------------------------------------------
+// Website Customization Studio (Sprint 20A Task 5) — every field below is
+// optional and every consumer (theme-css.ts, chrome.ts, footer.ts,
+// menu-section.ts) falls back to the existing theme-derived default when
+// absent, so every SiteDefinition persisted before this task still parses
+// and renders identically (§9 "safe defaults for existing sites").
+// ---------------------------------------------------------------------------
+
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a 6-digit hex color");
+
+export const buttonStyleSchema = z.enum(["rounded", "pill", "square"]);
+export type ButtonStyle = z.infer<typeof buttonStyleSchema>;
+
+export const shadowIntensitySchema = z.enum(["none", "soft", "medium", "strong"]);
+export type ShadowIntensity = z.infer<typeof shadowIntensitySchema>;
+
+export const pageWidthSchema = z.enum(["narrow", "standard", "wide", "full"]);
+export type PageWidth = z.infer<typeof pageWidthSchema>;
+
+export const contentSpacingSchema = z.enum(["compact", "comfortable", "spacious"]);
+export type ContentSpacing = z.infer<typeof contentSpacingSchema>;
+
+export const brandSettingsSchema = z.object({
+  primaryColor: hexColorSchema.optional(),
+  secondaryColor: hexColorSchema.optional(),
+  accentColor: hexColorSchema.optional(),
+  backgroundColor: hexColorSchema.optional(),
+  textColor: hexColorSchema.optional(),
+  headingFont: z.string().min(1).max(60).optional(),
+  bodyFont: z.string().min(1).max(60).optional(),
+  buttonStyle: buttonStyleSchema.optional(),
+  borderRadius: z.number().min(0).max(32).optional(),
+  shadowIntensity: shadowIntensitySchema.optional(),
+  pageWidth: pageWidthSchema.optional(),
+  contentSpacing: contentSpacingSchema.optional(),
+});
+export type BrandSettings = z.infer<typeof brandSettingsSchema>;
+
+export const announcementBarSchema = z.object({
+  enabled: z.boolean(),
+  text: z.string().max(160).optional(),
+  link: z.string().max(300).optional(),
+});
+
+export const headerSettingsSchema = z.object({
+  logoPosition: z.enum(["left", "center"]).optional(),
+  headerLayout: z.enum(["standard", "minimal", "centered"]).optional(),
+  stickyHeader: z.boolean().optional(),
+  announcementBar: announcementBarSchema.optional(),
+  showSearch: z.boolean().optional(),
+  showCart: z.boolean().optional(),
+  showAccount: z.boolean().optional(),
+  showOrderButton: z.boolean().optional(),
+  mobileNavStyle: z.enum(["drawer", "bottomTabs"]).optional(),
+});
+export type HeaderSettings = z.infer<typeof headerSettingsSchema>;
+
+export const socialLinkSchema = z.object({
+  platform: z.enum(["instagram", "facebook", "tiktok", "x", "youtube", "website"]),
+  url: z.string().min(1).max(300),
+});
+export type SocialLink = z.infer<typeof socialLinkSchema>;
+
+export const legalLinkSchema = z.object({ label: z.string().min(1).max(60), url: z.string().min(1).max(300) });
+export type LegalLink = z.infer<typeof legalLinkSchema>;
+
+export const footerSettingsSchema = z.object({
+  description: z.string().max(400).optional(),
+  showContactInfo: z.boolean().optional(),
+  socialLinks: z.array(socialLinkSchema).max(8).optional(),
+  legalLinks: z.array(legalLinkSchema).max(8).optional(),
+  showHours: z.boolean().optional(),
+  newsletterEnabled: z.boolean().optional(),
+  copyrightText: z.string().max(200).optional(),
+});
+export type FooterSettings = z.infer<typeof footerSettingsSchema>;
+
+/**
+ * Deliberately excludes "image ratio" and "dietary badges" from Task 5's
+ * requested list — MenuItem has neither an image field nor a dietary-tag
+ * field in this data model (menu-section.ts's own doc comment already
+ * flags the latter gap). Adding those two toggles would be exactly the
+ * "editable control disconnected from the real storefront" the task
+ * explicitly forbids, since toggling either would change nothing visible.
+ */
+export const productPresentationSchema = z.object({
+  categoryNavStyle: z.enum(["sticky", "simple"]).optional(),
+  cardLayout: z.enum(["grid", "list"]).optional(),
+  infoDensity: z.enum(["compact", "detailed"]).optional(),
+  showModifiersBadge: z.boolean().optional(),
+  priceStyle: z.enum(["standard", "bold", "minimal"]).optional(),
+  outOfStockAppearance: z.enum(["dimmed", "hidden", "badge"]).optional(),
+  addToCartStyle: z.enum(["button", "iconButton", "stepper"]).optional(),
+});
+export type ProductPresentation = z.infer<typeof productPresentationSchema>;
+
 export const siteDefinitionSchema = z.object({
   schemaVersion: z.literal(1),
   restaurantName: z.string().min(1),
@@ -75,6 +197,10 @@ export const siteDefinitionSchema = z.object({
   // tests) don't need to supply it.
   designRationale: z.array(z.string()).optional(),
   facts: siteFactsSchema,
+  brandSettings: brandSettingsSchema.optional(),
+  header: headerSettingsSchema.optional(),
+  footer: footerSettingsSchema.optional(),
+  productPresentation: productPresentationSchema.optional(),
   pages: z.array(sitePageSchema).min(1),
 });
 export type SiteDefinition = z.infer<typeof siteDefinitionSchema>;

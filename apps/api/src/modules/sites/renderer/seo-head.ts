@@ -6,6 +6,7 @@ import type { SitePage } from "../types";
 export interface SeoHeadInput extends JsonLdInput {
   page: SitePage;
   noindex?: boolean;
+  faviconUrl?: string;
 }
 
 /**
@@ -22,12 +23,14 @@ export function renderSeoHead(input: SeoHeadInput): string {
   const breadcrumbJsonLd = buildBreadcrumbJsonLd(input);
 
   const robotsTag = input.noindex ? `<meta name="robots" content="noindex, nofollow" />` : "";
+  const faviconTag = input.faviconUrl ? `<link rel="icon" href="${escapeHtml(input.faviconUrl)}" />` : "";
 
   return `<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(input.page.title)}</title>
 <meta name="description" content="${escapeHtml(input.page.metaDescription)}" />
 <link rel="canonical" href="${escapeHtml(canonical)}" />
+${faviconTag}
 ${robotsTag}
 <meta property="og:title" content="${escapeHtml(input.page.title)}" />
 <meta property="og:description" content="${escapeHtml(input.page.metaDescription)}" />

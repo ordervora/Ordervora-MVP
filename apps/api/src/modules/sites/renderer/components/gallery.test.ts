@@ -6,6 +6,11 @@ import type { SiteDefinition } from "../../types";
 function ctx(galleryImages: RenderContext["assets"]["galleryImages"]): RenderContext {
   return {
     siteId: "site-1",
+    restaurantId: "restaurant-1",
+    orderingBaseUrl: "http://localhost:3000",
+    bestSellers: [],
+    activeOffers: [],
+    loyaltyProgram: null,
     definition: { restaurantName: "Trattoria Bella" } as SiteDefinition,
     liveMenu: [],
     assets: { galleryImages },

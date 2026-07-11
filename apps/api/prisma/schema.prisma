@@ -45,7 +45,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   importJobs    ImportJob[]
-  siteVersionsCreated SiteVersion[]
+  siteVersionsCreated SiteVersion[] @relation("SiteVersionCreatedBy")
+  siteVersionsPublished SiteVersion[] @relation("SiteVersionPublishedBy")
 
   // --- Commerce & Fulfillment Engine (Sprint 07) ---
   driverAssignments    DriverAssignment[]
@@ -295,7 +296,10 @@ model ImportJob {
 
 enum SiteStatus {
   DRAFT
+  PUBLISHING
+  REPUBLISHING
   PUBLISHED
+  FAILED
   UNPUBLISHED
 }
 
@@ -331,8 +335,21 @@ enum DomainVerificationStatus {
 
 enum DomainTlsStatus {
   PENDING
-  ISSUED
+  GENERATING
+  ACTIVE
+  EXPIRED
   FAILED
+}
+
+enum DomainEventType {
+  CREATED
+  VERIFIED
+  VERIFICATION_FAILED
+  SSL_GENERATING
+  SSL_ACTIVE
+  SSL_FAILED
+  PRIMARY_CHANGED
+  DISCONNECTED
 }
 
 enum AssetKind {
@@ -340,6 +357,11 @@ enum AssetKind {
   GALLERY
   LOGO
   OG
+  FAVICON
+  // Sprint 20A Task 5 — a hero section's optional background image is a
+  // distinct slot from HERO (its foreground photo), since Hero Section
+  // settings let an owner set both independently.
+  HERO_BACKGROUND
 }
 
 enum GenerationStage {
@@ -376,11 +398,13 @@ model Site {
   brandProfile       Json?
   settings           Json?
 
-  versions         SiteVersion[]
-  domains          Domain[]
-  assets           SiteAsset[]
-  generationJobs   GenerationJob[]
-  contactMessages  ContactMessage[]
+  versions              SiteVersion[]
+  domains               Domain[]
+  domainEvents          DomainEvent[]
+  assets                SiteAsset[]
+  generationJobs        GenerationJob[]
+  contactMessages       ContactMessage[]
+  newsletterSubscribers NewsletterSubscriber[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -398,8 +422,13 @@ model SiteVersion {
   styleFamily         StyleFamily?
   generationBatchId   String?
   createdById         String
-  createdBy           User              @relation(fields: [createdById], references: [id])
+  createdBy           User              @relation("SiteVersionCreatedBy", fields: [createdById], references: [id])
   publishedAt         DateTime?
+  // Who actually clicked Publish for this release (Sprint 20A) — distinct
+  // from createdBy, which is whoever generated/edited the draft. Nullable
+  // because older releases predate this field and were never backfilled.
+  publishedById       String?
+  publishedBy         User?             @relation("SiteVersionPublishedBy", fields: [publishedById], references: [id])
 
   scores SiteScore[]
 
@@ -456,13 +485,45 @@ model Domain {
   hostname           String                    @unique
   type               DomainType
   verificationStatus DomainVerificationStatus  @default(PENDING)
+  // Random per-domain proof-of-control token (Sprint 20A Task 4): the
+  // owner must publish it in a `_ordervora-challenge.<hostname>` TXT
+  // record alongside the CNAME before verification succeeds — proves they
+  // control DNS for this exact hostname, not just that some CNAME already
+  // happens to point at our shared edge.
+  verificationToken  String                    @default(uuid())
+  lastCheckedAt      DateTime?
   tlsStatus          DomainTlsStatus           @default(PENDING)
+  // Set once tlsStatus becomes ACTIVE (Sprint 20A Task 4); the renewal
+  // sweep (ssl-issuance-scheduler.ts) flips ACTIVE -> EXPIRED once this
+  // passes, mirroring a real certificate's validity window.
+  tlsExpiresAt       DateTime?
   isPrimary          Boolean                   @default(false)
 
+  events    DomainEvent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([siteId])
+}
+
+// Sprint 20A Task 4 — durable domain lifecycle history. Deliberately not
+// only reachable through Domain: hostname/siteId are denormalized and
+// domainId is nullable (SetNull on delete) so a domain's full history
+// (including its own "disconnected" event) survives the Domain row being
+// hard-deleted by removeDomain.
+model DomainEvent {
+  id        String          @id @default(uuid())
+  siteId    String
+  site      Site            @relation(fields: [siteId], references: [id])
+  domainId  String?
+  domain    Domain?         @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  hostname  String
+  type      DomainEventType
+  message   String?
+  createdAt DateTime        @default(now())
+
+  @@index([siteId])
+  @@index([domainId])
 }
 
 model SiteAsset {
@@ -510,6 +571,21 @@ model ContactMessage {
   ipHash    String
   createdAt DateTime @default(now())
 
+  @@index([siteId])
+}
+
+// Sprint 20A Task 5 — real signup capture for the storefront's "Newsletter"
+// section and the footer's optional inline form; @@unique so resubmitting
+// the same address (e.g. re-visiting the page) is a harmless no-op rather
+// than a duplicate row or a 409 the owner would need to handle.
+model NewsletterSubscriber {
+  id        String   @id @default(uuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id])
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([siteId, email])
   @@index([siteId])
 }
 

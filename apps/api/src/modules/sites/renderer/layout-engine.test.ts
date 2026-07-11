@@ -10,6 +10,11 @@ import type { SectionBlock } from "../types";
 function ctx(overrides: Partial<RenderContext> = {}): RenderContext {
   return {
     siteId: "site-1",
+    restaurantId: "restaurant-1",
+    orderingBaseUrl: "http://localhost:3000",
+    bestSellers: [],
+    activeOffers: [],
+    loyaltyProgram: null,
     definition: {
       schemaVersion: 1,
       restaurantName: "Trattoria Bella",

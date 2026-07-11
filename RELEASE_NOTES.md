@@ -3354,3 +3354,460 @@ render correctly with no regressions from today's changes.
 tests incl. 3 new, 1073 API tests incl. 2 new, all passing), production
 build (both apps, all routes clean), and the live verification described
 above.
+
+## Sprint 20A Task 1 — AI Website Studio Foundation
+
+UI-foundation-only sprint: renamed "Website Builder"/"Website" to "AI
+Website Studio" across every nav surface, and replaced the Website hub
+page with a new premium, placeholder-driven layout. No AI generation, no
+publishing, no domain logic, no backend or database changes — this is
+scaffolding for Task 2 to wire real logic into.
+
+**Renamed** ("Website" → "AI Website Studio"): the desktop pill nav and
+"More" sheet in `DashboardNav`, the slide-in `DashboardDrawer`, the
+Dashboard Overview's own desktop sidebar, and the public marketing
+landing page's AI-modules feature list. The Dashboard Overview's
+5-column bottom tab bar uses "Studio" instead of the full label — live-
+verified the full string doesn't fit that column width without visual
+crowding; every other nav surface (sidebar, drawer, "More" sheet) shows
+the complete "AI Website Studio" name. Confirmed via grep: zero
+remaining "Website Builder" references anywhere in the frontend.
+
+**Replaced** `apps/web/src/app/dashboard/website/page.tsx` entirely — the
+previous version (a single zinc/dark-styled card wired to real site-
+generation status) is gone from this route; its underlying real
+sub-pages (`/website/editor`, `/publish`, `/score`, `/messages`,
+`/variations`) are untouched and still fully functional, just not all
+individually linked from this specific redesigned hub in this task.
+
+**New page, 7 sections, all placeholder data:**
+1. **Website Status** — a status card introducing the Studio.
+2. **Current Website** — a domain card showing
+   `https://{slugified-restaurant-name}.ordervora.app` with working
+   Open Website, Copy Link (clipboard), Share (native share sheet with
+   a clipboard fallback), and QR Code (real `qrcode.react` code of the
+   placeholder URL) — all pure client-side UI, no backend calls.
+3. **Website Health** — 6 score-ring cards (Overall, SEO, Performance,
+   Mobile, Accessibility, Conversion) with static placeholder scores.
+4. **AI Brand Concepts** — 3 concept cards (Modern Minimal / Warm Craft
+   / Bold Contemporary), each with a phone-frame preview mockup and
+   Preview/Select/Regenerate controls. Select toggles a local visual
+   selection state only — no generation, no persistence.
+5. **Quick Actions** — 6 cards (Preview Website, Customize Website,
+   Publish Website, Connect Domain, Analytics, SEO). Customize/Publish/
+   SEO link to the real, already-working editor/publish/score pages
+   (preserving existing functionality); Connect Domain also routes to
+   the existing publish page (domains live there already); Analytics
+   scroll-links to this same page's Analytics section; Preview Website
+   opens the placeholder domain.
+6. **AI Suggestions** — 5 static suggestions (Improve Hero/SEO, Enable
+   Loyalty, Optimize Menu, Improve Images), each with a styled but
+   inert "Fix Now" button.
+7. **Website Analytics** — placeholder stat tiles (Visitors, Orders,
+   Conversion, Returning Customers), a single-hue 7-day visitor bar
+   chart, and a Top Products ranked list — reusing the same accent
+   color already used for Dashboard Overview's revenue chart, per this
+   codebase's existing single-series chart convention.
+
+**Verified:** typecheck, lint, full test suite (113 passed, 2 nav tests
+updated for the rename), production build (all 53 routes clean), and
+live Playwright verification at iPhone SE (375×667), iPhone 14/15
+(390×844), and iPhone Pro Max (430×932) plus a 1440px desktop pass —
+zero horizontal overflow, zero console/page errors, all interactive
+elements (Copy Link, QR Code toggle, brand-concept Select, Quick
+Action navigation) confirmed working live.
+
+**TODOs for Task 2** (explicitly not started here): wire AI Brand
+Concepts to real theme generation; wire Website Health/Analytics to
+real scoring and traffic data; wire AI Suggestions' "Fix Now" to real
+actions; wire the domain card to a real assigned domain once one
+exists; decide whether Website Messages needs a dedicated entry point
+on the new hub (currently reachable only by direct URL).
+
+## Sprint 20A Task 2 — AI Brand Concepts Experience
+
+UI-only sprint, built on Task 1's foundation: turned the 3 static
+placeholder concept cards into a complete, simulated brand-generation
+workflow. No real AI, no OpenAI calls, no backend/database changes —
+still entirely placeholder data, now with real interaction depth.
+
+**New:** a `brand-concepts/` module (`concept-data.ts`,
+`generate-concepts-button.tsx`, `concept-phone-preview.tsx`,
+`concept-details.tsx`, `brand-concept-card.tsx`, `compare-concepts.tsx`)
+replacing the single-file Task 1 version of `ai-brand-concepts.tsx`,
+which is now a thin orchestrator over these pieces.
+
+- **Generate New Brand Concepts** — a primary button that runs a
+  simulated 5-stage loading sequence (Analyzing your business… →
+  Building your brand identity… → Creating layouts… → Designing mobile
+  experience… → Preparing storefront…) in a modal, each stage
+  transitioning through pending/active/done states, then advances all
+  3 concepts to their next placeholder variation.
+- **Richer concept cards** — each now shows Business Style, Best For,
+  three labeled color swatches, and 5 style tags (Typography/Button/
+  Navigation/Product Card/Animation Style), on top of the name and
+  description from Task 1.
+- **Interactive iPhone Preview** — each concept's phone mockup now has
+  a real 5-screen tab switcher (Home/Menu/Product/Cart/Checkout), each
+  screen a distinct placeholder layout using that concept's own colors.
+- **Compare Concepts** — a toggleable, horizontally-scrollable
+  comparison table showing all 3 concepts' key attributes side by side,
+  in place, without navigating away.
+- **Selection Experience** — selecting a concept immediately shows a
+  "Selected Brand · Current Active Concept" confirmation banner above
+  the cards and a "Selected" badge + ring highlight on the chosen card.
+- **Regenerate** — per-card, cycles that concept to its next placeholder
+  variation with a brief spinner; each of the 3 concept families now has
+  3 variations (added a third to each during this task, after live
+  testing showed a 2-variation cycle felt repetitive against this
+  sprint's "Apple-quality" bar).
+- **Concept Details** — a smooth-animated accordion per card revealing
+  Brand Philosophy, Color Palette, Typography, Experience, Target
+  Audience, Conversion Focus, and Business Personality.
+
+**Verified:** typecheck, lint, production build (all clean, as
+requested), plus the full test suite as an extra regression check (113
+passed, unchanged) and live Playwright verification at iPhone SE
+(375×667), iPhone 14/15 (390×844), iPhone Pro Max via the existing
+studio page, tablet (768×1024), and desktop (1440×1000) — zero
+horizontal overflow, zero console errors at any width, and every
+interaction (Generate flow, Select, Compare, Regenerate, Concept
+Details expand, phone-preview screen switching) confirmed working live.
+
+**TODOs for Task 3** (explicitly not started here): connect Generate/
+Regenerate to real AI brand generation; persist the selected concept;
+wire the phone preview to real generated content instead of static
+placeholder blocks; connect Concept Details' copy to real generated
+brand reasoning instead of the fixed placeholder pool.
+
+## Sprint 20A Task 3 — Website Publishing Engine
+
+Production sprint, not a placeholder: extended OrderVora's existing
+site-generation/publishing backend (renderer, sitemap/robots/OG
+generation, release storage, rollback, domains — all pre-existing and
+production-grade from earlier sprints) with real status tracking,
+structured pre-publish validation, and publisher attribution, then wired
+the Studio hub's Publish Website action to a real staged flow that calls
+the real API — no fake timers gating the final "Completed" state.
+
+**Database (migration
+`20260711003736_sprint20a_publishing_engine`):**
+- `SiteStatus` enum gained `PUBLISHING`, `REPUBLISHING`, `FAILED`
+  (alongside the existing `DRAFT`, `PUBLISHED`, `UNPUBLISHED`) — a site's
+  status is now a real, persisted signal for the duration of a publish
+  call, not just before/after.
+- `SiteVersion.publishedById` (nullable FK to `User`) — records who
+  published each release, surfaced through `listReleases`.
+
+**Backend (`apps/api/src/modules/sites/site.service.ts` +
+`site.controller.ts` + `site.routes.ts`):**
+- New `validatePublishReadiness(restaurantId, siteId)` — checks business
+  name, an active draft/theme, schema-valid content, a home page,
+  2+ pages (navigation), at least one menu item, and unprocessed photo
+  assets, returning `{ ready, issues }` with a friendly message per
+  issue. Exposed read-only via `GET /:id/publish-check`.
+- `publishSite` now requires the publishing user's id, runs the same
+  readiness check as a hard gate (never trusts the client skipped it),
+  sets the site's status to `PUBLISHING`/`REPUBLISHING` immediately, and
+  flips it to `FAILED` if anything in the publish transaction throws —
+  so a crashed publish never silently leaves a stale status.
+- `listReleases` now includes each release's publisher name.
+
+**Frontend:**
+- New `studio/publish-flow.tsx` (`PublishFlowButton`) — a real staged
+  publish modal (Preparing Website → Optimizing Assets → Generating
+  Metadata → Generating SEO → Creating Sitemap → Creating Robots.txt →
+  Assigning Temporary Domain → Final Validation → Publishing →
+  Completed). The first 8 stages are a cosmetic checklist animation; the
+  "Publishing" stage is the real `publishSite` network call, and
+  "Completed" only renders once that call actually resolves. If
+  `checkPublishReadiness` reports issues first, the modal shows those
+  messages instead of starting the animation, with a "Got it" dismiss —
+  no staged flow ever starts against a site that isn't actually ready.
+  Relabels to "Republish Website" once the site is already published.
+- New `studio/publishing-history.tsx` — Version / Published By / Date /
+  Status list off the enhanced `listReleases`, with a "Current version"
+  badge on the live release.
+- `studio/quick-actions.tsx` — the Publish Website tile is now the real
+  `PublishFlowButton` (a `variant="tile"` rendering) instead of a link to
+  the older `/dashboard/website/publish` page.
+- `studio/website-status-card.tsx` / `studio/current-website-card.tsx` —
+  now reflect the site's real status (Draft/Publishing/Republishing/
+  Live/Failed/Unpublished) and the real resolved domain (verified custom
+  domain if one exists, otherwise the platform subdomain from
+  `resolveSiteUrl`) via a new `url` field added to `GET /api/sites/me`,
+  replacing Task 1's hardcoded "Setting up" placeholder and guessed
+  `.ordervora.app` domain.
+- `lib/api.ts` — `SiteStatus` extended with the 3 new states,
+  `SiteVersion` gained `publishedById`/`publishedBy`, new
+  `PublishIssue`/`PublishReadiness` types and `checkPublishReadiness()`.
+
+**Verified:** typecheck, lint, full backend test suite (1073 passed —
+27 in `site.service.test.ts` covering the new validation gate, status
+transitions, and publisher attribution), full frontend test suite (113
+passed), production build for both apps (all routes clean), and a live
+end-to-end run against a real local Postgres database and a real test
+account: registered a user, created a restaurant/site/menu item,
+confirmed the readiness check correctly blocks publishing with
+human-readable guidance before a draft/theme exists, then created a
+valid draft and menu item, ran the real staged Publish Website flow to
+completion through the browser, and confirmed the Studio hub
+immediately reflected the live status, live domain badge, and a real
+Publishing History entry with the correct publisher name and timestamp.
+
+**Known limitation carried over from the pre-existing renderer**
+(unchanged by this task): `releaseStorage` writes rendered pages to
+local disk (this environment's stand-in for object storage + CDN
+invalidation) — swapping in real object storage is an infrastructure
+choice for deployment, not a Task 3 gap.
+
+## Sprint 20A Task 4 — Temporary Domain & Custom Domain Engine
+
+Production sprint: extended the existing domain infrastructure
+(`Domain` model, real CNAME DNS verification, primary-domain resolution
+— all pre-existing from earlier sprints) with proof-of-control TXT
+verification, a real SSL certificate state machine, durable domain
+history, and a premium Domain Management UI on the Studio hub.
+
+**Database (migration `20260711013000_sprint20a_domain_engine`):**
+- `DomainTlsStatus` enum: `PENDING, ISSUED, FAILED` → `PENDING,
+  GENERATING, ACTIVE, EXPIRED, FAILED` (any pre-existing `ISSUED` rows
+  are backfilled to `PENDING` before the type swap, since `ISSUED` has
+  no equivalent in the new enum).
+- `Domain` gained `verificationToken` (random per-domain proof-of-
+  control token, default-backfilled for existing rows), `lastCheckedAt`,
+  `tlsExpiresAt`.
+- New `DomainEvent` model + `DomainEventType` enum (`CREATED, VERIFIED,
+  VERIFICATION_FAILED, SSL_GENERATING, SSL_ACTIVE, SSL_FAILED,
+  PRIMARY_CHANGED, DISCONNECTED`) — deliberately not only reachable
+  through `Domain`: `hostname`/`siteId` are denormalized and `domainId`
+  is nullable (`SetNull` on delete), so a domain's full history —
+  including its own "disconnected" event — survives the `Domain` row
+  being hard-deleted by `removeDomain`. Verified live: after removing a
+  test domain, its full timeline (Connected → DNS failed → Disconnected)
+  remained visible in the history section.
+
+**Backend (`apps/api/src/modules/sites/domain.service.ts` — extended,
+not rebuilt):**
+- DNS verification now requires BOTH a CNAME pointing at the platform
+  edge (pre-existing check) AND a TXT record at
+  `_ordervora-challenge.<hostname>` matching a random per-domain token
+  (new) — proves the caller actually controls DNS for that exact
+  hostname, not just that some CNAME happens to point at the shared
+  edge. A failed check returns a specific, actionable reason (missing
+  CNAME vs. missing/wrong TXT vs. both) via `DomainEvent`, surfaced
+  live in the wizard.
+- `addDomain` rejects hostnames that are (or are a subdomain of) the
+  platform's own domain — hijack/reserved-domain prevention — and
+  every mutation now logs a `DomainEvent`.
+- New `runSslIssuanceSweep()` + `ssl-issuance-scheduler.ts` (mirrors
+  the existing `stale-offer-scheduler.ts`/`outbox-scheduler.ts`
+  process-local interval pattern, wired into `index.ts`'s startup/
+  graceful-shutdown alongside them, tracked via `worker-health.ts`'s
+  new `sslIssuanceSweep` key): sweeps domains in `GENERATING` and
+  issues a certificate via a stubbed `issueCertificate()` call — see
+  "Known limitation" below — then separately sweeps `ACTIVE` domains
+  past their 90-day `tlsExpiresAt` and flips them to `EXPIRED`, a real
+  renewal-window check even though the certificate itself is simulated.
+- `site.service.ts`: `updateSite`'s slug (the temporary domain) is now
+  auto-conflict-resolving (reuses `createSite`'s numeric-suffix
+  strategy instead of throwing a raw Prisma unique-constraint error)
+  and rejects edits once the site is no longer `DRAFT` (new
+  `SlugNotEditableError`) — "editable before publishing," literally.
+  New `temporaryDomainFor()` helper shared by `resolveSiteUrl` and the
+  controller, so `GET /api/sites/me` now also returns a `temporaryDomain`
+  field (real, DB-backed — `Site.slug` + the platform domain — not a
+  guessed string).
+
+**API routes:** `GET /:id/domain-history` (new). `verify`/`setPrimary`
+domain responses now include `dnsRecords` (fixed live — see below).
+
+**Frontend (`apps/web/src/app/dashboard/website/studio/domain/`):**
+- `domain-dashboard.tsx` — Primary Domain / Temporary Domain cards
+  (Visit/Copy/Change), Connect Domain entry point, and an Additional
+  Domains list (DNS/SSL/Last Checked badges, Check DNS / Make Primary /
+  Remove).
+- `connect-domain-wizard.tsx` — the 6-step flow (Enter Domain → Validate
+  format → Generate DNS Records → Verify DNS → Issue SSL → Activate) as
+  a real modal calling the real `addDomain`/`verifyDomain` APIs; a
+  failed verification shows the backend's specific DNS guidance and
+  lets the owner retry without losing the records already shown.
+- `edit-temporary-domain.tsx` — inline slug editor, only rendered while
+  the site is still a draft.
+- `domain-history.tsx` — the full lifecycle timeline.
+- `lib/api.ts` — `DomainTlsStatus`/`DomainVerificationStatus`/
+  `DomainEventType`/`DnsRecordInstruction`/`DomainEvent` types,
+  `SiteDomain` extended with the new fields, `updateSite()` and
+  `listDomainHistory()` client functions.
+
+**Bug caught and fixed by live verification** (not by the test suite —
+worth naming explicitly): the `verify` and `setPrimary` domain
+controller endpoints returned the raw `Domain` row without the
+`dnsRecords` field that `add`/`list` already included, which crashed
+the wizard's "records" step (`Cannot read properties of undefined
+(reading 'find')`) the moment a verification attempt failed and the UI
+tried to keep showing the CNAME/TXT records for a retry. Caught via a
+real browser run against the real API, fixed by wrapping both
+endpoints' responses the same way `add`/`list` already did, then
+re-verified live that a failed verification correctly re-shows the
+records with the specific failure reason instead of crashing.
+
+**Verified:** typecheck, lint, full backend test suite (1091 passed,
+including 27 new/updated domain tests covering TXT verification, DNS
+record generation, event logging, the SSL sweep, and slug conflict
+auto-resolution), full frontend test suite (113 passed, unchanged),
+production build for both apps (all routes clean), and a live
+end-to-end run against a real local Postgres database and a real test
+account covering: Domain Dashboard rendering with the real temporary
+domain, editing the temporary domain slug live, connecting a real
+external hostname through the full wizard (DNS records genuinely did
+not resolve for a fabricated test domain, so the failure-guidance path
+is what's live-verified end-to-end; the success path — a CNAME/TXT
+that actually matches — is covered by `domain.service.test.ts`'s
+mocked-DNS unit tests, since this sandbox has no external domain it
+can point real DNS at), the Additional Domains list showing live
+DNS/SSL badges, Remove, and Domain History surviving the domain's
+deletion.
+
+**Known limitation (explicitly scoped, not a placeholder left by
+choice):** `issueCertificate()` in `domain.service.ts` is a stubbed ACME
+call — this sandbox has no publicly reachable edge server for a real
+Certificate Authority's HTTP-01/DNS-01 challenge to reach, so a genuine
+Let's Encrypt handshake cannot succeed here regardless of implementation
+effort. Everything around that one call — the persisted state machine
+(`PENDING → GENERATING → ACTIVE → EXPIRED/FAILED`), the background
+sweep, the 90-day renewal window, and the history/event logging — is
+real and already wired for a real ACME client to be dropped in behind
+`issueCertificate()` without touching any other code.
+
+## Sprint 20A Task 5 — Website Customization Studio
+
+Production sprint: built the full owner-facing Website Customization
+Studio on top of the existing storefront renderer, site drafts, brand
+concepts, publishing engine, and domain engine — zero second rendering
+system, zero disconnected controls.
+
+**Architecture:** live preview is powered by a new, purely-additive
+`POST /api/sites/:id/draft/render` endpoint that takes an **unsaved**
+candidate `SiteDefinition` straight from the request body and calls the
+exact same `renderSitePage()` the real publish path and `/preview/:token`
+already use — what the owner sees while editing is provably what
+production would render for that definition. Live-preview rendering
+(350ms debounce) is decoupled from persistence (`patchDraft`, 1200ms
+autosave debounce), so every keystroke never has to hit the database.
+
+**Database:**
+- `AssetKind` gained `FAVICON`, `HERO_BACKGROUND` (migration
+  `20260711030000_sprint20a_customization_asset_kinds`).
+- New `NewsletterSubscriber` model (migration
+  `20260711033000_sprint20a_newsletter_subscriber`), unique on
+  `[siteId, email]` so repeat signups are harmless no-ops.
+
+**Backend (`apps/api/src/modules/sites/`):**
+- `types.ts`: `SiteDefinition` extended with `brandSettings`, `header`,
+  `footer`, `productPresentation` (all optional, so existing definitions
+  keep validating unchanged), plus 9 new section types
+  (`featuredCategories`, `featuredProducts`, `bestSellers`, `offers`,
+  `reviews`, `loyalty`, `appPromotion`, `newsletter`, `customTextImage`)
+  and a `hidden` flag on section blocks (Hide keeps a block's props
+  intact but skips it at render time — distinct from Remove).
+- 9 new renderer components, each backed by a real data source where one
+  exists in this codebase: `featured-categories`/`featured-products` read
+  the live menu, `best-sellers` reads real order history (`getTopItems`),
+  `offers` reads real active coupons (new `listActiveCoupons`), `loyalty`
+  reads the real loyalty program (`getProgram`), `newsletter` posts to a
+  real subscribe endpoint. `reviews`, `appPromotion`, and
+  `customTextImage` have no automated data source in this codebase (same
+  as the pre-existing `testimonials`), so they render clearly
+  owner-authored content instead of fabricating data.
+- `chrome.ts`, `hero.ts`, `footer.ts`, `menu-section.ts` rewritten to
+  read the new settings surfaces (header layout/sticky/search/cart/
+  account/announcement bar; hero alignment/height/overlay/CTAs; footer
+  description/social/legal/newsletter — "Powered by OrderVora" stays
+  unconditional, since there's no plan/entitlement system yet to gate it
+  on; product card layout/density/price style/out-of-stock handling).
+  Cart/Order/Account links resolve to the separate ordering app via a new
+  `RenderContext.orderingBaseUrl`, resolved once from `FRONTEND_URL` at
+  the `render-site.ts` orchestration layer — never inside a leaf
+  component, preserving the renderer's "pure function of `RenderContext`"
+  contract.
+- `theme-css.ts` applies Brand Settings overrides (color scale
+  regeneration via the existing OKLCH `deriveColorScale`, button style,
+  border radius, shadow, page width, content spacing) on top of the
+  theme's own tokens.
+- Explicitly omitted rather than shipped as dead controls: `logoAssetId`/
+  `faviconAssetId` on `brandSettings` (the one-asset-per-kind upload
+  convention already solves this without an ID reference), and "image
+  ratio"/"dietary badges" in Product Presentation (`MenuItem` has neither
+  field).
+- `site.controller.ts`/`site.validation.ts`/`site.routes.ts`: new
+  `POST /:id/draft/render`, `GET /:id/newsletter-subscribers`,
+  `POST /public/sites/:id/newsletter` (honeypot-protected, rate limited).
+- `asset.controller.ts`: every asset response now includes a computed
+  `url` field.
+
+**Critical bug found and fixed during live verification (pre-existing,
+not introduced by this task — surfaced by it):** `publishSite` flipped
+the DRAFT `SiteVersion` it published to `PUBLISHED` without leaving any
+version behind with `status: "DRAFT"`. Every consumer that looks up "the
+draft" via `status: "DRAFT"` — `patchDraft`'s `getActiveDraft`, and the
+Studio's own page load — had nothing to find immediately after a
+publish, so reloading the editor after a successful publish showed the
+"no draft yet" empty state instead of the Studio, and further edits
+would have thrown `SiteVersionNotFoundError`. Root-caused by inspecting
+`site.service.ts` directly and confirmed live (published a real site via
+the staged publish flow, reloaded the editor, saw the literal empty-state
+text). Fixed by having `publishSite` leave behind a fresh `DRAFT` copy of
+the just-published definition, in the same transaction, as the new
+highest `versionNo` — zero changes needed anywhere else that already
+assumed "the draft" exists. Re-verified live: republishing now correctly
+leaves "Republish Website" / "Last published" / "View live" intact on
+reload, and the DB shows a new `DRAFT` row immediately after each
+publish.
+
+**Second bug found and fixed during live verification:** on mobile, the
+Studio's floating "Preview" trigger button (`fixed bottom-4`) sat behind
+the app's global bottom tab bar (`fixed inset-x-0 bottom-0 z-50`),
+making it unclickable — confirmed via a real click that timed out
+because the tab bar's `<nav>` intercepted the pointer event. Fixed by
+moving the button to `bottom-20`, matching the offset convention already
+used elsewhere in the dashboard (`dashboard-overview.tsx`) for floating
+elements that must clear the same tab bar. Re-verified live: the button
+is now clickable and opens the mobile preview sheet correctly.
+
+**Frontend (`apps/web/src/app/dashboard/website/editor/studio/`):**
+new Customization Studio — live preview (mobile/tablet/desktop viewports,
+fullscreen mode), Section Manager (add/remove/hide/duplicate/reorder),
+per-section dynamic field editor, Brand/Header/Footer/Product Presentation
+panels, Media panel (logo/favicon/hero/hero-background upload, gallery),
+undo/redo (derived from a single history stack — no desync possible),
+autosave with a saving/saved/error indicator and a `beforeunload` guard,
+and the existing `PublishFlowButton` from Task 3 reused directly, not
+duplicated. Old `draft-form.tsx`/`section-editor.tsx` deleted, fully
+superseded.
+
+**Verified:** typecheck and lint clean on both apps; full backend suite
+(1113 passed, 5 skipped — one pre-existing, unrelated flaky test);
+full frontend suite (132 passed); production build clean for both apps
+(42 web routes, all successful); live end-to-end run against a real
+local Postgres database and a real test account covering: publish → the
+post-publish draft-continuity fix (verified both the empty-state bug and
+its fix, and confirmed a fresh DRAFT row is created after every publish),
+Section Manager add/hide driven live in the browser, Brand Settings color
+change reflected instantly in the live preview, Header Settings toggle
+reflected live, Footer panel's "Powered by OrderVora" note, Media panel's
+four single-slot upload controls, desktop viewport switching, and the
+mobile floating-Preview-button fix (open the mobile preview sheet and
+confirm the real live storefront content renders inside it).
+
+**Remaining limitations / TODOs:** gallery multi-upload and the
+Header/Footer/Product-Presentation panels' full field surface were
+exercised live at a spot-check level (panel renders, one field changed
+and confirmed in the live preview) rather than every individual field;
+accessibility was verified via existing aria-label-driven test coverage
+and one live pass, not a full axe/keyboard-navigation audit; `newsletter`
+section's subscribe form posts to a real endpoint but has no admin UI yet
+for viewing collected subscribers beyond the raw `GET
+:id/newsletter-subscribers` API.
+
+Sprint 20A stops here per instruction — Task 6 not started.
