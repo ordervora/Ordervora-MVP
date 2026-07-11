@@ -3479,3 +3479,86 @@ Regenerate to real AI brand generation; persist the selected concept;
 wire the phone preview to real generated content instead of static
 placeholder blocks; connect Concept Details' copy to real generated
 brand reasoning instead of the fixed placeholder pool.
+
+## Sprint 20A Task 3 — Website Publishing Engine
+
+Production sprint, not a placeholder: extended OrderVora's existing
+site-generation/publishing backend (renderer, sitemap/robots/OG
+generation, release storage, rollback, domains — all pre-existing and
+production-grade from earlier sprints) with real status tracking,
+structured pre-publish validation, and publisher attribution, then wired
+the Studio hub's Publish Website action to a real staged flow that calls
+the real API — no fake timers gating the final "Completed" state.
+
+**Database (migration
+`20260711003736_sprint20a_publishing_engine`):**
+- `SiteStatus` enum gained `PUBLISHING`, `REPUBLISHING`, `FAILED`
+  (alongside the existing `DRAFT`, `PUBLISHED`, `UNPUBLISHED`) — a site's
+  status is now a real, persisted signal for the duration of a publish
+  call, not just before/after.
+- `SiteVersion.publishedById` (nullable FK to `User`) — records who
+  published each release, surfaced through `listReleases`.
+
+**Backend (`apps/api/src/modules/sites/site.service.ts` +
+`site.controller.ts` + `site.routes.ts`):**
+- New `validatePublishReadiness(restaurantId, siteId)` — checks business
+  name, an active draft/theme, schema-valid content, a home page,
+  2+ pages (navigation), at least one menu item, and unprocessed photo
+  assets, returning `{ ready, issues }` with a friendly message per
+  issue. Exposed read-only via `GET /:id/publish-check`.
+- `publishSite` now requires the publishing user's id, runs the same
+  readiness check as a hard gate (never trusts the client skipped it),
+  sets the site's status to `PUBLISHING`/`REPUBLISHING` immediately, and
+  flips it to `FAILED` if anything in the publish transaction throws —
+  so a crashed publish never silently leaves a stale status.
+- `listReleases` now includes each release's publisher name.
+
+**Frontend:**
+- New `studio/publish-flow.tsx` (`PublishFlowButton`) — a real staged
+  publish modal (Preparing Website → Optimizing Assets → Generating
+  Metadata → Generating SEO → Creating Sitemap → Creating Robots.txt →
+  Assigning Temporary Domain → Final Validation → Publishing →
+  Completed). The first 8 stages are a cosmetic checklist animation; the
+  "Publishing" stage is the real `publishSite` network call, and
+  "Completed" only renders once that call actually resolves. If
+  `checkPublishReadiness` reports issues first, the modal shows those
+  messages instead of starting the animation, with a "Got it" dismiss —
+  no staged flow ever starts against a site that isn't actually ready.
+  Relabels to "Republish Website" once the site is already published.
+- New `studio/publishing-history.tsx` — Version / Published By / Date /
+  Status list off the enhanced `listReleases`, with a "Current version"
+  badge on the live release.
+- `studio/quick-actions.tsx` — the Publish Website tile is now the real
+  `PublishFlowButton` (a `variant="tile"` rendering) instead of a link to
+  the older `/dashboard/website/publish` page.
+- `studio/website-status-card.tsx` / `studio/current-website-card.tsx` —
+  now reflect the site's real status (Draft/Publishing/Republishing/
+  Live/Failed/Unpublished) and the real resolved domain (verified custom
+  domain if one exists, otherwise the platform subdomain from
+  `resolveSiteUrl`) via a new `url` field added to `GET /api/sites/me`,
+  replacing Task 1's hardcoded "Setting up" placeholder and guessed
+  `.ordervora.app` domain.
+- `lib/api.ts` — `SiteStatus` extended with the 3 new states,
+  `SiteVersion` gained `publishedById`/`publishedBy`, new
+  `PublishIssue`/`PublishReadiness` types and `checkPublishReadiness()`.
+
+**Verified:** typecheck, lint, full backend test suite (1073 passed —
+27 in `site.service.test.ts` covering the new validation gate, status
+transitions, and publisher attribution), full frontend test suite (113
+passed), production build for both apps (all routes clean), and a live
+end-to-end run against a real local Postgres database and a real test
+account: registered a user, created a restaurant/site/menu item,
+confirmed the readiness check correctly blocks publishing with
+human-readable guidance before a draft/theme exists, then created a
+valid draft and menu item, ran the real staged Publish Website flow to
+completion through the browser, and confirmed the Studio hub
+immediately reflected the live status, live domain badge, and a real
+Publishing History entry with the correct publisher name and timestamp.
+
+**Known limitation carried over from the pre-existing renderer**
+(unchanged by this task): `releaseStorage` writes rendered pages to
+local disk (this environment's stand-in for object storage + CDN
+invalidation) — swapping in real object storage is an infrastructure
+choice for deployment, not a Task 3 gap.
+
+Sprint 20A stops here per instruction — Task 4 not started.

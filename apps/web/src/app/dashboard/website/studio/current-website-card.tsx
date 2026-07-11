@@ -4,10 +4,12 @@ import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Copy, ExternalLink, QrCode, Share2 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
+import type { SiteStatus } from "@/lib/api";
 
-export function CurrentWebsiteCard({ domain }: { domain: string }) {
+export function CurrentWebsiteCard({ domain, status }: { domain: string; status: SiteStatus | null }) {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const isLive = status === "PUBLISHED" || status === "REPUBLISHING";
 
   async function handleCopy() {
     try {
@@ -39,9 +41,11 @@ export function CurrentWebsiteCard({ domain }: { domain: string }) {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A6A2F]">CURRENT WEBSITE</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <p className="truncate font-mono text-base font-semibold text-[#171512] sm:text-lg">{domain}</p>
-            <Badge tone="neutral">Preview domain</Badge>
+            <Badge tone={isLive ? "success" : "neutral"}>{isLive ? "Live" : "Preview domain"}</Badge>
           </div>
-          <p className="mt-1 text-sm text-[#756B5D]">Your live ordering site will publish to this address.</p>
+          <p className="mt-1 text-sm text-[#756B5D]">
+            {isLive ? "Your ordering site is live at this address." : "Your live ordering site will publish to this address."}
+          </p>
         </div>
       </div>
 

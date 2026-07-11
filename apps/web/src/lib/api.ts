@@ -511,7 +511,7 @@ export function updateImportJobData(id: string, data: ExtractedMenuData) {
 // ---------------------------------------------------------------------------
 
 export type StyleFamily = "LUXURY" | "MODERN" | "MINIMAL";
-export type SiteStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+export type SiteStatus = "DRAFT" | "PUBLISHING" | "REPUBLISHING" | "PUBLISHED" | "FAILED" | "UNPUBLISHED";
 export type SiteVersionStatus = "VARIATION" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type GenerationStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
 export type GenerationStage =
@@ -609,6 +609,8 @@ export interface SiteVersion {
   styleFamily: StyleFamily | null;
   generationBatchId: string | null;
   publishedAt: string | null;
+  publishedById?: string | null;
+  publishedBy?: { name: string } | null;
   createdAt: string;
   scores?: WebsiteScore[];
 }
@@ -652,7 +654,7 @@ export interface ContactMessageRecord {
 }
 
 export function getMySite() {
-  return apiFetch<{ site: WebsiteSite }>("/api/sites/me");
+  return apiFetch<{ site: WebsiteSite; url: string }>("/api/sites/me");
 }
 
 export function createSite() {
@@ -707,6 +709,21 @@ export function applySuggestion(siteId: string, versionId: string, suggestion: S
     method: "POST",
     body: JSON.stringify(suggestion),
   });
+}
+
+export interface PublishIssue {
+  code: "BUSINESS_NAME" | "THEME_SELECTED" | "WEBSITE_CONTENT" | "REQUIRED_PAGES" | "MENU" | "NAVIGATION" | "ASSETS";
+  message: string;
+}
+
+export interface PublishReadiness {
+  ready: boolean;
+  issues: PublishIssue[];
+}
+
+/** GET /api/sites/:id/publish-check — read-only validation the Studio's staged publish flow runs before starting. */
+export function checkPublishReadiness(siteId: string) {
+  return apiFetch<PublishReadiness>(`/api/sites/${siteId}/publish-check`);
 }
 
 export function publishSite(siteId: string) {

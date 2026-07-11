@@ -11,9 +11,11 @@ import {
   listVersions,
   patchDraft,
   publishSite,
+  resolveSiteUrl,
   rollbackSite,
   unpublishSite,
   updateSite,
+  validatePublishReadiness,
 } from "./site.service";
 import { patchDraftSchema, updateSiteSchema } from "./site.validation";
 
@@ -23,7 +25,8 @@ export async function getMine(req: Request, res: Response): Promise<void> {
 
   try {
     const site = await getOwnSite(restaurantId);
-    res.status(200).json({ site });
+    const url = await resolveSiteUrl(site);
+    res.status(200).json({ site, url });
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }
@@ -107,8 +110,21 @@ export async function publish(req: Request, res: Response): Promise<void> {
   if (!restaurantId) return;
 
   try {
-    const result = await publishSite(restaurantId, paramId(req));
+    const result = await publishSite(restaurantId, paramId(req), req.user!.id);
     res.status(200).json(result);
+  } catch (err) {
+    if (!mapSiteError(err, res)) throw err;
+  }
+}
+
+/** GET /api/sites/:id/publish-check — read-only pre-publish validation the Studio calls before starting the staged publish flow. */
+export async function checkPublishReadiness(req: Request, res: Response): Promise<void> {
+  const restaurantId = await requireOwnRestaurantId(req, res);
+  if (!restaurantId) return;
+
+  try {
+    const readiness = await validatePublishReadiness(restaurantId, paramId(req));
+    res.status(200).json(readiness);
   } catch (err) {
     if (!mapSiteError(err, res)) throw err;
   }

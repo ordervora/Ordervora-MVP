@@ -45,7 +45,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   importJobs    ImportJob[]
-  siteVersionsCreated SiteVersion[]
+  siteVersionsCreated SiteVersion[] @relation("SiteVersionCreatedBy")
+  siteVersionsPublished SiteVersion[] @relation("SiteVersionPublishedBy")
 
   // --- Commerce & Fulfillment Engine (Sprint 07) ---
   driverAssignments    DriverAssignment[]
@@ -295,7 +296,10 @@ model ImportJob {
 
 enum SiteStatus {
   DRAFT
+  PUBLISHING
+  REPUBLISHING
   PUBLISHED
+  FAILED
   UNPUBLISHED
 }
 
@@ -398,8 +402,13 @@ model SiteVersion {
   styleFamily         StyleFamily?
   generationBatchId   String?
   createdById         String
-  createdBy           User              @relation(fields: [createdById], references: [id])
+  createdBy           User              @relation("SiteVersionCreatedBy", fields: [createdById], references: [id])
   publishedAt         DateTime?
+  // Who actually clicked Publish for this release (Sprint 20A) — distinct
+  // from createdBy, which is whoever generated/edited the draft. Nullable
+  // because older releases predate this field and were never backfilled.
+  publishedById       String?
+  publishedBy         User?             @relation("SiteVersionPublishedBy", fields: [publishedById], references: [id])
 
   scores SiteScore[]
 

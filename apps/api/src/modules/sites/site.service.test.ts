@@ -6,6 +6,8 @@ vi.mock("../../lib/prisma", () => ({
     siteVersion: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     siteScore: { create: vi.fn(), findFirst: vi.fn() },
     domain: { findFirst: vi.fn() },
+    restaurant: { findUnique: vi.fn() },
+    menuItem: { count: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -68,6 +70,12 @@ function validDefinition(overrides: Partial<SiteDefinition> = {}): SiteDefinitio
         metaDescription: "Handmade pasta, made fresh daily in our kitchen.",
         sections: [{ type: "hero", props: {} }, { type: "footer", props: {} }],
       },
+      {
+        slug: "/about",
+        title: "About — Trattoria Bella | Italian",
+        metaDescription: "Learn about our family recipes and story.",
+        sections: [{ type: "hero", props: {} }, { type: "footer", props: {} }],
+      },
     ],
     ...overrides,
   };
@@ -79,6 +87,8 @@ beforeEach(() => {
   mockScoreSiteDefinition.mockResolvedValue({ overall: 90, seo: 90, performance: 90, accessibility: 90, brandConsistency: 90, conversion: 90, suggestions: [] });
   mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => Promise<unknown>) => fn(mockPrisma));
   mockPrisma.domain.findFirst.mockResolvedValue(null);
+  mockPrisma.restaurant.findUnique.mockResolvedValue({ name: "Trattoria Bella" } as never);
+  mockPrisma.menuItem.count.mockResolvedValue(1);
   mockRenderAllPages.mockResolvedValue(new Map([["/", "<html>home</html>"]]));
   mockReleaseStorage.savePage.mockResolvedValue(undefined);
   mockReleaseStorage.saveAsset.mockResolvedValue(undefined);
@@ -165,14 +175,14 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", definition: validDefinition() } as never);
     mockGetAssetSummary.mockResolvedValue({ totalPhotoAssets: 3, altTextMissingCount: 0, unprocessedRenditionsCount: 2 });
 
-    await expect(publishSite("restaurant-1", "site-1")).rejects.toBeInstanceOf(PrePublishCheckFailedError);
+    await expect(publishSite("restaurant-1", "site-1", "user-1")).rejects.toBeInstanceOf(PrePublishCheckFailedError);
   });
 
   it("rejects a malformed stored definition before running any checks (schema-valid gate)", async () => {
     mockPrisma.site.findUnique.mockResolvedValue({ id: "site-1", restaurantId: "restaurant-1", slug: "trattoria-bella", brandProfile: null, publishedVersionId: null } as never);
     mockPrisma.siteVersion.findFirst.mockResolvedValue({ id: "draft-1", definition: { garbage: true } } as never);
 
-    await expect(publishSite("restaurant-1", "site-1")).rejects.toThrow();
+    await expect(publishSite("restaurant-1", "site-1", "user-1")).rejects.toThrow();
   });
 
   it("publishes a valid draft and points the site at the new published version", async () => {
@@ -181,7 +191,7 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    const result = await publishSite("restaurant-1", "site-1");
+    const result = await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(result.version).toEqual({ id: "draft-1", status: "PUBLISHED" });
     expect(mockPrisma.site.update).toHaveBeenCalledWith({ where: { id: "site-1" }, data: { status: "PUBLISHED", publishedVersionId: "draft-1" } });
@@ -196,7 +206,7 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    const result = await publishSite("restaurant-1", "site-1");
+    const result = await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(result.warning).toMatch(/dropped/i);
     expect(result.scoreDelta).toBe(-15);
@@ -210,7 +220,7 @@ describe("publishSite", () => {
     mockPrisma.siteVersion.update.mockResolvedValue({ id: "draft-1", status: "PUBLISHED" } as never);
     mockPrisma.siteVersion.findMany.mockResolvedValue([] as never);
 
-    await publishSite("restaurant-1", "site-1");
+    await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(mockRenderAllPages).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: "site-1", restaurantId: "restaurant-1", siteUrl: "https://trattoria-bella.sites.ordervora.example" }),
@@ -228,7 +238,7 @@ describe("publishSite", () => {
     const existingReleases = Array.from({ length: 12 }, (_, i) => ({ id: `release-${i}` }));
     mockPrisma.siteVersion.findMany.mockResolvedValue(existingReleases as never);
 
-    await publishSite("restaurant-1", "site-1");
+    await publishSite("restaurant-1", "site-1", "user-1");
 
     expect(mockPrisma.siteVersion.updateMany).toHaveBeenCalledWith({
       where: { id: { in: existingReleases.slice(10).map((v) => v.id) } },
@@ -285,7 +295,11 @@ describe("listReleases / rollbackSite / unpublishSite", () => {
 
     await listReleases("restaurant-1", "site-1");
 
-    expect(mockPrisma.siteVersion.findMany).toHaveBeenCalledWith({ where: { siteId: "site-1", status: "PUBLISHED" }, orderBy: { publishedAt: "desc" } });
+    expect(mockPrisma.siteVersion.findMany).toHaveBeenCalledWith({
+      where: { siteId: "site-1", status: "PUBLISHED" },
+      orderBy: { publishedAt: "desc" },
+      include: { publishedBy: { select: { name: true } } },
+    });
   });
 });
 

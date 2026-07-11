@@ -23,6 +23,7 @@ import {
 } from "./generation.controller";
 import { applyFix, getHistory, getLatest, run as runScoreHandler } from "./score.controller";
 import {
+  checkPublishReadiness,
   create,
   getMine,
   getVersionHandler,
@@ -84,6 +85,7 @@ siteRouter.delete("/:id/assets/:assetId", requireAuth, staffOrOwner, removeAsset
 siteRouter.get("/:id/preview-token", requireAuth, staffOrOwner, previewToken);
 
 // Publish & domains
+siteRouter.get("/:id/publish-check", requireAuth, staffOrOwner, checkPublishReadiness);
 siteRouter.post("/:id/publish", requireAuth, staffOrOwner, publish);
 siteRouter.get("/:id/releases", requireAuth, staffOrOwner, listReleasesHandler);
 siteRouter.post("/:id/rollback/:vid", requireAuth, staffOrOwner, rollback);
